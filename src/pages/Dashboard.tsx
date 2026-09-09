@@ -18,6 +18,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { Q1Status, TelemetryRecord } from '../lib/types';
+import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
 
 interface DashboardProps {
   status: Q1Status | null;
@@ -168,6 +169,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName,
           </p>
         </div>
       </div>
+
+      {/* Modern UPS Single-Line Power Flow Topology Graphic */}
+      <PowerFlowDiagram status={status} portName={portName} />
 
       {/* Real-Time Telemetry Chart */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm">

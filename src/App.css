@@ -22,3 +22,32 @@ body {
   background-color: #0f172a;
   color: #f8fafc;
 }
+
+@keyframes powerFlow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes powerFlowReverse {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 24;
+  }
+}
+
+.flow-active {
+  stroke-dasharray: 6 6;
+  animation: powerFlow 1s linear infinite;
+}
+
+.flow-active-reverse {
+  stroke-dasharray: 6 6;
+  animation: powerFlowReverse 1s linear infinite;
+}
+
