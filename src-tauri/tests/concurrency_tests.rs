@@ -95,3 +95,4 @@ fn multi_003_polling_multiple_ports() {
     assert_eq!(status1.grid_voltage_v, 238.0);
     assert_eq!(status2.grid_voltage_v, 238.0);
 }
+

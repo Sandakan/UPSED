@@ -75,3 +75,4 @@ pub fn scan_available_ports() -> Vec<DiscoveredDevice> {
 
     discovered
 }
+

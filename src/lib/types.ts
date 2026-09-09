@@ -73,3 +73,4 @@ export type VoltronicCommand =
   | { type: 'CancelShutdown' }
   | { type: 'OutletOn'; payload: { group: number; delay_minutes: number } }
   | { type: 'OutletOff'; payload: { group: number; delay_minutes: number } };
+

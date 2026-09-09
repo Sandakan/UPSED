@@ -57,3 +57,4 @@ pub fn decode_response(raw: &[u8]) -> Result<String, ProtocolError> {
 
     Ok(trimmed.to_string())
 }
+

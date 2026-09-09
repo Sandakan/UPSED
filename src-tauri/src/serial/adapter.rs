@@ -73,3 +73,4 @@ impl SerialTransport for PhysicalSerialPort {
         &self.port_name
     }
 }
+

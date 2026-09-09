@@ -90,3 +90,4 @@ impl MultiPortManager {
         device.transport.send_command(&cmd_str)
     }
 }
+

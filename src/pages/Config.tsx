@@ -232,3 +232,4 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
     </div>
   );
 };
+

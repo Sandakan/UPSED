@@ -150,3 +150,4 @@ pub fn set_battery_bridge_status(state: State<AppState>, enabled: bool) -> Resul
     bridge.set_enabled(enabled);
     Ok(())
 }
+

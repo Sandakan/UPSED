@@ -44,3 +44,4 @@ fn bridge_003_when_disabled_no_os_interaction() {
     // Calling update on a disabled bridge is a safe no-op
     bridge.update(&status);
 }
+

@@ -88,3 +88,4 @@ fn t4_004_gate_blocks_t4_if_t3_not_passed() {
     let result = gate.unlock_stage(UnlockStage::T4PowerControl);
     assert!(matches!(result, Err(GateError::PrerequisiteNotMet(_))));
 }
+

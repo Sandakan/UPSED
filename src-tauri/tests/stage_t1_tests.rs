@@ -172,3 +172,4 @@ fn t1_007_no_write_commands_executed_in_t1() {
         Err(GateError::StageLocked { .. })
     ));
 }
+

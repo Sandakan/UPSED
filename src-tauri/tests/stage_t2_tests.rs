@@ -96,3 +96,4 @@ fn t2_004_t2_cannot_execute_t4_power_control() {
         })
     ));
 }
+

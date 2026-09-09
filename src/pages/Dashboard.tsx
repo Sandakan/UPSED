@@ -296,3 +296,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName 
     </div>
   );
 };
+

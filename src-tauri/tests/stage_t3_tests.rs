@@ -100,3 +100,4 @@ fn t3_005_gate_blocks_t3_if_t2_tests_not_passed() {
     let result = gate.unlock_stage(UnlockStage::T3ConfigWrite);
     assert!(matches!(result, Err(GateError::PrerequisiteNotMet(_))));
 }
+

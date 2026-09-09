@@ -270,3 +270,4 @@ pub fn parse_firmware_version(response: &str) -> Result<String, ProtocolError> {
         Ok(content.trim().to_string())
     }
 }
+

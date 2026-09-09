@@ -71,3 +71,4 @@ fn sec_004_sqlite_telemetry_isolation() {
     let results_other = db.query_recent_telemetry("COM2", 10).unwrap();
     assert!(results_other.is_empty());
 }
+

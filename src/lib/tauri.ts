@@ -45,3 +45,4 @@ export const api = {
   setBatteryBridgeStatus: (enabled: boolean) =>
     invoke<void>('set_battery_bridge_status', { enabled }),
 };
+
