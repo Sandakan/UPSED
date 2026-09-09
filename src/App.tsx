@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import './App.css';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -7,110 +8,143 @@ import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
-import {
-  DiscoveredDevice,
-  EventLogRecord,
-  Q1Status,
-  TelemetryRecord,
-  UnlockStage,
-} from './lib/types';
 import { api } from './lib/tauri';
 
 export function App() {
+  const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [status, setStatus] = useState<Q1Status | null>(null);
-  const [history, setHistory] = useState<TelemetryRecord[]>([]);
-  const [events, setEvents] = useState<EventLogRecord[]>([]);
-  const [safetyStage, setSafetyStage] = useState<UnlockStage>('T1ReadOnly');
-  const [batteryBridgeActive, setBatteryBridgeActive] = useState<boolean>(false);
-  const [pollInterval, setPollInterval] = useState<number>(30); // 30 seconds default
-  const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [lastError, setLastError] = useState<string | null>(null);
+  const [pollInterval, setPollInterval] = useState<number>(10); // 10 seconds default
 
-  // Scan serial and USB ports for Voltronic UPS hardware
-  const handleScan = useCallback(async () => {
-    setIsScanning(true);
-    try {
-      const found = await api.scanPorts();
-      setDevices(found);
-      if (found.length > 0 && !selectedDevice) {
-        const target = found[0].port_name;
-        setSelectedDevice(target);
-        try {
-          await api.connectDevice(target);
-        } catch (e) {
-          console.error('Auto-connect failed:', e);
-        }
-      }
-    } catch (e) {
-      console.error('Port scan failed:', e);
-    } finally {
-      setIsScanning(false);
-    }
-  }, [selectedDevice]);
+  // 1. Scan serial and USB ports query
+  const {
+    data: devices = [],
+    isFetching: isScanning,
+    refetch: scanPorts,
+  } = useQuery({
+    queryKey: ['ports'],
+    queryFn: () => api.scanPorts(),
+    staleTime: 60000,
+  });
 
-  const handleSelectDevice = useCallback(async (portName: string) => {
-    setSelectedDevice(portName);
-    try {
-      await api.connectDevice(portName);
-    } catch (e) {
-      console.error('Failed to connect to device:', e);
-    }
-  }, []);
+  // 2. Connect device mutation
+  const connectMutation = useMutation({
+    mutationFn: (portName: string) => api.connectDevice(portName),
+    onSuccess: (_, portName) => {
+      queryClient.invalidateQueries({ queryKey: ['deviceStatus', portName] });
+      queryClient.invalidateQueries({ queryKey: ['telemetryHistory', portName] });
+      queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
+    },
+  });
 
-  // Refresh safety stage & battery bridge status
-  const refreshMetadata = useCallback(async () => {
-    try {
-      const stage = await api.getSafetyStage();
-      setSafetyStage(stage);
-      const bridge = await api.getBatteryBridgeStatus();
-      setBatteryBridgeActive(bridge);
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const handleSelectDevice = useCallback(
+    (portName: string) => {
+      setSelectedDevice(portName);
+      connectMutation.mutate(portName);
+    },
+    [connectMutation]
+  );
 
-  // Poll current device telemetry
-  const pollTelemetry = useCallback(async () => {
-    if (!selectedDevice) return;
-    setIsRefreshing(true);
-    try {
-      const currentStatus = await api.getDeviceStatus(selectedDevice);
-      setStatus(currentStatus);
-      setLastError(null);
-
-      const recentTelem = await api.getRecentTelemetry(selectedDevice, 50);
-      setHistory(recentTelem);
-
-      const recentEvts = await api.getRecentEvents(50);
-      setEvents(recentEvts);
-    } catch (e) {
-      console.error('Polling failed:', e);
-      setLastError(String(e));
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [selectedDevice]);
-
-  // Initial load
+  // Auto-select first discovered device
   useEffect(() => {
-    handleScan();
-    refreshMetadata();
-  }, [handleScan, refreshMetadata]);
+    if (devices.length > 0 && !selectedDevice) {
+      handleSelectDevice(devices[0].port_name);
+    }
+  }, [devices, selectedDevice, handleSelectDevice]);
 
-  // Polling timer
-  useEffect(() => {
+  // 3. Live Device Telemetry query (Q1)
+  const {
+    data: status = null,
+    error: statusError,
+    isFetching: isFetchingStatus,
+    dataUpdatedAt: statusUpdatedAt,
+    refetch: refetchStatus,
+  } = useQuery({
+    queryKey: ['deviceStatus', selectedDevice],
+    queryFn: () => api.getDeviceStatus(selectedDevice!),
+    enabled: !!selectedDevice,
+    refetchInterval: pollInterval * 1000,
+    retry: 1,
+  });
+
+  // 4. Telemetry History query
+  const {
+    data: history = [],
+    refetch: refetchHistory,
+  } = useQuery({
+    queryKey: ['telemetryHistory', selectedDevice],
+    queryFn: () => api.getRecentTelemetry(selectedDevice!, 50),
+    enabled: !!selectedDevice,
+    refetchInterval: pollInterval * 1000,
+  });
+
+  // 5. Recent System Events query
+  const {
+    data: events = [],
+    refetch: refetchEvents,
+  } = useQuery({
+    queryKey: ['recentEvents'],
+    queryFn: () => api.getRecentEvents(50),
+    refetchInterval: pollInterval * 1000,
+  });
+
+  // 6. Safety Stage query
+  const {
+    data: safetyStage = 'T1ReadOnly',
+    refetch: refetchSafetyStage,
+  } = useQuery({
+    queryKey: ['safetyStage'],
+    queryFn: () => api.getSafetyStage(),
+  });
+
+  // 7. Battery Bridge Status query & mutation
+  const {
+    data: batteryBridgeActive = false,
+    refetch: refetchBatteryBridge,
+  } = useQuery({
+    queryKey: ['batteryBridgeStatus'],
+    queryFn: () => api.getBatteryBridgeStatus(),
+  });
+
+  const batteryBridgeMutation = useMutation({
+    mutationFn: (enabled: boolean) => api.setBatteryBridgeStatus(enabled),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['batteryBridgeStatus'] });
+    },
+  });
+
+  const handleBatteryBridgeChange = useCallback(
+    (enabled: boolean) => {
+      batteryBridgeMutation.mutate(enabled);
+    },
+    [batteryBridgeMutation]
+  );
+
+  // Manual refresh handler
+  const pollTelemetry = useCallback(() => {
     if (!selectedDevice) return;
-    pollTelemetry();
-    const timer = setInterval(() => {
-      pollTelemetry();
-    }, pollInterval * 1000);
+    refetchStatus();
+    refetchHistory();
+    refetchEvents();
+  }, [selectedDevice, refetchStatus, refetchHistory, refetchEvents]);
 
-    return () => clearInterval(timer);
-  }, [selectedDevice, pollInterval, pollTelemetry]);
+  // Metadata refresh handler
+  const refreshMetadata = useCallback(() => {
+    refetchSafetyStage();
+    refetchBatteryBridge();
+  }, [refetchSafetyStage, refetchBatteryBridge]);
+
+  const handleScan = useCallback(() => {
+    scanPorts();
+  }, [scanPorts]);
+
+  const lastError = statusError
+    ? statusError instanceof Error
+      ? statusError.message
+      : String(statusError)
+    : null;
+
+  const isRefreshing = isFetchingStatus;
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
@@ -135,6 +169,7 @@ export function App() {
           isRefreshing={isRefreshing}
           batteryBridgeActive={batteryBridgeActive}
           lastError={lastError}
+          lastUpdatedAt={statusUpdatedAt}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col">
@@ -173,7 +208,7 @@ export function App() {
               pollInterval={pollInterval}
               onPollIntervalChange={setPollInterval}
               batteryBridgeActive={batteryBridgeActive}
-              onBatteryBridgeChange={setBatteryBridgeActive}
+              onBatteryBridgeChange={handleBatteryBridgeChange}
             />
           )}
         </main>

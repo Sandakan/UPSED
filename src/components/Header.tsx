@@ -1,5 +1,5 @@
-import React from 'react';
-import { Battery, Zap, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Battery, Zap, AlertTriangle, ShieldCheck, RefreshCw, Clock } from 'lucide-react';
 import { Q1Status } from '../lib/types';
 
 interface HeaderProps {
@@ -9,7 +9,22 @@ interface HeaderProps {
   isRefreshing: boolean;
   batteryBridgeActive: boolean;
   lastError?: string | null;
+  lastUpdatedAt?: number;
 }
+
+const formatRelativeTime = (timestamp?: number): string => {
+  if (!timestamp || timestamp <= 0) return '';
+  const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (diffSec === 0) return 'just now';
+  if (diffSec === 1) return '1 sec ago';
+  if (diffSec < 60) return `${diffSec} secs ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  const remSec = diffSec % 60;
+  if (diffMin < 60) {
+    return remSec > 0 ? `${diffMin}m ${remSec}s ago` : `${diffMin}m ago`;
+  }
+  return `${Math.floor(diffMin / 60)}h ago`;
+};
 
 export const Header: React.FC<HeaderProps> = ({
   selectedDevice,
@@ -18,7 +33,19 @@ export const Header: React.FC<HeaderProps> = ({
   isRefreshing,
   batteryBridgeActive,
   lastError,
+  lastUpdatedAt,
 }) => {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!lastUpdatedAt || lastUpdatedAt <= 0) return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lastUpdatedAt]);
+
+  const relativeTime = formatRelativeTime(lastUpdatedAt);
   const getModeBadge = () => {
     if (!status) return null;
 
@@ -79,6 +106,19 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center space-x-3">
+        {/* Last Updated At Indicator */}
+        {lastUpdatedAt && lastUpdatedAt > 0 ? (
+          <div
+            className="text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center space-x-1.5 bg-slate-950/60 text-slate-300 border-slate-800/60"
+            title={`Telemetry last received at ${new Date(lastUpdatedAt).toLocaleTimeString()} (${relativeTime})`}
+          >
+            <Clock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              Updated: {new Date(lastUpdatedAt).toLocaleTimeString()} ({relativeTime})
+            </span>
+          </div>
+        ) : null}
+
         {/* Battery Bridge Status Indicator */}
         <div
           className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center space-x-1.5 ${

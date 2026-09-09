@@ -58,11 +58,11 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
         <p className="text-xs text-slate-400 max-w-xl">
           Controls how frequently VoltWatch queries the UPS hardware for live status (Q1/QPIGS).
-          Default is <strong>30 seconds</strong> (matching ViewPower standard).
+          Default is <strong>10 seconds</strong>.
         </p>
 
         <div className="flex items-center space-x-3 pt-2">
-          {[5, 10, 30, 60].map((sec) => (
+          {[2, 5, 10, 30, 60].map((sec) => (
             <button
               key={sec}
               onClick={() => setIntervalVal(sec)}
@@ -72,7 +72,7 @@ export const Settings: React.FC<SettingsProps> = ({
                   : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {sec} seconds {sec === 30 ? '(Default)' : ''}
+              {sec}s {sec === 10 ? '(Default)' : ''}
             </button>
           ))}
         </div>
