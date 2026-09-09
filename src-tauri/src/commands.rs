@@ -3,7 +3,10 @@ use crate::db::{Database, EventLogRecord, TelemetryRecord};
 use crate::gate::CommandGate;
 use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
-use crate::serial::{probe_port, scan_available_ports, DiscoveredDevice, PhysicalSerialPort};
+use crate::serial::{
+    probe_port, scan_available_ports, DiscoveredDevice, HidTransport, PhysicalSerialPort,
+    SerialTransport,
+};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -19,33 +22,45 @@ pub fn scan_ports() -> Vec<DiscoveredDevice> {
     scan_available_ports()
 }
 
+pub fn connect_device_internal(
+    state: &AppState,
+    port_name: &str,
+    baud_rate: Option<u32>,
+) -> Result<DiscoveredDevice, String> {
+    let info = probe_port(port_name).unwrap_or_else(|| DiscoveredDevice {
+        port_name: port_name.to_string(),
+        protocol_id: "00".into(),
+        serial_number: None,
+        capabilities: protocol::DeviceCapabilities::for_protocol("00"),
+    });
+
+    let transport: Box<dyn SerialTransport> = if port_name.starts_with("USB:") {
+        Box::new(HidTransport::open_by_port_name(port_name).map_err(|e| e.to_string())?)
+    } else {
+        let baud = baud_rate.unwrap_or(2400);
+        Box::new(PhysicalSerialPort::open(port_name, baud).map_err(|e| e.to_string())?)
+    };
+
+    state.manager.register_device(info.clone(), transport);
+
+    let _ = state.db.insert_event(&EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        port_name: port_name.to_string(),
+        event_type: "CONNECT".into(),
+        message: format!("Connected to UPS on {}", port_name),
+    });
+
+    Ok(info)
+}
+
 #[tauri::command]
 pub fn connect_device(
     state: State<AppState>,
     port_name: String,
     baud_rate: Option<u32>,
 ) -> Result<DiscoveredDevice, String> {
-    let baud = baud_rate.unwrap_or(2400);
-    let transport = PhysicalSerialPort::open(&port_name, baud).map_err(|e| e.to_string())?;
-
-    let info = probe_port(&port_name).unwrap_or_else(|| DiscoveredDevice {
-        port_name: port_name.clone(),
-        protocol_id: "00".into(),
-        serial_number: None,
-        capabilities: protocol::DeviceCapabilities::for_protocol("00"),
-    });
-
-    state.manager.register_device(info.clone(), Box::new(transport));
-
-    let _ = state.db.insert_event(&EventLogRecord {
-        id: None,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: port_name.clone(),
-        event_type: "CONNECT".into(),
-        message: format!("Connected to UPS on {}", port_name),
-    });
-
-    Ok(info)
+    connect_device_internal(&state, &port_name, baud_rate)
 }
 
 #[tauri::command]
@@ -68,6 +83,10 @@ pub fn list_connected_devices(state: State<AppState>) -> Vec<DiscoveredDevice> {
 
 #[tauri::command]
 pub fn get_device_status(state: State<AppState>, port_name: String) -> Result<Q1Status, String> {
+    if !state.manager.is_connected(&port_name) {
+        let _ = connect_device_internal(&state, &port_name, None);
+    }
+
     let status = state
         .manager
         .poll_device(&port_name)
@@ -96,6 +115,10 @@ pub fn send_command(
     port_name: String,
     command: VoltronicCommand,
 ) -> Result<String, String> {
+    if !state.manager.is_connected(&port_name) {
+        let _ = connect_device_internal(&state, &port_name, None);
+    }
+
     let gate = state.gate.lock().unwrap();
     state
         .manager

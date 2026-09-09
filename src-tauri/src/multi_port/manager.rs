@@ -50,6 +50,11 @@ impl MultiPortManager {
         devs.values().map(|d| d.info.clone()).collect()
     }
 
+    pub fn is_connected(&self, port_name: &str) -> bool {
+        let devs = self.devices.lock().unwrap();
+        devs.contains_key(port_name)
+    }
+
     pub fn poll_device(&self, port_name: &str) -> Result<Q1Status, ProtocolError> {
         let mut devs = self.devices.lock().unwrap();
         let device = devs

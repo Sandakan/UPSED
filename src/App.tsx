@@ -29,14 +29,20 @@ export function App() {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  // Scan serial ports for Voltronic UPS hardware
+  // Scan serial and USB ports for Voltronic UPS hardware
   const handleScan = useCallback(async () => {
     setIsScanning(true);
     try {
       const found = await api.scanPorts();
       setDevices(found);
       if (found.length > 0 && !selectedDevice) {
-        setSelectedDevice(found[0].port_name);
+        const target = found[0].port_name;
+        setSelectedDevice(target);
+        try {
+          await api.connectDevice(target);
+        } catch (e) {
+          console.error('Auto-connect failed:', e);
+        }
       }
     } catch (e) {
       console.error('Port scan failed:', e);
@@ -44,6 +50,15 @@ export function App() {
       setIsScanning(false);
     }
   }, [selectedDevice]);
+
+  const handleSelectDevice = useCallback(async (portName: string) => {
+    setSelectedDevice(portName);
+    try {
+      await api.connectDevice(portName);
+    } catch (e) {
+      console.error('Failed to connect to device:', e);
+    }
+  }, []);
 
   // Refresh safety stage & battery bridge status
   const refreshMetadata = useCallback(async () => {
@@ -102,7 +117,7 @@ export function App() {
         onTabChange={setCurrentTab}
         devices={devices}
         selectedDevice={selectedDevice}
-        onSelectDevice={setSelectedDevice}
+        onSelectDevice={handleSelectDevice}
         onScan={handleScan}
         isScanning={isScanning}
         safetyStage={safetyStage}

@@ -39,13 +39,15 @@ pub fn encode_command(cmd_str: &str) -> Vec<u8> {
 /// Checks that the response begins with '(' and strips any trailing '\r' or '\n'.
 pub fn decode_response(raw: &[u8]) -> Result<String, ProtocolError> {
     if raw.is_empty() {
-        return Err(ProtocolError::ParseError("Empty response from device".into()));
+        return Err(ProtocolError::ParseError(
+            "Empty response from device".into(),
+        ));
     }
 
     let raw_str = std::str::from_utf8(raw)
         .map_err(|e| ProtocolError::ParseError(format!("Invalid UTF-8 in response: {}", e)))?;
 
-    let trimmed = raw_str.trim_matches(|c| c == '\r' || c == '\n');
+    let trimmed = raw_str.trim_matches(|c| c == '\r' || c == '\n' || c == '\0');
 
     if !trimmed.starts_with('(') {
         return Err(ProtocolError::InvalidResponsePrefix(trimmed.to_string()));
@@ -57,4 +59,3 @@ pub fn decode_response(raw: &[u8]) -> Result<String, ProtocolError> {
 
     Ok(trimmed.to_string())
 }
-

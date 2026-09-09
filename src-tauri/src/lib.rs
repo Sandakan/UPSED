@@ -13,26 +13,36 @@ use gate::CommandGate;
 use multi_port::MultiPortManager;
 use std::sync::{Arc, Mutex};
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt::init();
 
-    let db_path = std::env::current_dir()
-        .map(|d| d.join("voltwatch.db"))
-        .unwrap_or_else(|_| "voltwatch.db".into());
-
-    let db = Database::init(db_path).expect("Failed to initialize VoltWatch SQLite database");
-
-    let app_state = AppState {
-        gate: Arc::new(Mutex::new(CommandGate::new())),
-        manager: Arc::new(MultiPortManager::new()),
-        db: Arc::new(db),
-        bridge: Arc::new(Mutex::new(BatteryBridge::new())),
-    };
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(app_state)
+        .setup(|app| {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("voltwatch"));
+
+            let _ = std::fs::create_dir_all(&app_data_dir);
+            let db_path = app_data_dir.join("voltwatch.db");
+
+            let db = Database::init(db_path)
+                .expect("Failed to initialize VoltWatch SQLite database");
+
+            let app_state = AppState {
+                gate: Arc::new(Mutex::new(CommandGate::new())),
+                manager: Arc::new(MultiPortManager::new()),
+                db: Arc::new(db),
+                bridge: Arc::new(Mutex::new(BatteryBridge::new())),
+            };
+
+            app.manage(app_state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::scan_ports,
             commands::connect_device,
