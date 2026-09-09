@@ -26,10 +26,13 @@ export interface DiscoveredDevice {
 export interface UpsMetadata {
   unique_id: string;
   name: string;
-  rated_watts: number;
   rated_va: number;
+  power_factor: number;
+  rated_watts: number;
   battery_voltage: number;
   battery_capacity_ah: number;
+  battery_chemistry: 'VRLA_SLA' | 'GEL' | 'LIFEPO4' | string;
+  topology: 'Online' | 'LineInteractive' | 'OffLine' | string;
   updated_at: string;
 }
 

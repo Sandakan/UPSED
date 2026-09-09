@@ -36,10 +36,13 @@ pub struct AppSettings {
 pub struct UpsMetadata {
     pub unique_id: String,
     pub name: String,
-    pub rated_watts: u32,
     pub rated_va: u32,
+    pub power_factor: f32,
+    pub rated_watts: u32,
     pub battery_voltage: u32,
     pub battery_capacity_ah: f32,
+    pub battery_chemistry: String,
+    pub topology: String,
     pub updated_at: String,
 }
 
@@ -90,14 +93,35 @@ impl Database {
             CREATE TABLE IF NOT EXISTS ups_metadata (
                 unique_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                rated_watts INTEGER NOT NULL DEFAULT 600,
                 rated_va INTEGER NOT NULL DEFAULT 1000,
+                power_factor REAL NOT NULL DEFAULT 0.8,
+                rated_watts INTEGER NOT NULL DEFAULT 800,
                 battery_voltage INTEGER NOT NULL DEFAULT 24,
                 battery_capacity_ah REAL NOT NULL DEFAULT 9.0,
+                battery_chemistry TEXT NOT NULL DEFAULT 'VRLA_SLA',
+                topology TEXT NOT NULL DEFAULT 'Online',
                 updated_at TEXT NOT NULL
             );
             ",
         )?;
+
+        // Lightweight column migrations for backward compatibility
+        let _ = conn.execute(
+            "ALTER TABLE ups_metadata ADD COLUMN rated_va INTEGER NOT NULL DEFAULT 1000",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ups_metadata ADD COLUMN power_factor REAL NOT NULL DEFAULT 0.8",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ups_metadata ADD COLUMN battery_chemistry TEXT NOT NULL DEFAULT 'VRLA_SLA'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ups_metadata ADD COLUMN topology TEXT NOT NULL DEFAULT 'Online'",
+            [],
+        );
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -122,7 +146,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn query_recent_telemetry(&self, port_name: &str, limit: u32) -> Result<Vec<TelemetryRecord>> {
+    pub fn query_recent_telemetry(
+        &self,
+        port_name: &str,
+        limit: u32,
+    ) -> Result<Vec<TelemetryRecord>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, port_name, grid_voltage, output_voltage, load_pct, battery_voltage, temperature_c
@@ -192,7 +220,7 @@ impl Database {
     pub fn get_ups_metadata(&self, unique_id: &str) -> Result<Option<UpsMetadata>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at
+            "SELECT unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata WHERE unique_id = ?1",
         )?;
 
@@ -201,11 +229,14 @@ impl Database {
             Ok(Some(UpsMetadata {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
-                rated_watts: row.get(2)?,
-                rated_va: row.get(3)?,
-                battery_voltage: row.get(4)?,
-                battery_capacity_ah: row.get(5)?,
-                updated_at: row.get(6)?,
+                rated_va: row.get(2)?,
+                power_factor: row.get(3)?,
+                rated_watts: row.get(4)?,
+                battery_voltage: row.get(5)?,
+                battery_capacity_ah: row.get(6)?,
+                battery_chemistry: row.get(7)?,
+                topology: row.get(8)?,
+                updated_at: row.get(9)?,
             }))
         } else {
             Ok(None)
@@ -215,22 +246,28 @@ impl Database {
     pub fn save_ups_metadata(&self, meta: &UpsMetadata) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO ups_metadata (unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO ups_metadata (unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(unique_id) DO UPDATE SET
                 name = excluded.name,
-                rated_watts = excluded.rated_watts,
                 rated_va = excluded.rated_va,
+                power_factor = excluded.power_factor,
+                rated_watts = excluded.rated_watts,
                 battery_voltage = excluded.battery_voltage,
                 battery_capacity_ah = excluded.battery_capacity_ah,
+                battery_chemistry = excluded.battery_chemistry,
+                topology = excluded.topology,
                 updated_at = excluded.updated_at",
             params![
                 meta.unique_id,
                 meta.name,
-                meta.rated_watts,
                 meta.rated_va,
+                meta.power_factor,
+                meta.rated_watts,
                 meta.battery_voltage,
                 meta.battery_capacity_ah,
+                meta.battery_chemistry,
+                meta.topology,
                 meta.updated_at,
             ],
         )?;
@@ -240,7 +277,7 @@ impl Database {
     pub fn list_all_ups_metadata(&self) -> Result<Vec<UpsMetadata>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at
+            "SELECT unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata ORDER BY updated_at DESC",
         )?;
 
@@ -248,11 +285,14 @@ impl Database {
             Ok(UpsMetadata {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
-                rated_watts: row.get(2)?,
-                rated_va: row.get(3)?,
-                battery_voltage: row.get(4)?,
-                battery_capacity_ah: row.get(5)?,
-                updated_at: row.get(6)?,
+                rated_va: row.get(2)?,
+                power_factor: row.get(3)?,
+                rated_watts: row.get(4)?,
+                battery_voltage: row.get(5)?,
+                battery_capacity_ah: row.get(6)?,
+                battery_chemistry: row.get(7)?,
+                topology: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?;
 

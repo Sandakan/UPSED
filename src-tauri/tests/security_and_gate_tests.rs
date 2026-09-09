@@ -81,10 +81,13 @@ fn sec_005_ups_metadata_persistence() {
     let meta = UpsMetadata {
         unique_id: "QID-TESTSERIAL123".into(),
         name: "Office Test UPS".into(),
-        rated_watts: 900,
         rated_va: 1500,
+        power_factor: 0.6,
+        rated_watts: 900,
         battery_voltage: 24,
         battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
         updated_at: "2026-09-10T00:00:00Z".into(),
     };
 
@@ -100,12 +103,16 @@ fn sec_005_ups_metadata_persistence() {
 
     // 4. Update existing record (upsert)
     let mut updated_meta = meta.clone();
-    updated_meta.rated_watts = 1200;
+    updated_meta.rated_va = 2000;
+    updated_meta.power_factor = 0.8;
+    updated_meta.rated_watts = 1600;
     updated_meta.name = "Renamed UPS".into();
     db.save_ups_metadata(&updated_meta).unwrap();
 
     let retrieved_updated = db.get_ups_metadata(&meta.unique_id).unwrap().unwrap();
-    assert_eq!(retrieved_updated.rated_watts, 1200);
+    assert_eq!(retrieved_updated.rated_va, 2000);
+    assert_eq!(retrieved_updated.power_factor, 0.8);
+    assert_eq!(retrieved_updated.rated_watts, 1600);
     assert_eq!(retrieved_updated.name, "Renamed UPS");
 
     // 5. List all
@@ -113,5 +120,3 @@ fn sec_005_ups_metadata_persistence() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].unique_id, "QID-TESTSERIAL123");
 }
-
-

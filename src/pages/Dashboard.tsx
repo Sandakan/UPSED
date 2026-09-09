@@ -19,6 +19,13 @@ import {
 } from 'recharts';
 import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
+import {
+  calculateActiveWatts,
+  calculateBatterySoC,
+  calculateEstimatedRuntime,
+  detectNominalVoltage,
+  formatRuntime,
+} from '../lib/battery';
 
 interface DashboardProps {
   status: Q1Status | null;
@@ -63,24 +70,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // Calculate approximate battery percentage from nominal voltage
+  // Calculate battery percentage using calibrated cell curves
   const nominalBat = metadata?.battery_voltage
     ? Number(metadata.battery_voltage)
-    : status.battery_voltage_v > 30
-    ? 48.0
-    : 24.0;
-  const minBat = nominalBat * 0.85;
-  const maxBat = nominalBat * 1.15;
-  const batPct = Math.min(
-    100,
-    Math.max(0, Math.round(((status.battery_voltage_v - minBat) / (maxBat - minBat)) * 100))
+    : detectNominalVoltage(status.battery_voltage_v);
+  const batPct = calculateBatterySoC(
+    status.battery_voltage_v,
+    nominalBat,
+    metadata?.battery_chemistry ?? 'VRLA_SLA'
   );
 
-  const ratedW = metadata?.rated_watts || 600;
+  const ratedW =
+    metadata?.rated_watts ||
+    (metadata?.rated_va
+      ? calculateActiveWatts(metadata.rated_va, metadata.power_factor || 0.8)
+      : 600);
   const effectiveWatts =
     status.output_watts > 0
       ? status.output_watts
       : Math.round((status.output_load_pct / 100) * ratedW);
+
+  const estRuntimeMins = calculateEstimatedRuntime(
+    batPct,
+    nominalBat,
+    metadata?.battery_capacity_ah ?? 9.0,
+    effectiveWatts,
+    metadata?.topology ?? 'Online',
+    metadata?.battery_chemistry ?? 'VRLA_SLA'
+  );
 
   const chartData = history.slice(-20).map((h) => ({
     time: h.timestamp.split('T')[1]?.substring(0, 8) || '',
@@ -155,9 +172,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {status.battery_voltage_v.toFixed(1)}
             </span>
             <span className="text-sm text-slate-400">V</span>
-            <span className="text-xs text-slate-500 font-mono ml-auto">
-              ~{batPct}%
-            </span>
+            <div className="ml-auto text-right font-mono">
+              <span className="text-xs text-emerald-400 font-semibold">{batPct}%</span>
+              <span className="text-[11px] text-slate-500 block">~{formatRuntime(estRuntimeMins)}</span>
+            </div>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
             <div

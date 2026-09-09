@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap } from 'lucide-react';
 import { api } from '../lib/tauri';
 import { UpsMetadata } from '../lib/types';
+import {
+  calculateActiveWatts,
+  BatteryChemistry,
+} from '../lib/battery';
 
 interface SettingsProps {
   pollInterval: number;
@@ -26,20 +30,28 @@ export const Settings: React.FC<SettingsProps> = ({
 
   // UPS Profile state
   const [upsName, setUpsName] = useState(metadata?.name || 'Connected UPS');
-  const [ratedWatts, setRatedWatts] = useState(metadata?.rated_watts || 600);
   const [ratedVa, setRatedVa] = useState(metadata?.rated_va || 1000);
+  const [powerFactor, setPowerFactor] = useState(metadata?.power_factor || 0.8);
   const [batteryVoltage, setBatteryVoltage] = useState(metadata?.battery_voltage || 24);
   const [batteryCapacityAh, setBatteryCapacityAh] = useState(metadata?.battery_capacity_ah || 9.0);
+  const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>(
+    (metadata?.battery_chemistry as BatteryChemistry) || 'VRLA_SLA'
+  );
+  const [topology, setTopology] = useState(metadata?.topology || 'Online');
 
   useEffect(() => {
     if (metadata) {
       setUpsName(metadata.name);
-      setRatedWatts(metadata.rated_watts);
       setRatedVa(metadata.rated_va);
+      setPowerFactor(metadata.power_factor || 0.8);
       setBatteryVoltage(metadata.battery_voltage);
       setBatteryCapacityAh(metadata.battery_capacity_ah);
+      setBatteryChemistry((metadata.battery_chemistry as BatteryChemistry) || 'VRLA_SLA');
+      setTopology(metadata.topology || 'Online');
     }
   }, [metadata]);
+
+  const derivedWatts = calculateActiveWatts(ratedVa, powerFactor);
 
   const handleSave = async () => {
     onPollIntervalChange(intervalVal);
@@ -50,10 +62,13 @@ export const Settings: React.FC<SettingsProps> = ({
         const updatedMeta: UpsMetadata = {
           ...metadata,
           name: upsName.trim() || 'Connected UPS',
-          rated_watts: Math.max(50, Number(ratedWatts)),
           rated_va: Math.max(50, Number(ratedVa)),
+          power_factor: Number(powerFactor),
+          rated_watts: derivedWatts,
           battery_voltage: Number(batteryVoltage),
           battery_capacity_ah: Number(batteryCapacityAh),
+          battery_chemistry: batteryChemistry,
+          topology,
           updated_at: new Date().toISOString(),
         };
         await api.saveUpsMetadata(updatedMeta);
@@ -118,35 +133,56 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Rated Active Power (Watts)
+                Rated Apparent Power (VA)
               </label>
               <div className="flex items-center space-x-2">
                 <input
                   type="number"
                   min="50"
-                  max="50000"
-                  step="10"
-                  value={ratedWatts}
-                  onChange={(e) => setRatedWatts(Number(e.target.value))}
+                  max="100000"
+                  step="50"
+                  value={ratedVa}
+                  onChange={(e) => setRatedVa(Number(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition"
                 />
-                <span className="text-xs font-mono text-slate-400">W</span>
+                <span className="text-xs font-mono text-slate-400">VA</span>
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Rated Apparent Power (VA)
+                Power Factor (PF) & Active Power
               </label>
-              <input
-                type="number"
-                min="50"
-                max="100000"
-                step="50"
-                value={ratedVa}
-                onChange={(e) => setRatedVa(Number(e.target.value))}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition"
-              />
+              <div className="flex items-center space-x-2">
+                <select
+                  value={powerFactor}
+                  onChange={(e) => setPowerFactor(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+                >
+                  <option value={0.6}>0.6 (Desktop / Line-Interactive)</option>
+                  <option value={0.8}>0.8 (Business / Server Prosumer)</option>
+                  <option value={0.9}>0.9 (Online Double-Conversion)</option>
+                  <option value={1.0}>1.0 (Enterprise Unity)</option>
+                </select>
+                <span className="text-xs font-mono text-emerald-400 whitespace-nowrap">
+                  = {derivedWatts}W
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Battery Chemistry
+              </label>
+              <select
+                value={batteryChemistry}
+                onChange={(e) => setBatteryChemistry(e.target.value as BatteryChemistry)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+              >
+                <option value="VRLA_SLA">Standard Lead-Acid (VRLA / AGM)</option>
+                <option value="GEL">Gel Cell Lead-Acid</option>
+                <option value="LIFEPO4">Lithium Iron Phosphate (LiFePO4)</option>
+              </select>
             </div>
 
             <div>
@@ -159,10 +195,32 @@ export const Settings: React.FC<SettingsProps> = ({
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
               >
                 <option value={12}>12V (1 Battery)</option>
-                <option value={24}>24V (2 Batteries)</option>
+                <option value={24}>24V (2 Batteries - Standard)</option>
                 <option value={36}>36V (3 Batteries)</option>
                 <option value={48}>48V (4 Batteries)</option>
+                <option value={72}>72V (6 Batteries)</option>
+                <option value={96}>96V (8 Batteries)</option>
+                <option value={192}>192V (16 Batteries - PRO906/910 Bank)</option>
+                <option value={240}>240V (20 Batteries)</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Battery Capacity (Ah)
+              </label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  min="1.0"
+                  max="500.0"
+                  step="0.5"
+                  value={batteryCapacityAh}
+                  onChange={(e) => setBatteryCapacityAh(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+                />
+                <span className="text-xs font-mono text-slate-400">Ah</span>
+              </div>
             </div>
           </div>
         </div>

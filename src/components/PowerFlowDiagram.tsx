@@ -9,6 +9,12 @@ import {
   Thermometer,
 } from 'lucide-react';
 import { Q1Status, UpsMetadata } from '../lib/types';
+import {
+  calculateActiveWatts,
+  calculateBatterySoC,
+  calculateEstimatedRuntime,
+  detectNominalVoltage,
+} from '../lib/battery';
 
 interface PowerFlowDiagramProps {
   status: Q1Status;
@@ -26,33 +32,33 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
   // Battery metrics using configured nominal voltage if available
   const nominalBat = metadata?.battery_voltage
     ? Number(metadata.battery_voltage)
-    : status.battery_voltage_v > 30
-    ? 48.0
-    : 24.0;
-  const minBat = nominalBat * 0.85;
-  const maxBat = nominalBat * 1.15;
-  const batPct = Math.min(
-    100,
-    Math.max(0, Math.round(((status.battery_voltage_v - minBat) / (maxBat - minBat)) * 100))
+    : detectNominalVoltage(status.battery_voltage_v);
+  const batPct = calculateBatterySoC(
+    status.battery_voltage_v,
+    nominalBat,
+    metadata?.battery_chemistry ?? 'VRLA_SLA'
   );
 
   // Rated active power (Watts)
-  const ratedW = metadata?.rated_watts || 600;
+  const ratedW =
+    metadata?.rated_watts ||
+    (metadata?.rated_va
+      ? calculateActiveWatts(metadata.rated_va, metadata.power_factor || 0.8)
+      : 600);
   const effectiveWatts =
     status.output_watts > 0
       ? status.output_watts
       : Math.round((status.output_load_pct / 100) * ratedW);
 
-  // Backup runtime estimate (mins)
-  const batAh = metadata?.battery_capacity_ah || 9.0;
-  const totalWh = nominalBat * batAh;
-  const estRuntime =
-    effectiveWatts <= 10
-      ? 120
-      : Math.min(
-          240,
-          Math.max(3, Math.round((batPct / 100) * ((totalWh * 0.85) / effectiveWatts) * 60))
-        );
+  // Backup runtime estimate (mins) using calibrated Peukert + inverter efficiency
+  const estRuntime = calculateEstimatedRuntime(
+    batPct,
+    nominalBat,
+    metadata?.battery_capacity_ah ?? 9.0,
+    effectiveWatts,
+    metadata?.topology ?? 'Online',
+    metadata?.battery_chemistry ?? 'VRLA_SLA'
+  );
 
   // Output current calculation (A)
   const currentA =
