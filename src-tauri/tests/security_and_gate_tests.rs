@@ -72,3 +72,46 @@ fn sec_004_sqlite_telemetry_isolation() {
     assert!(results_other.is_empty());
 }
 
+#[test]
+fn sec_005_ups_metadata_persistence() {
+    use voltwatch_lib::db::{Database, UpsMetadata};
+
+    let db = Database::init(":memory:").unwrap();
+
+    let meta = UpsMetadata {
+        unique_id: "QID-TESTSERIAL123".into(),
+        name: "Office Test UPS".into(),
+        rated_watts: 900,
+        rated_va: 1500,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        updated_at: "2026-09-10T00:00:00Z".into(),
+    };
+
+    // 1. Initial query returns None
+    assert!(db.get_ups_metadata(&meta.unique_id).unwrap().is_none());
+
+    // 2. Save metadata
+    db.save_ups_metadata(&meta).unwrap();
+
+    // 3. Query returns saved record
+    let retrieved = db.get_ups_metadata(&meta.unique_id).unwrap().unwrap();
+    assert_eq!(retrieved, meta);
+
+    // 4. Update existing record (upsert)
+    let mut updated_meta = meta.clone();
+    updated_meta.rated_watts = 1200;
+    updated_meta.name = "Renamed UPS".into();
+    db.save_ups_metadata(&updated_meta).unwrap();
+
+    let retrieved_updated = db.get_ups_metadata(&meta.unique_id).unwrap().unwrap();
+    assert_eq!(retrieved_updated.rated_watts, 1200);
+    assert_eq!(retrieved_updated.name, "Renamed UPS");
+
+    // 5. List all
+    let list = db.list_all_ups_metadata().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].unique_id, "QID-TESTSERIAL123");
+}
+
+

@@ -67,7 +67,10 @@ pub fn run() {
             commands::get_recent_telemetry,
             commands::get_recent_events,
             commands::get_battery_bridge_status,
-            commands::set_battery_bridge_status
+            commands::set_battery_bridge_status,
+            commands::get_ups_metadata,
+            commands::save_ups_metadata,
+            commands::list_ups_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoltWatch application");

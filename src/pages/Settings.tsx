@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap } from 'lucide-react';
 import { api } from '../lib/tauri';
+import { UpsMetadata } from '../lib/types';
 
 interface SettingsProps {
   pollInterval: number;
   onPollIntervalChange: (val: number) => void;
   batteryBridgeActive: boolean;
   onBatteryBridgeChange: (val: boolean) => void;
+  metadata?: UpsMetadata | null;
+  onUpdateMetadata?: (val: UpsMetadata) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -14,16 +17,48 @@ export const Settings: React.FC<SettingsProps> = ({
   onPollIntervalChange,
   batteryBridgeActive,
   onBatteryBridgeChange,
+  metadata,
+  onUpdateMetadata,
 }) => {
   const [intervalVal, setIntervalVal] = useState(pollInterval);
   const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
   const [savedNotice, setSavedNotice] = useState(false);
+
+  // UPS Profile state
+  const [upsName, setUpsName] = useState(metadata?.name || 'Connected UPS');
+  const [ratedWatts, setRatedWatts] = useState(metadata?.rated_watts || 600);
+  const [ratedVa, setRatedVa] = useState(metadata?.rated_va || 1000);
+  const [batteryVoltage, setBatteryVoltage] = useState(metadata?.battery_voltage || 24);
+  const [batteryCapacityAh, setBatteryCapacityAh] = useState(metadata?.battery_capacity_ah || 9.0);
+
+  useEffect(() => {
+    if (metadata) {
+      setUpsName(metadata.name);
+      setRatedWatts(metadata.rated_watts);
+      setRatedVa(metadata.rated_va);
+      setBatteryVoltage(metadata.battery_voltage);
+      setBatteryCapacityAh(metadata.battery_capacity_ah);
+    }
+  }, [metadata]);
 
   const handleSave = async () => {
     onPollIntervalChange(intervalVal);
     onBatteryBridgeChange(bridgeVal);
     try {
       await api.setBatteryBridgeStatus(bridgeVal);
+      if (metadata) {
+        const updatedMeta: UpsMetadata = {
+          ...metadata,
+          name: upsName.trim() || 'Connected UPS',
+          rated_watts: Math.max(50, Number(ratedWatts)),
+          rated_va: Math.max(50, Number(ratedVa)),
+          battery_voltage: Number(batteryVoltage),
+          battery_capacity_ah: Number(batteryCapacityAh),
+          updated_at: new Date().toISOString(),
+        };
+        await api.saveUpsMetadata(updatedMeta);
+        onUpdateMetadata?.(updatedMeta);
+      }
       setSavedNotice(true);
       setTimeout(() => setSavedNotice(false), 3000);
     } catch (e) {
@@ -47,6 +82,89 @@ export const Settings: React.FC<SettingsProps> = ({
         <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 text-xs font-mono flex items-center space-x-2">
           <Check className="w-4 h-4" />
           <span>Settings successfully applied!</span>
+        </div>
+      )}
+
+      {/* UPS Profile & Capacity Specifications */}
+      {metadata && (
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-slate-200">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <h4 className="text-sm font-semibold">Active UPS Profile & Specifications</h4>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+              ID: {metadata.unique_id}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Rated power and battery specifications are used to derive real-time active wattage, load current,
+            and backup battery estimation.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                UPS Display Name
+              </label>
+              <input
+                type="text"
+                value={upsName}
+                onChange={(e) => setUpsName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Rated Active Power (Watts)
+              </label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  min="50"
+                  max="50000"
+                  step="10"
+                  value={ratedWatts}
+                  onChange={(e) => setRatedWatts(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+                />
+                <span className="text-xs font-mono text-slate-400">W</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Rated Apparent Power (VA)
+              </label>
+              <input
+                type="number"
+                min="50"
+                max="100000"
+                step="50"
+                value={ratedVa}
+                onChange={(e) => setRatedVa(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">
+                Nominal Battery Bank Voltage
+              </label>
+              <select
+                value={batteryVoltage}
+                onChange={(e) => setBatteryVoltage(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
+              >
+                <option value={12}>12V (1 Battery)</option>
+                <option value={24}>24V (2 Batteries)</option>
+                <option value={36}>36V (3 Batteries)</option>
+                <option value={48}>48V (4 Batteries)</option>
+              </select>
+            </div>
+          </div>
         </div>
       )}
 

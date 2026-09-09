@@ -17,8 +17,20 @@ export interface DeviceCapabilities {
 export interface DiscoveredDevice {
   port_name: string;
   protocol_id: string;
-  serial_number?: string;
+  serial_number?: string | null;
+  unique_id: string;
+  firmware_version?: string | null;
   capabilities: DeviceCapabilities;
+}
+
+export interface UpsMetadata {
+  unique_id: string;
+  name: string;
+  rated_watts: number;
+  rated_va: number;
+  battery_voltage: number;
+  battery_capacity_ah: number;
+  updated_at: string;
 }
 
 export interface Q1Status {

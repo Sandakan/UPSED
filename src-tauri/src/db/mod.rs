@@ -32,6 +32,17 @@ pub struct AppSettings {
     pub shutdown_battery_pct: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpsMetadata {
+    pub unique_id: String,
+    pub name: String,
+    pub rated_watts: u32,
+    pub rated_va: u32,
+    pub battery_voltage: u32,
+    pub battery_capacity_ah: f32,
+    pub updated_at: String,
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -74,6 +85,16 @@ impl Database {
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ups_metadata (
+                unique_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                rated_watts INTEGER NOT NULL DEFAULT 600,
+                rated_va INTEGER NOT NULL DEFAULT 1000,
+                battery_voltage INTEGER NOT NULL DEFAULT 24,
+                battery_capacity_ah REAL NOT NULL DEFAULT 9.0,
+                updated_at TEXT NOT NULL
             );
             ",
         )?;
@@ -158,6 +179,80 @@ impl Database {
                 port_name: row.get(2)?,
                 event_type: row.get(3)?,
                 message: row.get(4)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_ups_metadata(&self, unique_id: &str) -> Result<Option<UpsMetadata>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at
+             FROM ups_metadata WHERE unique_id = ?1",
+        )?;
+
+        let mut rows = stmt.query(params![unique_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(UpsMetadata {
+                unique_id: row.get(0)?,
+                name: row.get(1)?,
+                rated_watts: row.get(2)?,
+                rated_va: row.get(3)?,
+                battery_voltage: row.get(4)?,
+                battery_capacity_ah: row.get(5)?,
+                updated_at: row.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn save_ups_metadata(&self, meta: &UpsMetadata) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO ups_metadata (unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(unique_id) DO UPDATE SET
+                name = excluded.name,
+                rated_watts = excluded.rated_watts,
+                rated_va = excluded.rated_va,
+                battery_voltage = excluded.battery_voltage,
+                battery_capacity_ah = excluded.battery_capacity_ah,
+                updated_at = excluded.updated_at",
+            params![
+                meta.unique_id,
+                meta.name,
+                meta.rated_watts,
+                meta.rated_va,
+                meta.battery_voltage,
+                meta.battery_capacity_ah,
+                meta.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_all_ups_metadata(&self) -> Result<Vec<UpsMetadata>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT unique_id, name, rated_watts, rated_va, battery_voltage, battery_capacity_ah, updated_at
+             FROM ups_metadata ORDER BY updated_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(UpsMetadata {
+                unique_id: row.get(0)?,
+                name: row.get(1)?,
+                rated_watts: row.get(2)?,
+                rated_va: row.get(3)?,
+                battery_voltage: row.get(4)?,
+                battery_capacity_ah: row.get(5)?,
+                updated_at: row.get(6)?,
             })
         })?;
 

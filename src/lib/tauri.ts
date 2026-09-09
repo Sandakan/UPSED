@@ -6,6 +6,7 @@ import {
   TelemetryRecord,
   UnlockStage,
   VoltronicCommand,
+  UpsMetadata,
 } from './types';
 
 export const api = {
@@ -44,5 +45,13 @@ export const api = {
 
   setBatteryBridgeStatus: (enabled: boolean) =>
     invoke<void>('set_battery_bridge_status', { enabled }),
+
+  getUpsMetadata: (uniqueId: string) =>
+    invoke<UpsMetadata | null>('get_ups_metadata', { uniqueId }),
+
+  saveUpsMetadata: (metadata: UpsMetadata) =>
+    invoke<void>('save_ups_metadata', { metadata }),
+
+  listUpsMetadata: () => invoke<UpsMetadata[]>('list_ups_metadata'),
 };
 

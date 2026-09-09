@@ -13,12 +13,16 @@ fn multi_001_register_multiple_devices() {
         port_name: "COM1".into(),
         protocol_id: "17".into(),
         serial_number: Some("9293311030001".into()),
+        unique_id: "QID-9293311030001".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
         port_name: "COM2".into(),
         protocol_id: "02".into(),
         serial_number: Some("9293311030002".into()),
+        unique_id: "QID-9293311030002".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -40,12 +44,16 @@ fn multi_002_commands_isolated_per_port() {
         port_name: "COM1".into(),
         protocol_id: "17".into(),
         serial_number: Some("9293311030001".into()),
+        unique_id: "QID-9293311030001".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
         port_name: "COM2".into(),
         protocol_id: "02".into(),
         serial_number: Some("9293311030002".into()),
+        unique_id: "QID-9293311030002".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -74,12 +82,16 @@ fn multi_003_polling_multiple_ports() {
         port_name: "COM1".into(),
         protocol_id: "17".into(),
         serial_number: Some("9293311030001".into()),
+        unique_id: "QID-9293311030001".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
         port_name: "COM2".into(),
         protocol_id: "17".into(),
         serial_number: Some("9293311030002".into()),
+        unique_id: "QID-9293311030002".into(),
+        firmware_version: Some("00072.10".into()),
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
 
@@ -95,4 +107,3 @@ fn multi_003_polling_multiple_ports() {
     assert_eq!(status1.grid_voltage_v, 238.0);
     assert_eq!(status2.grid_voltage_v, 238.0);
 }
-

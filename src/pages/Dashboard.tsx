@@ -17,7 +17,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from 'recharts';
-import { Q1Status, TelemetryRecord } from '../lib/types';
+import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
 
 interface DashboardProps {
@@ -25,9 +25,16 @@ interface DashboardProps {
   history: TelemetryRecord[];
   portName: string | null;
   lastError?: string | null;
+  metadata?: UpsMetadata | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName, lastError }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  status,
+  history,
+  portName,
+  lastError,
+  metadata,
+}) => {
   if (!portName || !status) {
     return (
       <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -56,14 +63,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName,
     );
   }
 
-  // Calculate approximate battery percentage from 24V or 48V nominal
-  const nominalBat = status.battery_voltage_v > 30 ? 48.0 : 24.0;
+  // Calculate approximate battery percentage from nominal voltage
+  const nominalBat = metadata?.battery_voltage
+    ? Number(metadata.battery_voltage)
+    : status.battery_voltage_v > 30
+    ? 48.0
+    : 24.0;
   const minBat = nominalBat * 0.85;
   const maxBat = nominalBat * 1.15;
   const batPct = Math.min(
     100,
     Math.max(0, Math.round(((status.battery_voltage_v - minBat) / (maxBat - minBat)) * 100))
   );
+
+  const ratedW = metadata?.rated_watts || 600;
+  const effectiveWatts =
+    status.output_watts > 0
+      ? status.output_watts
+      : Math.round((status.output_load_pct / 100) * ratedW);
 
   const chartData = history.slice(-20).map((h) => ({
     time: h.timestamp.split('T')[1]?.substring(0, 8) || '',
@@ -107,8 +124,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName,
               {status.output_load_pct}
             </span>
             <span className="text-sm text-slate-400">%</span>
-            <span className="text-xs text-slate-500 font-mono ml-auto">
-              {status.output_watts} W
+            <span className="text-xs text-slate-400 font-mono ml-auto" title="Active Output Power">
+              {effectiveWatts} W
             </span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
@@ -171,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName,
       </div>
 
       {/* Modern UPS Single-Line Power Flow Topology Graphic */}
-      <PowerFlowDiagram status={status} portName={portName} />
+      <PowerFlowDiagram status={status} portName={portName} metadata={metadata} />
 
       {/* Real-Time Telemetry Chart */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm">

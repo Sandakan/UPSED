@@ -1,4 +1,6 @@
-use crate::protocol::{parse_device_id, parse_protocol_id, DeviceCapabilities};
+use crate::protocol::{
+    parse_device_id, parse_firmware_version, parse_protocol_id, DeviceCapabilities,
+};
 use crate::serial::adapter::{PhysicalSerialPort, SerialTransport};
 use crate::serial::hid_adapter::HidTransport;
 use hidapi::{DeviceInfo, HidApi};
@@ -9,7 +11,35 @@ pub struct DiscoveredDevice {
     pub port_name: String,
     pub protocol_id: String,
     pub serial_number: Option<String>,
+    pub unique_id: String,
+    pub firmware_version: Option<String>,
     pub capabilities: DeviceCapabilities,
+}
+
+/// Derives a deterministic unique identifier for a UPS unit.
+/// Primary: Hardware serial number returned from Stage T1 `QID\r`.
+/// Fallback: Hardware port / USB instance ID combined with firmware version from `QVFW\r`.
+pub fn generate_unique_id(
+    serial_number: Option<&str>,
+    port_or_instance_id: &str,
+    firmware_version: Option<&str>,
+) -> String {
+    if let Some(sn) = serial_number {
+        let clean = sn.trim();
+        if clean.len() >= 4 && clean.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            return format!("QID-{}", clean.to_uppercase());
+        }
+    }
+
+    let fw_part = firmware_version
+        .map(|f| f.trim().replace(|c: char| !c.is_alphanumeric(), "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "GENERIC".to_string());
+
+    let clean_inst = port_or_instance_id
+        .trim()
+        .replace(|c: char| !c.is_alphanumeric() && c != ':', "_");
+    format!("{}-FW-{}", clean_inst, fw_part)
 }
 
 /// Known UPS vendor IDs and USB-to-serial bridge controllers used in the UPS industry.
@@ -139,11 +169,23 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         }
     };
 
-    // Step 2: Optionally query device serial number with QID (Read-only)
+    // Step 2: Query device serial number with QID (Read-only)
     let serial_number = transport
         .send_command("QID")
         .ok()
         .and_then(|r| parse_device_id(&r).ok());
+
+    // Step 3: Query firmware version with QVFW (Read-only)
+    let firmware_version = transport
+        .send_command("QVFW")
+        .ok()
+        .and_then(|r| parse_firmware_version(&r).ok());
+
+    let unique_id = generate_unique_id(
+        serial_number.as_deref(),
+        &port_name,
+        firmware_version.as_deref(),
+    );
 
     let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
 
@@ -151,6 +193,8 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         port_name,
         protocol_id,
         serial_number,
+        unique_id,
+        firmware_version,
         capabilities,
     })
 }
@@ -176,8 +220,9 @@ pub fn scan_hid_devices() -> Vec<DiscoveredDevice> {
                     .any(|d: &DiscoveredDevice| d.port_name == device.port_name)
                 {
                     tracing::info!(
-                        "Discovered USB HID UPS on {} with protocol ID: {}",
+                        "Discovered USB HID UPS on {} (ID: {}) with protocol ID: {}",
                         device.port_name,
+                        device.unique_id,
                         device.protocol_id
                     );
                     discovered.push(device);
@@ -220,12 +265,25 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             .ok()
             .and_then(|r| parse_device_id(&r).ok());
 
+        let firmware_version = transport
+            .send_command("QVFW")
+            .ok()
+            .and_then(|r| parse_firmware_version(&r).ok());
+
+        let unique_id = generate_unique_id(
+            serial_number.as_deref(),
+            port_name,
+            firmware_version.as_deref(),
+        );
+
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
 
         return Some(DiscoveredDevice {
             port_name: port_name.to_string(),
             protocol_id,
             serial_number,
+            unique_id,
+            firmware_version,
             capabilities,
         });
     }
@@ -249,11 +307,23 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             Err(_) => continue,
         };
 
-        // Step 2: Optionally query device serial number with QID (Read-only)
+        // Step 2: Query device serial number with QID (Read-only)
         let serial_number = transport
             .send_command("QID")
             .ok()
             .and_then(|r| parse_device_id(&r).ok());
+
+        // Step 3: Query firmware version with QVFW (Read-only)
+        let firmware_version = transport
+            .send_command("QVFW")
+            .ok()
+            .and_then(|r| parse_firmware_version(&r).ok());
+
+        let unique_id = generate_unique_id(
+            serial_number.as_deref(),
+            port_name,
+            firmware_version.as_deref(),
+        );
 
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
 
@@ -261,6 +331,8 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             port_name: port_name.to_string(),
             protocol_id,
             serial_number,
+            unique_id,
+            firmware_version,
             capabilities,
         });
     }

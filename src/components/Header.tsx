@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Battery, Zap, AlertTriangle, ShieldCheck, RefreshCw, Clock } from 'lucide-react';
-import { Q1Status } from '../lib/types';
+import { Q1Status, UpsMetadata } from '../lib/types';
 
 interface HeaderProps {
   selectedDevice: string | null;
@@ -10,6 +10,7 @@ interface HeaderProps {
   batteryBridgeActive: boolean;
   lastError?: string | null;
   lastUpdatedAt?: number;
+  upsMetadata?: UpsMetadata | null;
 }
 
 const formatRelativeTime = (timestamp?: number): string => {
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   batteryBridgeActive,
   lastError,
   lastUpdatedAt,
+  upsMetadata,
 }) => {
   const [, setTick] = useState(0);
 
@@ -86,7 +88,18 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center space-x-4">
         <div>
           <h2 className="text-base font-semibold text-slate-100 flex items-center space-x-2">
-            <span>{selectedDevice ? `UPS on ${selectedDevice}` : 'No UPS Selected'}</span>
+            <span>
+              {upsMetadata?.name
+                ? `${upsMetadata.name}`
+                : selectedDevice
+                ? `UPS on ${selectedDevice}`
+                : 'No UPS Selected'}
+            </span>
+            {upsMetadata && (
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-normal">
+                {upsMetadata.rated_watts}W
+              </span>
+            )}
           </h2>
           <p className="text-xs font-mono">
             {status ? (

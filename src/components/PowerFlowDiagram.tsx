@@ -8,22 +8,27 @@ import {
   Gauge,
   Thermometer,
 } from 'lucide-react';
-import { Q1Status } from '../lib/types';
+import { Q1Status, UpsMetadata } from '../lib/types';
 
 interface PowerFlowDiagramProps {
   status: Q1Status;
   portName?: string | null;
+  metadata?: UpsMetadata | null;
 }
 
-export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status }) => {
+export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, metadata }) => {
   // Operational mode determination
   const isFault = status.ups_failed;
   const isBypass = !isFault && status.bypass_active;
   const isBatteryMode = !isFault && !isBypass && status.utility_fail;
   const isLineMode = !isFault && !isBypass && !status.utility_fail;
 
-  // Battery metrics
-  const nominalBat = status.battery_voltage_v > 30 ? 48.0 : 24.0;
+  // Battery metrics using configured nominal voltage if available
+  const nominalBat = metadata?.battery_voltage
+    ? Number(metadata.battery_voltage)
+    : status.battery_voltage_v > 30
+    ? 48.0
+    : 24.0;
   const minBat = nominalBat * 0.85;
   const maxBat = nominalBat * 1.15;
   const batPct = Math.min(
@@ -31,19 +36,28 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status }) =>
     Math.max(0, Math.round(((status.battery_voltage_v - minBat) / (maxBat - minBat)) * 100))
   );
 
+  // Rated active power (Watts)
+  const ratedW = metadata?.rated_watts || 600;
+  const effectiveWatts =
+    status.output_watts > 0
+      ? status.output_watts
+      : Math.round((status.output_load_pct / 100) * ratedW);
+
   // Backup runtime estimate (mins)
+  const batAh = metadata?.battery_capacity_ah || 9.0;
+  const totalWh = nominalBat * batAh;
   const estRuntime =
-    status.output_load_pct <= 0
+    effectiveWatts <= 10
       ? 120
       : Math.min(
-          180,
-          Math.max(5, Math.round((batPct / 100) * (3600 / Math.max(status.output_load_pct, 5))))
+          240,
+          Math.max(3, Math.round((batPct / 100) * ((totalWh * 0.85) / effectiveWatts) * 60))
         );
 
   // Output current calculation (A)
   const currentA =
     status.output_voltage_v > 0
-      ? (status.output_watts / status.output_voltage_v).toFixed(1)
+      ? (effectiveWatts / status.output_voltage_v).toFixed(1)
       : '0.0';
 
   // Conduit stroke colors and styles
@@ -610,7 +624,7 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status }) =>
               <span>Output Load</span>
             </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-              {status.output_watts} W • {currentA} A
+              {effectiveWatts} W • {currentA} A
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">

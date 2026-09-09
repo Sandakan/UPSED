@@ -3,18 +3,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import './App.css';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { UpsSetupModal } from './components/UpsSetupModal';
 import { Dashboard } from './pages/Dashboard';
 import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
 import { api } from './lib/tauri';
+import { UpsMetadata } from './lib/types';
 
 export function App() {
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<number>(10); // 10 seconds default
+  const [isSetupModalDismissed, setIsSetupModalDismissed] = useState(false);
 
   // 1. Scan serial and USB ports query
   const {
@@ -25,6 +28,29 @@ export function App() {
     queryKey: ['ports'],
     queryFn: () => api.scanPorts(),
     staleTime: 60000,
+  });
+
+  // Active connected device info
+  const activeDevice = devices.find((d) => d.port_name === selectedDevice) || null;
+
+  // Reset modal dismissed state when active unique_id changes
+  useEffect(() => {
+    setIsSetupModalDismissed(false);
+  }, [activeDevice?.unique_id]);
+
+  // 1b. UPS Hardware Profile & Specifications query
+  const { data: upsMetadata = null } = useQuery({
+    queryKey: ['upsMetadata', activeDevice?.unique_id],
+    queryFn: () =>
+      activeDevice?.unique_id ? api.getUpsMetadata(activeDevice.unique_id) : null,
+    enabled: !!activeDevice?.unique_id,
+  });
+
+  const saveMetadataMutation = useMutation({
+    mutationFn: (meta: UpsMetadata) => api.saveUpsMetadata(meta),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['upsMetadata'] });
+    },
   });
 
   // 2. Connect device mutation
@@ -170,6 +196,7 @@ export function App() {
           batteryBridgeActive={batteryBridgeActive}
           lastError={lastError}
           lastUpdatedAt={statusUpdatedAt}
+          upsMetadata={upsMetadata}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col">
@@ -179,6 +206,7 @@ export function App() {
               history={history}
               portName={selectedDevice}
               lastError={lastError}
+              metadata={upsMetadata}
             />
           )}
 
@@ -209,10 +237,26 @@ export function App() {
               onPollIntervalChange={setPollInterval}
               batteryBridgeActive={batteryBridgeActive}
               onBatteryBridgeChange={handleBatteryBridgeChange}
+              metadata={upsMetadata}
+              onUpdateMetadata={(meta) => saveMetadataMutation.mutate(meta)}
             />
           )}
         </main>
       </div>
+
+      {/* First-time UPS Configuration Modal */}
+      {activeDevice && upsMetadata === null && !isSetupModalDismissed && (
+        <UpsSetupModal
+          device={activeDevice}
+          status={status}
+          isOpen={true}
+          onClose={() => setIsSetupModalDismissed(true)}
+          onSave={(meta) => {
+            saveMetadataMutation.mutate(meta);
+            setIsSetupModalDismissed(true);
+          }}
+        />
+      )}
     </div>
   );
 }

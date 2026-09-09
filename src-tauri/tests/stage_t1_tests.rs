@@ -235,3 +235,33 @@ fn t1_008_qs_parses_voltronic_qs_status() {
     assert!(!status.utility_fail);
     assert!(!status.battery_low);
 }
+
+#[test]
+fn t1_009_generate_unique_id_uses_serial_as_primary() {
+    use voltwatch_lib::serial::scanner::generate_unique_id;
+
+    // When valid QID serial is present, it must be the primary identifier
+    let id = generate_unique_id(
+        Some("9293311030001"),
+        "USB:0665:5161:1D9528FA",
+        Some("VERFW:00072.10"),
+    );
+    assert_eq!(id, "QID-9293311030001");
+}
+
+#[test]
+fn t1_010_generate_unique_id_uses_fallback_instance_and_fw() {
+    use voltwatch_lib::serial::scanner::generate_unique_id;
+
+    // When QID is absent or empty, fallback must compose instance ID and firmware
+    let id = generate_unique_id(
+        None,
+        "USB:0665:5161:1D9528FA",
+        Some("VERFW:00072.10"),
+    );
+    assert_eq!(id, "USB:0665:5161:1D9528FA-FW-VERFW_00072_10");
+
+    let id2 = generate_unique_id(Some("   "), "COM3", None);
+    assert_eq!(id2, "COM3-FW-GENERIC");
+}
+

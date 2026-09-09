@@ -1,5 +1,5 @@
 use crate::battery_bridge::BatteryBridge;
-use crate::db::{Database, EventLogRecord, TelemetryRecord};
+use crate::db::{Database, EventLogRecord, TelemetryRecord, UpsMetadata};
 use crate::gate::CommandGate;
 use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
@@ -34,6 +34,8 @@ pub fn connect_device_internal(
         port_name: port_name.to_string(),
         protocol_id: "00".into(),
         serial_number: None,
+        unique_id: format!("MANUAL-{}", port_name),
+        firmware_version: None,
         capabilities: protocol::DeviceCapabilities::for_protocol("00"),
     });
 
@@ -239,4 +241,49 @@ pub fn set_battery_bridge_status(state: State<AppState>, enabled: bool) -> Resul
     let mut bridge = state.bridge.lock().unwrap();
     bridge.set_enabled(enabled);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_ups_metadata(
+    state: State<'_, AppState>,
+    unique_id: String,
+) -> Result<Option<UpsMetadata>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .get_ups_metadata(&unique_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn save_ups_metadata(
+    state: State<'_, AppState>,
+    metadata: UpsMetadata,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .save_ups_metadata(&metadata)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_ups_metadata(state: State<'_, AppState>) -> Result<Vec<UpsMetadata>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .list_all_ups_metadata()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
