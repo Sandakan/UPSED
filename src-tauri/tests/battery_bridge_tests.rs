@@ -24,7 +24,7 @@ fn bridge_002_explicit_activation_required() {
 
 #[test]
 fn bridge_003_when_disabled_no_os_interaction() {
-    let bridge = BatteryBridge::new();
+    let mut bridge = BatteryBridge::new();
     let status = Q1Status {
         grid_voltage_v: 230.0,
         grid_frequency_hz: 50.0,
@@ -45,3 +45,12 @@ fn bridge_003_when_disabled_no_os_interaction() {
     bridge.update(&status);
 }
 
+#[test]
+fn bridge_004_icon_generator_sanity() {
+    use voltwatch_lib::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba};
+    let rgba = generate_battery_icon_rgba(96, false, false);
+    assert_eq!(rgba.len(), 32 * 32 * 4);
+
+    let pct = compute_battery_pct(27.1);
+    assert_eq!(pct, 96);
+}

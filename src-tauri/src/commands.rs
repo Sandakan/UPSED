@@ -102,10 +102,12 @@ pub fn list_connected_devices(state: State<AppState>) -> Vec<DiscoveredDevice> {
 
 #[tauri::command]
 pub async fn get_device_status(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: String,
 ) -> Result<Q1Status, String> {
     let state_clone = state.inner().clone();
+    let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
         if !state_clone.manager.is_connected(&port_name) {
             tracing::info!(
@@ -138,8 +140,14 @@ pub async fn get_device_status(
                     temperature_c: status.temperature_c,
                 });
 
-                let bridge = state_clone.bridge.lock().unwrap();
+                let mut bridge = state_clone.bridge.lock().unwrap();
                 bridge.update(&status);
+                let is_enabled = bridge.is_enabled();
+                drop(bridge);
+
+                if is_enabled {
+                    crate::tray::update_tray_state(&app_clone, true, Some(&status));
+                }
 
                 Ok(status)
             }
@@ -238,9 +246,17 @@ pub fn get_battery_bridge_status(state: State<AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_battery_bridge_status(state: State<AppState>, enabled: bool) -> Result<(), String> {
+pub fn set_battery_bridge_status(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<(), String> {
     let mut bridge = state.bridge.lock().unwrap();
     bridge.set_enabled(enabled);
+    let last = bridge.last_status().cloned();
+    drop(bridge);
+
+    crate::tray::update_tray_state(&app, enabled, last.as_ref());
     Ok(())
 }
 

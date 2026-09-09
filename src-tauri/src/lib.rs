@@ -5,6 +5,7 @@ pub mod gate;
 pub mod multi_port;
 pub mod protocol;
 pub mod serial;
+pub mod tray;
 
 use battery_bridge::BatteryBridge;
 use commands::AppState;
@@ -42,8 +43,13 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&app_data_dir);
             let db_path = app_data_dir.join("voltwatch.db");
 
-            let db = Database::init(db_path)
-                .expect("Failed to initialize VoltWatch SQLite database");
+            let db =
+                Database::init(db_path).expect("Failed to initialize VoltWatch SQLite database");
+
+            // Initialize Windows / Desktop system tray icon (hidden by default until user enables it)
+            if let Err(e) = tray::setup_tray(app.handle()) {
+                tracing::warn!("Failed to initialize battery tray icon: {}", e);
+            }
 
             let app_state = AppState {
                 gate: Arc::new(Mutex::new(CommandGate::new())),
