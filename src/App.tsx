@@ -137,7 +137,7 @@ export function App() {
           lastError={lastError}
         />
 
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden flex flex-col">
           {currentTab === 'dashboard' && (
             <Dashboard
               status={status}

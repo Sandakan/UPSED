@@ -10,6 +10,7 @@ use crate::serial::{
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
+#[derive(Clone)]
 pub struct AppState {
     pub gate: Arc<Mutex<CommandGate>>,
     pub manager: Arc<MultiPortManager>,
@@ -18,8 +19,10 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub fn scan_ports() -> Vec<DiscoveredDevice> {
-    scan_available_ports()
+pub async fn scan_ports() -> Result<Vec<DiscoveredDevice>, String> {
+    tokio::task::spawn_blocking(scan_available_ports)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 pub fn connect_device_internal(
@@ -55,25 +58,38 @@ pub fn connect_device_internal(
 }
 
 #[tauri::command]
-pub fn connect_device(
-    state: State<AppState>,
+pub async fn connect_device(
+    state: State<'_, AppState>,
     port_name: String,
     baud_rate: Option<u32>,
 ) -> Result<DiscoveredDevice, String> {
-    connect_device_internal(&state, &port_name, baud_rate)
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        connect_device_internal(&state_clone, &port_name, baud_rate)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn disconnect_device(state: State<AppState>, port_name: String) -> Result<(), String> {
-    state.manager.unregister_device(&port_name);
-    let _ = state.db.insert_event(&EventLogRecord {
-        id: None,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: port_name.clone(),
-        event_type: "DISCONNECT".into(),
-        message: format!("Disconnected from UPS on {}", port_name),
-    });
-    Ok(())
+pub async fn disconnect_device(
+    state: State<'_, AppState>,
+    port_name: String,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone.manager.unregister_device(&port_name);
+        let _ = state_clone.db.insert_event(&EventLogRecord {
+            id: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            port_name: port_name.clone(),
+            event_type: "DISCONNECT".into(),
+            message: format!("Disconnected from UPS on {}", port_name),
+        });
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -82,73 +98,86 @@ pub fn list_connected_devices(state: State<AppState>) -> Vec<DiscoveredDevice> {
 }
 
 #[tauri::command]
-pub fn get_device_status(state: State<AppState>, port_name: String) -> Result<Q1Status, String> {
-    if !state.manager.is_connected(&port_name) {
-        tracing::info!(
-            "get_device_status: {} not connected, attempting connect",
-            port_name
-        );
-        if let Err(e) = connect_device_internal(&state, &port_name, None) {
-            tracing::error!("Failed to connect to {}: {}", port_name, e);
-            let _ = state.db.insert_event(&EventLogRecord {
-                id: None,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                port_name: port_name.clone(),
-                event_type: "CONNECT_ERROR".into(),
-                message: format!("Connection failed: {}", e),
-            });
-            return Err(e);
+pub async fn get_device_status(
+    state: State<'_, AppState>,
+    port_name: String,
+) -> Result<Q1Status, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        if !state_clone.manager.is_connected(&port_name) {
+            tracing::info!(
+                "get_device_status: {} not connected, attempting connect",
+                port_name
+            );
+            if let Err(e) = connect_device_internal(&state_clone, &port_name, None) {
+                tracing::error!("Failed to connect to {}: {}", port_name, e);
+                let _ = state_clone.db.insert_event(&EventLogRecord {
+                    id: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    port_name: port_name.clone(),
+                    event_type: "CONNECT_ERROR".into(),
+                    message: format!("Connection failed: {}", e),
+                });
+                return Err(e);
+            }
         }
-    }
 
-    match state.manager.poll_device(&port_name) {
-        Ok(status) => {
-            let _ = state.db.insert_telemetry(&TelemetryRecord {
-                id: None,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                port_name: port_name.clone(),
-                grid_voltage: status.grid_voltage_v,
-                output_voltage: status.output_voltage_v,
-                load_pct: status.output_load_pct,
-                battery_voltage: status.battery_voltage_v,
-                temperature_c: status.temperature_c,
-            });
+        match state_clone.manager.poll_device(&port_name) {
+            Ok(status) => {
+                let _ = state_clone.db.insert_telemetry(&TelemetryRecord {
+                    id: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    port_name: port_name.clone(),
+                    grid_voltage: status.grid_voltage_v,
+                    output_voltage: status.output_voltage_v,
+                    load_pct: status.output_load_pct,
+                    battery_voltage: status.battery_voltage_v,
+                    temperature_c: status.temperature_c,
+                });
 
-            let bridge = state.bridge.lock().unwrap();
-            bridge.update(&status);
+                let bridge = state_clone.bridge.lock().unwrap();
+                bridge.update(&status);
 
-            Ok(status)
+                Ok(status)
+            }
+            Err(err) => {
+                let err_str = err.to_string();
+                tracing::error!("get_device_status failed for {}: {}", port_name, err_str);
+                let _ = state_clone.db.insert_event(&EventLogRecord {
+                    id: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    port_name: port_name.clone(),
+                    event_type: "POLL_ERROR".into(),
+                    message: format!("Polling failed: {}", err_str),
+                });
+                Err(err_str)
+            }
         }
-        Err(err) => {
-            let err_str = err.to_string();
-            tracing::error!("get_device_status failed for {}: {}", port_name, err_str);
-            let _ = state.db.insert_event(&EventLogRecord {
-                id: None,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                port_name: port_name.clone(),
-                event_type: "POLL_ERROR".into(),
-                message: format!("Polling failed: {}", err_str),
-            });
-            Err(err_str)
-        }
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn send_command(
-    state: State<AppState>,
+pub async fn send_command(
+    state: State<'_, AppState>,
     port_name: String,
     command: VoltronicCommand,
 ) -> Result<String, String> {
-    if !state.manager.is_connected(&port_name) {
-        let _ = connect_device_internal(&state, &port_name, None);
-    }
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        if !state_clone.manager.is_connected(&port_name) {
+            let _ = connect_device_internal(&state_clone, &port_name, None);
+        }
 
-    let gate = state.gate.lock().unwrap();
-    state
-        .manager
-        .execute_gated_command(&port_name, &command, &gate)
-        .map_err(|e| e.to_string())
+        let gate = state_clone.gate.lock().unwrap();
+        state_clone
+            .manager
+            .execute_gated_command(&port_name, &command, &gate)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -167,26 +196,36 @@ pub fn unlock_safety_stage(
 }
 
 #[tauri::command]
-pub fn get_recent_telemetry(
-    state: State<AppState>,
+pub async fn get_recent_telemetry(
+    state: State<'_, AppState>,
     port_name: String,
     limit: Option<u32>,
 ) -> Result<Vec<TelemetryRecord>, String> {
-    state
-        .db
-        .query_recent_telemetry(&port_name, limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .query_recent_telemetry(&port_name, limit.unwrap_or(50))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn get_recent_events(
-    state: State<AppState>,
+pub async fn get_recent_events(
+    state: State<'_, AppState>,
     limit: Option<u32>,
 ) -> Result<Vec<EventLogRecord>, String> {
-    state
-        .db
-        .query_recent_events(limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .query_recent_events(limit.unwrap_or(50))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

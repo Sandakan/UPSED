@@ -29,7 +29,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName, lastError }) => {
   if (!portName || !status) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+      <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center">
         {lastError ? (
           <>
             <AlertTriangle className="w-12 h-12 text-amber-500 mb-3" />
