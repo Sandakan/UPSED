@@ -14,12 +14,24 @@ use multi_port::MultiPortManager;
 use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
+use tauri_plugin_log::{Target, TargetKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt::init();
-
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some("voltwatch".into()),
+                    }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Debug)
+                .level_for("voltwatch_lib", log::LevelFilter::Trace)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app

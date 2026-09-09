@@ -8,11 +8,12 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, VoltWa
 
 ## ✨ Features
 
-- ⚡ **Direct Hardware Communication:** Connects straight to serial/USB ports (`System.IO.Ports` / `serialport` crate) without Tomcat, Struts2, RMI, or background UDP ports.
+- ⚡ **Direct Hardware Communication:** Connects straight to USB HID devices (`VID 0x0665 / PID 0x5161` via `hidapi`) or RS-232/USB serial ports (`serialport` crate) with zero external drivers, zero Tomcat, zero Struts2, and zero RMI web services.
 - 🛡️ **Safety-First Command Gate:** Incremental 4-stage safety unlock (T1 Read-Only → T2 Non-Destructive → T3 Config Writes → T4 Power Control) preventing accidental firmware corruption or unintended power drop.
-- 🔌 **Multi-UPS Support & Auto-Discovery:** Automatically scans COM ports and USB serial interfaces safely using non-destructive, read-only queries (`QPI`). Manages multiple connected UPS devices concurrently.
-- 📊 **Real-Time Telemetry & Charts:** Monitors grid input voltage/frequency, output load & watts, battery bank voltage & capacity gauge, and internal inverter temperatures with responsive charts.
-- 💾 **Local Embedded SQLite Database:** Automatically logs telemetry (default: every 30 seconds, configurable) and system events locally with instant CSV export.
+- 🔌 **Multi-UPS Support & Auto-Discovery:** Automatically scans both USB HID interfaces and COM serial ports safely using strictly non-destructive, read-only queries (`QPI`). Manages multiple connected UPS devices concurrently.
+- 📊 **Real-Time Telemetry & Universal Protocol Support:** Robust dual-parser architecture supporting standard Megatec 8-token telemetry (with automatic Volts Per Cell battery scaling) and 9-token Axpert solar inverter status.
+- 💾 **Local Embedded SQLite Database:** Automatically logs telemetry (default: every 30 seconds, configurable) and system events locally in `%APPDATA%\com.adsan.voltwatch\voltwatch.db` with instant CSV export.
+- 📝 **Diagnostic Logging:** Powered by `tauri-plugin-log`, streaming logs simultaneously to terminal `stdout`, developer tools webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log`).
 - 🔋 **OS Native Battery Bridge (Opt-In, Disabled by Default):**
   - **Windows:** Custom system tray battery fill indicator & tooltips.
   - **Linux:** Virtual HID via `/dev/uhid` recognized by UPower for native GNOME/KDE desktop battery widgets.
@@ -73,13 +74,13 @@ Ensure the following are installed:
    npm install
    ```
 
-3. **Run the 45-test verification suite (Cargo):**
+3. **Run the 48-test verification suite (Cargo):**
    ```bash
    cd src-tauri
    cargo test
    cd ..
    ```
-   *All 45 tests across protocol parsers, command gates, and multi-port handlers must pass before launching.*
+   *All 48+ tests across protocol parsers, USB HID decoders, command gates, and multi-port handlers must pass before launching.*
 
 4. **Start in Development Mode:**
    ```bash
@@ -96,11 +97,11 @@ Ensure the following are installed:
 ## 📖 Usage Guide
 
 ### 1. Connecting to a UPS
-1. Connect your Voltronic or compatible UPS to your computer via USB (virtual COM port) or RS-232 serial cable.
+1. Connect your Voltronic or compatible UPS to your computer via USB (native USB HID `VID 0665 PID 5161` or virtual COM port) or RS-232 serial cable.
 2. Launch VoltWatch.
 3. Click the **Scan (Search)** button in the top left of the sidebar under **Connected Devices**.
-4. VoltWatch safely probes all serial ports using read-only `QPI\r` queries.
-5. Detected UPS devices will appear in the sidebar with their detected protocol variant (e.g. `P17`, `P02`, `P00`). Click any port to monitor it.
+4. VoltWatch safely probes both USB HID devices and serial COM ports using strictly read-only `QPI\r` queries.
+5. Detected UPS devices will appear in the sidebar with their identifier (e.g. `USB:0665:5161:1D9528FA` or `COM3`) and protocol variant (e.g. `P01`, `P17`, `P00`). Click any device to monitor it.
 
 ### 2. Live Monitoring (Dashboard)
 - **Grid AC Input:** Live input voltage and line frequency with utility failure alarm detection.

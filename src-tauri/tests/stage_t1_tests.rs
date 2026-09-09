@@ -27,7 +27,10 @@ fn t1_001b_qpi_timeout_handled_gracefully() {
 fn t1_001c_qpi_corrupt_response_rejected() {
     let raw = b"CORRUPT_WITHOUT_PARENTHESIS\r";
     let result = decode_response(raw);
-    assert!(matches!(result, Err(ProtocolError::InvalidResponsePrefix(_))));
+    assert!(matches!(
+        result,
+        Err(ProtocolError::InvalidResponsePrefix(_))
+    ));
 }
 
 #[test]
@@ -68,6 +71,41 @@ fn t1_002c_q1_physical_range_sanity_checks() {
     assert!(status.output_load_pct <= 150);
     assert!(status.battery_voltage_v > 5.0 && status.battery_voltage_v < 80.0);
     assert!(status.temperature_c >= -20 && status.temperature_c <= 100);
+}
+
+#[test]
+fn t1_002d_q1_parses_standard_8_token_megatec_format() {
+    // Standard Megatec 8-token format:
+    // (grid_v fault_v out_v out_load out_f bat_v temp status_bits
+    let raw = "(231.4 231.5 229.7 021 50.0 2.26 29.3 00000001";
+    let status = Q1Status::parse(raw).expect("Should parse standard 8-token Megatec format");
+
+    assert_eq!(status.grid_voltage_v, 231.4);
+    assert_eq!(status.output_voltage_v, 229.7);
+    assert_eq!(status.output_load_pct, 21);
+    assert_eq!(status.output_frequency_hz, 50.0);
+    // 2.26 V/cell scaled by 12 cells = 27.1V
+    assert_eq!(status.battery_voltage_v, 27.1);
+    assert_eq!(status.temperature_c, 29);
+    assert_eq!(status.raw_status_bits, "00000001");
+    assert!(!status.utility_fail);
+    assert!(!status.battery_low);
+    assert!(!status.bypass_active);
+    assert!(!status.ups_failed);
+}
+
+#[test]
+fn t1_002e_q1_parses_8_token_with_direct_battery_voltage() {
+    // 8-token format where battery voltage is directly total pack voltage (e.g. 27.2V)
+    let raw = "(220.0 220.0 220.0 035 50.0 27.2 32.0 00000000";
+    let status = Q1Status::parse(raw).expect("Should parse 8-token with total battery voltage");
+
+    assert_eq!(status.grid_voltage_v, 220.0);
+    assert_eq!(status.output_voltage_v, 220.0);
+    assert_eq!(status.output_load_pct, 35);
+    assert_eq!(status.output_frequency_hz, 50.0);
+    assert_eq!(status.battery_voltage_v, 27.2);
+    assert_eq!(status.temperature_c, 32);
 }
 
 #[test]
@@ -156,7 +194,9 @@ fn t1_007_no_write_commands_executed_in_t1() {
 
     // T1 allows read commands
     assert!(gate.check_command(&VoltronicCommand::QuickStatus).is_ok());
-    assert!(gate.check_command(&VoltronicCommand::QueryProtocolId).is_ok());
+    assert!(gate
+        .check_command(&VoltronicCommand::QueryProtocolId)
+        .is_ok());
 
     // T1 strictly BLOCKS all non-read commands
     assert!(matches!(
@@ -173,3 +213,25 @@ fn t1_007_no_write_commands_executed_in_t1() {
     ));
 }
 
+#[test]
+fn t1_008_qs_parses_voltronic_qs_status() {
+    let gate = CommandGate::new();
+    assert!(gate.check_command(&VoltronicCommand::QueryStatusQs).is_ok());
+
+    let cmd = VoltronicCommand::QueryStatusQs;
+    assert_eq!(cmd.as_cmd_str().unwrap(), "QS");
+
+    // Standard Voltronic-QS response format:
+    // (input_v input_fault_v output_v load_pct output_f battery_v temp status_bits
+    let raw = "(226.0 195.0 226.0 014 49.0 27.5 30.0 00001000";
+    let status = Q1Status::parse_qs(raw).expect("Should parse QS telemetry");
+
+    assert_eq!(status.grid_voltage_v, 226.0);
+    assert_eq!(status.output_voltage_v, 226.0);
+    assert_eq!(status.output_load_pct, 14);
+    assert_eq!(status.output_frequency_hz, 49.0);
+    assert_eq!(status.battery_voltage_v, 27.5);
+    assert_eq!(status.temperature_c, 30);
+    assert!(!status.utility_fail);
+    assert!(!status.battery_low);
+}

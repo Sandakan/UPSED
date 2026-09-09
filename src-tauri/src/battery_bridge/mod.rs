@@ -7,15 +7,9 @@ pub struct BatteryBridgeState {
     pub platform: &'static str,
 }
 
+#[derive(Debug, Default)]
 pub struct BatteryBridge {
-    is_enabled: bool,
-}
-
-impl Default for BatteryBridge {
-    fn default() -> Self {
-        // Explicitly disabled by default per user requirement
-        Self { is_enabled: false }
-    }
+    pub is_enabled: bool,
 }
 
 impl BatteryBridge {

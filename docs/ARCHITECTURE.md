@@ -89,7 +89,10 @@ SerialTransport::send_command(&cmd_str) ──► UPS Hardware
 
 ## 🗄️ 3. Database Schema (SQLite)
 
-Located at `voltwatch.db` (initialized via `rusqlite` in `src-tauri/src/db/mod.rs`):
+Located at `%APPDATA%\com.adsan.voltwatch\voltwatch.db` (initialized via `rusqlite` in `src-tauri/src/db/mod.rs` using `AppHandle::path().app_data_dir()`):
+
+> [!NOTE]
+> **Dev Watcher Invariant:** The database file is intentionally relocated outside the `src-tauri/` project folder. Storing the active database within `src-tauri/` causes Tauri's dev watcher to detect file modification events on every telemetry polling cycle and trigger infinite recompilation loops.
 
 ```sql
 CREATE TABLE IF NOT EXISTS telemetry (
@@ -122,17 +125,28 @@ CREATE TABLE IF NOT EXISTS settings (
 ## 🔌 4. Multi-Port Management & Concurrency
 
 - **Device Map:** `MultiPortManager` holds `Arc<Mutex<HashMap<String, ConnectedUps>>>`.
-- **Thread Safety:** Polling a device on `COM1` takes a lock only for the duration of the 64-byte frame I/O, allowing concurrent or staggered polling across multiple serial ports without blocking the UI thread or other ports.
-- **Port Scanner:** The scanner isolates device probes. When discovering devices, it opens each port, issues `QPI\r`, and expects `(PI`. If a non-UPS device or non-responsive serial interface is probed, it times out in 1000ms and moves to the next port without panic or hang.
+- **Dual Transport Layer:** Transparently supports both `SerialTransport` (standard RS-232 / virtual COM ports via `serialport`) and `HidTransport` (native USB HID devices via `hidapi`).
+- **Thread Safety:** Polling a device on `COM1` or `USB:0665:5161:...` takes a lock only for the duration of the 64-byte frame I/O, allowing concurrent or staggered polling across multiple ports without blocking the UI thread or other ports.
+- **Port Scanner:** The scanner isolates device probes. When discovering devices, it opens each port, issues `QPI\r`, and expects `(PI`. Probes are strictly Stage T1 Read-Only; if a non-UPS device or non-responsive serial interface is probed, it times out in 1000ms and moves to the next port without panic or hang.
 
 ---
 
 ## 🔋 5. OS Battery Bridge Subsystem
 
 - Implemented in `src-tauri/src/battery_bridge/mod.rs`.
-- Controlled via `is_enabled` flag (initialized to `false`).
+- Controlled via `is_enabled` flag (strictly initialized to `false` by default).
 - When toggled on by the user:
   - **Windows:** Updates the system notification tray icon (`set_icon`, `set_tooltip`).
   - **Linux:** Emits HID usage pages 0x84/0x85 over `/dev/uhid`, allowing UPower to register the desktop UPS as a system battery without root requirements (via standard `input` group udev rules).
   - **macOS:** Calls `IOPSCreatePowerSource` and `IOPSSetPowerSourceDetails` using CoreFoundation / IOKit FFI.
+
+---
+
+## 📝 6. Diagnostic Logging Subsystem
+
+- Implemented via `tauri-plugin-log = "2"` integrated with standard Rust `log = "0.4"` / `tracing`.
+- Targets simultaneously:
+  1. **Standard Output (`stdout`):** Colored terminal stream during development.
+  2. **Webview Console:** IPC log events surfaced to browser DevTools.
+  3. **Local Rotating Log File:** Stored at `%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log` (1 MB max size, 2 rotated backups).
 

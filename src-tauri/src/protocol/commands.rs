@@ -14,6 +14,7 @@ pub enum VoltronicCommand {
     // Stage T1: Read-Only Queries (Zero hardware risk)
     QueryProtocolId,
     QuickStatus,
+    QueryStatusQs,
     QueryGeneralStatus,
     QueryWarningStatus,
     QueryRatingInfo,
@@ -47,6 +48,7 @@ impl VoltronicCommand {
         match self {
             Self::QueryProtocolId
             | Self::QuickStatus
+            | Self::QueryStatusQs
             | Self::QueryGeneralStatus
             | Self::QueryWarningStatus
             | Self::QueryRatingInfo
@@ -77,6 +79,7 @@ impl VoltronicCommand {
         match self {
             Self::QueryProtocolId => Ok("QPI".to_string()),
             Self::QuickStatus => Ok("Q1".to_string()),
+            Self::QueryStatusQs => Ok("QS".to_string()),
             Self::QueryGeneralStatus => Ok("QPIGS".to_string()),
             Self::QueryWarningStatus => Ok("QPIWS".to_string()),
             Self::QueryRatingInfo => Ok("QPIRI".to_string()),

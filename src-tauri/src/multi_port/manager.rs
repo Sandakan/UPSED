@@ -1,5 +1,5 @@
 use crate::gate::CommandGate;
-use crate::protocol::{Q1Status, ProtocolError, VoltronicCommand};
+use crate::protocol::{ProtocolError, Q1Status, QpigsStatus, VoltronicCommand};
 use crate::serial::{DiscoveredDevice, SerialTransport};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -57,20 +57,106 @@ impl MultiPortManager {
 
     pub fn poll_device(&self, port_name: &str) -> Result<Q1Status, ProtocolError> {
         let mut devs = self.devices.lock().unwrap();
-        let device = devs
-            .get_mut(port_name)
-            .ok_or_else(|| ProtocolError::DeviceError(format!("Device on {} not found", port_name)))?;
+        let device = devs.get_mut(port_name).ok_or_else(|| {
+            tracing::error!(
+                "Device on {} not found in active manager registry",
+                port_name
+            );
+            ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+        })?;
 
-        // Q1 is safe read-only query
-        let cmd_str = VoltronicCommand::QuickStatus
-            .as_cmd_str()
-            .map_err(|e| ProtocolError::EncodingError(e))?;
+        let proto = device.info.protocol_id.as_str();
+        tracing::info!("Polling telemetry for device {} (protocol: {})", port_name, proto);
 
-        let raw_resp = device.transport.send_command(&cmd_str)?;
-        let status = Q1Status::parse(&raw_resp)?;
-        device.last_status = Some(status.clone());
+        // Protocol-aware command priority:
+        // Universal Megatec / Voltronic Online P01 units support "Q1" directly
+        // Axpert / InfiniSolar P30/P31 units use "QPIGS"
+        // Legacy Megatec P00 units use "Q1"
+        let query_order = if proto == "01" || proto == "P01" {
+            [
+                VoltronicCommand::QuickStatus,
+                VoltronicCommand::QueryStatusQs,
+                VoltronicCommand::QueryGeneralStatus,
+            ]
+        } else if proto == "30" || proto == "31" || proto == "P30" || proto == "P31" {
+            [
+                VoltronicCommand::QueryGeneralStatus,
+                VoltronicCommand::QuickStatus,
+                VoltronicCommand::QueryStatusQs,
+            ]
+        } else {
+            [
+                VoltronicCommand::QuickStatus,
+                VoltronicCommand::QueryStatusQs,
+                VoltronicCommand::QueryGeneralStatus,
+            ]
+        };
 
-        Ok(status)
+        for cmd in query_order {
+            let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
+            match device.transport.send_command(&cmd_str) {
+                Ok(raw_resp) => {
+                    tracing::debug!("Query {:?} raw response for {}: {:?}", cmd_str, port_name, raw_resp);
+                    let parsed = match cmd {
+                        VoltronicCommand::QueryStatusQs => Q1Status::parse_qs(&raw_resp),
+                        VoltronicCommand::QuickStatus => Q1Status::parse(&raw_resp),
+                        VoltronicCommand::QueryGeneralStatus => {
+                            QpigsStatus::parse(&raw_resp).map(|qpigs| Q1Status {
+                                grid_voltage_v: qpigs.grid_voltage_v,
+                                grid_frequency_hz: qpigs.grid_frequency_hz,
+                                output_voltage_v: qpigs.output_voltage_v,
+                                output_frequency_hz: qpigs.output_frequency_hz,
+                                output_load_pct: qpigs.output_load_pct,
+                                output_watts: qpigs.output_active_power_w,
+                                battery_voltage_v: qpigs.battery_voltage_v,
+                                temperature_c: qpigs.heatsink_temp_c,
+                                utility_fail: false,
+                                battery_low: false,
+                                bypass_active: false,
+                                ups_failed: false,
+                                raw_status_bits: "00000000".into(),
+                            })
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    match parsed {
+                        Ok(status) => {
+                            tracing::info!(
+                                "Telemetry updated via {:?} for {} (Grid={:.1}V, Out={:.1}V, Load={}% Bat={:.1}V)",
+                                cmd_str,
+                                port_name,
+                                status.grid_voltage_v,
+                                status.output_voltage_v,
+                                status.output_load_pct,
+                                status.battery_voltage_v
+                            );
+                            device.last_status = Some(status.clone());
+                            return Ok(status);
+                        }
+                        Err(parse_err) => {
+                            tracing::warn!(
+                                "Failed to parse response for {:?}: {:?}. Raw: {:?}. Trying next query...",
+                                cmd_str,
+                                parse_err,
+                                raw_resp
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Query {:?} rejected or failed on {}: {:?}. Trying next query...",
+                        cmd_str,
+                        port_name,
+                        err
+                    );
+                }
+            }
+        }
+
+        tracing::error!("All telemetry queries (QS, Q1, QPIGS) failed on {}", port_name);
+        Err(ProtocolError::CommandNak)
     }
 
     pub fn execute_gated_command(
@@ -84,15 +170,16 @@ impl MultiPortManager {
             .map_err(|e| ProtocolError::DeviceError(e.to_string()))?;
 
         // Step 2: Validate command payload
-        let cmd_str = cmd.as_cmd_str().map_err(|e| ProtocolError::EncodingError(e))?;
+        let cmd_str = cmd
+            .as_cmd_str()
+            .map_err(ProtocolError::EncodingError)?;
 
         // Step 3: Dispatch to specific hardware port
         let mut devs = self.devices.lock().unwrap();
-        let device = devs
-            .get_mut(port_name)
-            .ok_or_else(|| ProtocolError::DeviceError(format!("Device on {} not found", port_name)))?;
+        let device = devs.get_mut(port_name).ok_or_else(|| {
+            ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+        })?;
 
         device.transport.send_command(&cmd_str)
     }
 }
-

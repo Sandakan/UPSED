@@ -33,45 +33,132 @@ impl Q1Status {
             )));
         }
 
-        let grid_v: f32 = parts[0]
-            .parse()
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid grid voltage: {}", e)))?;
-        let grid_f: f32 = parts[1]
-            .parse()
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid grid frequency: {}", e)))?;
-        let out_v: f32 = parts[2]
-            .parse()
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid output voltage: {}", e)))?;
-        let out_f: f32 = parts[3]
-            .parse()
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid output frequency: {}", e)))?;
-        let out_load: u32 = parts[4]
-            .parse()
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid output load: {}", e)))?;
+        // Format variation 1: Axpert solar inverter 9-token format:
+        // (grid_v grid_f out_v out_f out_load out_watts bat_v temp status_bits
+        if parts.len() >= 9 {
+            let grid_v: f32 = parts[0]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid grid voltage: {}", e)))?;
+            let grid_f: f32 = parts[1]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid grid frequency: {}", e)))?;
+            let out_v: f32 = parts[2]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output voltage: {}", e)))?;
+            let out_f: f32 = parts[3]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output frequency: {}", e)))?;
+            let out_load: u32 = parts[4]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output load: {}", e)))?;
+            let out_watts: u32 = parts[5].parse().unwrap_or(0);
+            let bat_v: f32 = parts[6]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+            let temp_c: i32 = parts[7].parse().unwrap_or(25);
+            let status_bits = parts[8].to_string();
 
-        // Format variation: some models output watts then bat_v, or bat_v directly
-        let (out_watts, bat_v, temp_c, bits_idx) = if parts.len() >= 9 {
-            let watts = parts[5].parse().unwrap_or(0);
-            let bat = parts[6].parse().map_err(|e| {
-                ProtocolError::ParseError(format!("Invalid battery voltage: {}", e))
-            })?;
-            let temp = parts[7].parse().unwrap_or(25);
-            (watts, bat, temp, 8)
+            let bytes = status_bits.as_bytes();
+            let utility_fail = bytes.first().copied().unwrap_or(b'0') == b'1';
+            let battery_low = bytes.get(1).copied().unwrap_or(b'0') == b'1';
+            let bypass_active = bytes.get(2).copied().unwrap_or(b'0') == b'1';
+            let ups_failed = bytes.get(3).copied().unwrap_or(b'0') == b'1';
+
+            return Ok(Self {
+                grid_voltage_v: grid_v,
+                grid_frequency_hz: grid_f,
+                output_voltage_v: out_v,
+                output_frequency_hz: out_f,
+                output_load_pct: out_load,
+                output_watts: out_watts,
+                battery_voltage_v: bat_v,
+                temperature_c: temp_c,
+                utility_fail,
+                battery_low,
+                bypass_active,
+                ups_failed,
+                raw_status_bits: status_bits,
+            });
+        }
+
+        // Format variation 2: Standard Megatec / Voltronic 8-token format:
+        // (grid_v fault_v out_v out_load out_f bat_v temp status_bits
+        // e.g. "(231.4 231.5 229.7 021 50.0 2.26 29.3 00000001"
+        // Note: If parts[4] contains '.' (float frequency like "50.0") or cannot parse as u32,
+        // it is standard Megatec format where token 3 is load and token 4 is frequency.
+        let is_standard_megatec = parts[4].contains('.') || parts[4].parse::<u32>().is_err();
+
+        let (grid_v, grid_f, out_v, out_f, out_load, bat_v, temp_c, status_bits) = if is_standard_megatec {
+            let g_v: f32 = parts[0]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid grid voltage: {}", e)))?;
+            let fault_or_freq: f32 = parts[1].parse().unwrap_or(0.0);
+            let o_v: f32 = parts[2]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output voltage: {}", e)))?;
+            let o_load: u32 = parts[3]
+                .parse::<u32>()
+                .or_else(|_| parts[3].parse::<f32>().map(|f| f as u32))
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output load: {}", e)))?;
+            let o_f: f32 = parts[4]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output frequency: {}", e)))?;
+
+            // In standard Megatec, token 1 is input fault voltage.
+            // If it happens to be within AC frequency bounds (40-70Hz), use as grid_f; otherwise grid_f matches out_f.
+            let g_f = if (40.0..=70.0).contains(&fault_or_freq) {
+                fault_or_freq
+            } else {
+                o_f
+            };
+
+            let mut bat: f32 = parts[5]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+
+            // Voltronic/Megatec cell voltage normalization:
+            // Standard lead-acid cells are ~2.0 - 2.3 V/cell.
+            // If bat < 4.0 V, the hardware is reporting Volts Per Cell (V/cell, e.g. 2.26).
+            // In a standard 24V UPS pack (12 cells): 2.26 * 12 = 27.12V.
+            if bat > 1.5 && bat < 4.0 {
+                bat = (bat * 12.0 * 10.0).round() / 10.0;
+            }
+
+            let temp: i32 = parts[6]
+                .parse::<f32>()
+                .map(|f| f.round() as i32)
+                .unwrap_or(25);
+            let bits = parts[7].to_string();
+
+            (g_v, g_f, o_v, o_f, o_load, bat, temp, bits)
         } else {
-            let bat = parts[5].parse().map_err(|e| {
-                ProtocolError::ParseError(format!("Invalid battery voltage: {}", e))
-            })?;
-            let temp = parts[6].parse().unwrap_or(25);
-            (0, bat, temp, 7)
+            let g_v: f32 = parts[0]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid grid voltage: {}", e)))?;
+            let g_f: f32 = parts[1]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid grid frequency: {}", e)))?;
+            let o_v: f32 = parts[2]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output voltage: {}", e)))?;
+            let o_f: f32 = parts[3]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output frequency: {}", e)))?;
+            let o_load: u32 = parts[4]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid output load: {}", e)))?;
+            let mut bat: f32 = parts[5]
+                .parse()
+                .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+            if bat > 1.5 && bat < 4.0 {
+                bat = (bat * 12.0 * 10.0).round() / 10.0;
+            }
+            let temp: i32 = parts[6].parse().unwrap_or(25);
+            let bits = parts[7].to_string();
+
+            (g_v, g_f, o_v, o_f, o_load, bat, temp, bits)
         };
 
-        let status_bits = if bits_idx < parts.len() {
-            parts[bits_idx].to_string()
-        } else {
-            "00000000".to_string()
-        };
-
-        // Parse status bits (bit 7: utility fail, bit 6: battery low, bit 5: bypass, bit 4: failed)
         let bytes = status_bits.as_bytes();
         let utility_fail = bytes.first().copied().unwrap_or(b'0') == b'1';
         let battery_low = bytes.get(1).copied().unwrap_or(b'0') == b'1';
@@ -84,7 +171,68 @@ impl Q1Status {
             output_voltage_v: out_v,
             output_frequency_hz: out_f,
             output_load_pct: out_load,
-            output_watts: out_watts,
+            output_watts: 0,
+            battery_voltage_v: bat_v,
+            temperature_c: temp_c,
+            utility_fail,
+            battery_low,
+            bypass_active,
+            ups_failed,
+            raw_status_bits: status_bits,
+        })
+    }
+
+    /// Parses telemetry from the `QS` command (Voltronic QS / P01 protocol).
+    /// Format: `(input_v input_fault_v output_v load_pct output_f battery_v temp status_bits`
+    pub fn parse_qs(response: &str) -> Result<Self, ProtocolError> {
+        let content = response
+            .strip_prefix('(')
+            .ok_or_else(|| ProtocolError::ParseError("QS response must start with '('".into()))?;
+
+        let parts: Vec<&str> = content.split_whitespace().collect();
+        if parts.len() < 8 {
+            return Err(ProtocolError::ParseError(format!(
+                "QS response has too few tokens: expected at least 8, got {}",
+                parts.len()
+            )));
+        }
+
+        let grid_v: f32 = parts[0]
+            .parse()
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid grid voltage: {}", e)))?;
+        let _fault_v: f32 = parts[1].parse().unwrap_or(0.0);
+        let out_v: f32 = parts[2]
+            .parse()
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid output voltage: {}", e)))?;
+        let out_load: u32 = parts[3]
+            .parse()
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid output load: {}", e)))?;
+        let out_f: f32 = parts[4]
+            .parse()
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid output frequency: {}", e)))?;
+        let mut bat_v: f32 = parts[5]
+            .parse()
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+        if bat_v > 1.5 && bat_v < 4.0 {
+            bat_v = (bat_v * 12.0 * 10.0).round() / 10.0;
+        }
+        let temp_f: f32 = parts[6].parse().unwrap_or(25.0);
+        let temp_c = temp_f as i32;
+
+        let status_bits = parts[7].to_string();
+        let bytes = status_bits.as_bytes();
+        let utility_fail = bytes.first().copied().unwrap_or(b'0') == b'1';
+        let battery_low = bytes.get(1).copied().unwrap_or(b'0') == b'1';
+        let bypass_active = bytes.get(2).copied().unwrap_or(b'0') == b'1';
+        let ups_failed = bytes.get(3).copied().unwrap_or(b'0') == b'1';
+
+        Ok(Self {
+            grid_voltage_v: grid_v,
+            grid_frequency_hz: out_f,
+            output_voltage_v: out_v,
+            output_frequency_hz: out_f,
+            output_load_pct: out_load,
+            output_watts: 0,
             battery_voltage_v: bat_v,
             temperature_c: temp_c,
             utility_fail,

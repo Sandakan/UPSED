@@ -84,29 +84,54 @@ pub fn list_connected_devices(state: State<AppState>) -> Vec<DiscoveredDevice> {
 #[tauri::command]
 pub fn get_device_status(state: State<AppState>, port_name: String) -> Result<Q1Status, String> {
     if !state.manager.is_connected(&port_name) {
-        let _ = connect_device_internal(&state, &port_name, None);
+        tracing::info!(
+            "get_device_status: {} not connected, attempting connect",
+            port_name
+        );
+        if let Err(e) = connect_device_internal(&state, &port_name, None) {
+            tracing::error!("Failed to connect to {}: {}", port_name, e);
+            let _ = state.db.insert_event(&EventLogRecord {
+                id: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                port_name: port_name.clone(),
+                event_type: "CONNECT_ERROR".into(),
+                message: format!("Connection failed: {}", e),
+            });
+            return Err(e);
+        }
     }
 
-    let status = state
-        .manager
-        .poll_device(&port_name)
-        .map_err(|e| e.to_string())?;
+    match state.manager.poll_device(&port_name) {
+        Ok(status) => {
+            let _ = state.db.insert_telemetry(&TelemetryRecord {
+                id: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                port_name: port_name.clone(),
+                grid_voltage: status.grid_voltage_v,
+                output_voltage: status.output_voltage_v,
+                load_pct: status.output_load_pct,
+                battery_voltage: status.battery_voltage_v,
+                temperature_c: status.temperature_c,
+            });
 
-    let _ = state.db.insert_telemetry(&TelemetryRecord {
-        id: None,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: port_name.clone(),
-        grid_voltage: status.grid_voltage_v,
-        output_voltage: status.output_voltage_v,
-        load_pct: status.output_load_pct,
-        battery_voltage: status.battery_voltage_v,
-        temperature_c: status.temperature_c,
-    });
+            let bridge = state.bridge.lock().unwrap();
+            bridge.update(&status);
 
-    let bridge = state.bridge.lock().unwrap();
-    bridge.update(&status);
-
-    Ok(status)
+            Ok(status)
+        }
+        Err(err) => {
+            let err_str = err.to_string();
+            tracing::error!("get_device_status failed for {}: {}", port_name, err_str);
+            let _ = state.db.insert_event(&EventLogRecord {
+                id: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                port_name: port_name.clone(),
+                event_type: "POLL_ERROR".into(),
+                message: format!("Polling failed: {}", err_str),
+            });
+            Err(err_str)
+        }
+    }
 }
 
 #[tauri::command]
@@ -133,7 +158,10 @@ pub fn get_safety_stage(state: State<AppState>) -> UnlockStage {
 }
 
 #[tauri::command]
-pub fn unlock_safety_stage(state: State<AppState>, target_stage: UnlockStage) -> Result<(), String> {
+pub fn unlock_safety_stage(
+    state: State<AppState>,
+    target_stage: UnlockStage,
+) -> Result<(), String> {
     let mut gate = state.gate.lock().unwrap();
     gate.unlock_stage(target_stage).map_err(|e| e.to_string())
 }
@@ -173,4 +201,3 @@ pub fn set_battery_bridge_status(state: State<AppState>, enabled: bool) -> Resul
     bridge.set_enabled(enabled);
     Ok(())
 }
-

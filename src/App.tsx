@@ -28,6 +28,7 @@ export function App() {
   const [pollInterval, setPollInterval] = useState<number>(30); // 30 seconds default
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Scan serial and USB ports for Voltronic UPS hardware
   const handleScan = useCallback(async () => {
@@ -79,6 +80,7 @@ export function App() {
     try {
       const currentStatus = await api.getDeviceStatus(selectedDevice);
       setStatus(currentStatus);
+      setLastError(null);
 
       const recentTelem = await api.getRecentTelemetry(selectedDevice, 50);
       setHistory(recentTelem);
@@ -87,6 +89,7 @@ export function App() {
       setEvents(recentEvts);
     } catch (e) {
       console.error('Polling failed:', e);
+      setLastError(String(e));
     } finally {
       setIsRefreshing(false);
     }
@@ -131,11 +134,17 @@ export function App() {
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
           batteryBridgeActive={batteryBridgeActive}
+          lastError={lastError}
         />
 
         <main className="flex-1 overflow-hidden">
           {currentTab === 'dashboard' && (
-            <Dashboard status={status} history={history} portName={selectedDevice} />
+            <Dashboard
+              status={status}
+              history={history}
+              portName={selectedDevice}
+              lastError={lastError}
+            />
           )}
 
           {currentTab === 'control' && (

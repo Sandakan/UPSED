@@ -23,17 +23,34 @@ interface DashboardProps {
   status: Q1Status | null;
   history: TelemetryRecord[];
   portName: string | null;
+  lastError?: string | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ status, history, portName, lastError }) => {
   if (!portName || !status) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <Activity className="w-12 h-12 text-slate-600 mb-3 animate-pulse" />
-        <h3 className="text-lg font-semibold text-slate-300">No Active UPS Telemetry</h3>
-        <p className="text-sm text-slate-500 max-w-sm mt-1">
-          Select or scan for a connected Voltronic UPS from the sidebar to start live monitoring.
-        </p>
+        {lastError ? (
+          <>
+            <AlertTriangle className="w-12 h-12 text-amber-500 mb-3" />
+            <h3 className="text-lg font-semibold text-slate-200">Connecting to UPS...</h3>
+            <div className="mt-3 p-3 max-w-md bg-slate-900 border border-amber-500/30 rounded-xl text-left text-xs font-mono text-amber-300">
+              <span className="text-slate-400 block mb-1 font-sans font-medium">Diagnostic status:</span>
+              {lastError}
+            </div>
+            <p className="text-xs text-slate-400 max-w-sm mt-3">
+              VoltWatch identified the UPS on {portName}. Detailed logs are written to stdout and the log file.
+            </p>
+          </>
+        ) : (
+          <>
+            <Activity className="w-12 h-12 text-slate-600 mb-3 animate-pulse" />
+            <h3 className="text-lg font-semibold text-slate-300">No Active UPS Telemetry</h3>
+            <p className="text-sm text-slate-500 max-w-sm mt-1">
+              Select or scan for a connected Voltronic UPS from the sidebar to start live monitoring.
+            </p>
+          </>
+        )}
       </div>
     );
   }

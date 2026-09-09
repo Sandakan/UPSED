@@ -59,6 +59,7 @@ export interface EventLogRecord {
 export type VoltronicCommand =
   | { type: 'QueryProtocolId' }
   | { type: 'QuickStatus' }
+  | { type: 'QueryStatusQs' }
   | { type: 'QueryGeneralStatus' }
   | { type: 'QueryWarningStatus' }
   | { type: 'QueryRatingInfo' }

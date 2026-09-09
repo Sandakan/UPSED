@@ -107,20 +107,41 @@ impl SerialTransport for HidTransport {
         let raw_cmd = encode_command(cmd_str);
         let dev = self.device.lock().unwrap();
 
+        tracing::debug!("HID [{}] Sending command: {:?} ({} bytes)", self.port_name, cmd_str, raw_cmd.len());
+
         // Drain any stale input reports in buffer before sending new command
         let mut drain_buf = [0u8; 64];
-        while dev.read_timeout(&mut drain_buf, 20).unwrap_or(0) > 0 {}
+        let mut drained_total = 0;
+        while let Ok(n) = dev.read_timeout(&mut drain_buf, 20) {
+            if n == 0 {
+                break;
+            }
+            drained_total += n;
+            tracing::trace!("HID [{}] Drained {} stale bytes: {:02x?}", self.port_name, n, &drain_buf[..n]);
+        }
+        if drained_total > 0 {
+            tracing::debug!("HID [{}] Total drained stale bytes before send: {}", self.port_name, drained_total);
+        }
 
         // Send command in 8-byte chunks (standard Megatec/Voltronic USB HID chunk size)
         // With hidapi on Windows, prepending report ID 0x00 creates a 9-byte packet.
-        for chunk in raw_cmd.chunks(8) {
+        for (chunk_idx, chunk) in raw_cmd.chunks(8).enumerate() {
             let mut report = [0u8; 9];
             report[0] = 0x00; // Report ID
             report[1..1 + chunk.len()].copy_from_slice(chunk);
 
+            tracing::trace!(
+                "HID [{}] TX report chunk {}: {:02x?} (ascii: {:?})",
+                self.port_name,
+                chunk_idx,
+                &report[..1 + chunk.len()],
+                String::from_utf8_lossy(chunk)
+            );
+
             if let Err(e) = dev.write(&report) {
-                // Fallback: attempt raw write if report ID 0 write failed
+                tracing::warn!("HID [{}] Report ID 0 write failed: {}. Trying raw write...", self.port_name, e);
                 dev.write(chunk).map_err(|e2| {
+                    tracing::error!("HID [{}] Both write attempts failed: fallback={}", self.port_name, e2);
                     ProtocolError::IoError(format!(
                         "HID write error: {} (fallback error: {})",
                         e, e2
@@ -138,13 +159,22 @@ impl SerialTransport for HidTransport {
         while start.elapsed() < self.timeout && total_read < buffer.len() {
             let mut chunk = [0u8; 64];
             let n = dev.read_timeout(&mut chunk, timeout_ms).map_err(|e| {
+                tracing::error!("HID [{}] Read error: {}", self.port_name, e);
                 ProtocolError::IoError(format!("HID read error: {}", e))
             })?;
 
             if n == 0 {
-                // Read timed out
+                tracing::trace!("HID [{}] Read timeout on chunk, total_read so far={}", self.port_name, total_read);
                 break;
             }
+
+            tracing::trace!(
+                "HID [{}] RX chunk ({} bytes): {:02x?} (ascii: {:?})",
+                self.port_name,
+                n,
+                &chunk[..n],
+                String::from_utf8_lossy(&chunk[..n])
+            );
 
             // Find if '\r' is present in the received bytes
             let mut end_found = false;
@@ -172,6 +202,7 @@ impl SerialTransport for HidTransport {
         }
 
         if total_read == 0 {
+            tracing::warn!("HID [{}] Timeout waiting for response to {:?}", self.port_name, cmd_str);
             return Err(ProtocolError::Timeout);
         }
 
@@ -181,7 +212,12 @@ impl SerialTransport for HidTransport {
             clean_end -= 1;
         }
 
-        decode_response(&buffer[..clean_end])
+        let resp_res = decode_response(&buffer[..clean_end]);
+        match &resp_res {
+            Ok(s) => tracing::debug!("HID [{}] Decoded response: {:?}", self.port_name, s),
+            Err(e) => tracing::warn!("HID [{}] Decode error: {:?} for raw bytes: {:02x?}", self.port_name, e, &buffer[..clean_end]),
+        }
+        resp_res
     }
 
     fn port_name(&self) -> &str {

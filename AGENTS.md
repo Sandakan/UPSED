@@ -14,7 +14,8 @@ This document establishes the universal rules, safety constraints, and architect
   - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`).
 - **NO Raw Command Injection:** Never implement or expose raw string command endpoints (such as ViewPower's vulnerable `controlNew` method). All hardware interactions must be strongly typed variants of the `VoltronicCommand` enum.
 - **Pre-Transmission Validation:** All parameters (charging current, bypass voltages, battery cutoff thresholds) must be validated against physical safety limits and device-rated specs in Rust before any bytes are transmitted to the serial port.
-- **Port Discovery Invariant:** Serial port auto-discovery must strictly and exclusively send `QPI\r` (Query Protocol ID). Probing unknown ports with write, config, or control commands is strictly prohibited.
+- **Port Discovery & Probing Invariant:** Serial and USB HID auto-discovery and automated live hardware probes must strictly and exclusively send Stage T1 Read-Only commands (`QPI\r`, fallback `Q1\r`, `QID\r`, `QVFW\r`). Probing unknown or live hardware with Stage T2 diagnostic commands (such as `T` 10-second battery test or `C` cancel test), Stage T3 configuration writes, or Stage T4 power control is strictly prohibited.
+- **Database Storage Path Invariant:** The embedded SQLite database (`voltwatch.db`) must never be placed inside `src-tauri/` or project source trees to prevent Tauri dev watcher hot-reload infinite loops. It must always reside in the platform-specific app data directory (`AppHandle::path().app_data_dir()`).
 
 ---
 
@@ -40,7 +41,7 @@ This document establishes the universal rules, safety constraints, and architect
   cd src-tauri
   cargo test
   ```
-- All 45 tests across `stage_t1_tests`, `stage_t2_tests`, `stage_t3_tests`, `stage_t4_tests`, `security_and_gate_tests`, `concurrency_tests`, and `battery_bridge_tests` must pass with 0 failures and 0 warnings.
+- All 48+ tests across `stage_t1_tests`, `stage_t1_hid_tests`, `stage_t2_tests`, `stage_t3_tests`, `stage_t4_tests`, `security_and_gate_tests`, `concurrency_tests`, and `battery_bridge_tests` must pass with 0 failures and 0 warnings.
 - Any new hardware command added to `VoltronicCommand` must have:
   1. A corresponding safety stage assigned in `required_stage()`.
   2. Input range validation in `as_cmd_str()`.
@@ -51,7 +52,7 @@ This document establishes the universal rules, safety constraints, and architect
 
 ## 📁 5. Tech Stack Standards
 
-- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `rusqlite`, `thiserror`, `serde`.
+- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-log` (stdout + local rotating log file).
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Recharts, TanStack Query.
-- **Code Style:** Idiomatic Rust (`cargo clippy`), strict TypeScript (no `any` where typed interfaces exist).
+- **Code Style:** Idiomatic Rust (`cargo clippy --tests -- -D warnings`), strict TypeScript (no `any` where typed interfaces exist).
 

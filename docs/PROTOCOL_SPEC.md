@@ -8,8 +8,9 @@ This document provides a comprehensive technical reference for the ASCII line-or
 
 | Parameter | Specification |
 |---|---|
-| **Interface** | RS-232 / USB (Virtual COM Port via CP210x, FTDI, or CH340) |
-| **Baud Rate** | 2400 bps (Standard legacy) or 9600 bps (Newer Axpert King/Max models) |
+| **Interface** | RS-232 / USB Virtual COM Port (CP210x, FTDI, CH340) OR Native USB HID (`VID 0x0665 / PID 0x5161`) |
+| **USB HID Framing** | 8-byte interrupt/feature reports with Report ID `0x00` (`[0x00, byte0, ..., byte7]`), trailing bytes null-padded (`0x00`) |
+| **Baud Rate (Serial)** | 2400 bps (Standard legacy) or 9600 bps (Newer Axpert King/Max models) |
 | **Data Bits** | 8 |
 | **Parity** | None |
 | **Stop Bits** | 1 |
@@ -35,11 +36,12 @@ This document provides a comprehensive technical reference for the ASCII line-or
 ### Query Protocol ID (`QPI`)
 - **Sent:** `QPI\r`
 - **Response:** `(PI<ID>\r`
-- **Example:** `(PI17\r` indicates Protocol Version 17.
-- **Protocol Variants Discovered in ViewPower RE:**
-  - `P00`: Basic offline/line-interactive UPS (single load, Q1 status).
+- **Example:** `(PI01\r` indicates Protocol Version 01; `(PI17\r` indicates Protocol Version 17.
+- **Protocol Variants:**
+  - `P00`: Basic offline/line-interactive UPS (Megatec standard, Q1 status).
+  - `P01`: On-line double-conversion UPS (Prolink PRO901-ES / Voltronic Online, Q1 and QGS telemetry).
   - `P02`: On-line double-conversion UPS with dual outlet control.
-  - `P17` / `P31`: Advanced off-grid solar inverters (Axpert family, QPIGS support).
+  - `P17` / `P30` / `P31`: Advanced off-grid solar inverters (Axpert family, QPIGS support).
   - `TAURUS`: 3-phase high-capacity industrial units with Modbus mapping.
 
 ### Query Device Serial Number (`QID`)
@@ -50,7 +52,7 @@ This document provides a comprehensive technical reference for the ASCII line-or
 ### Query Firmware Version (`QVFW`)
 - **Sent:** `QVFW\r`
 - **Response:** `(VERFW:<Version>\r`
-- **Example:** `(VERFW:00072.10\r`
+- **Example:** `(VERFW:04681.02\r`
 
 ---
 
@@ -58,18 +60,19 @@ This document provides a comprehensive technical reference for the ASCII line-or
 
 ### Quick Status Query (`Q1`)
 - **Sent:** `Q1\r`
-- **Response Format:**
+- **Standard Megatec 8-Token Format:**
   ```text
-  (MMM.M NNN.N PPP.P QQQ RR.R SS.S TT.T b7b6b5b4b3b2b1b0\r
+  (MMM.M NNN.N PPP.P QQQ RR.R S.SS TT.T b7b6b5b4b3b2b1b0\r
   ```
+- **Example:** `(231.4 231.5 229.7 021 50.0 2.26 29.3 00000001\r`
 - **Fields Breakdown:**
   1. `MMM.M`: Input Grid Voltage (V AC)
-  2. `NNN.N`: Input Grid Frequency (Hz)
+  2. `NNN.N`: Input Fault Voltage (V AC)
   3. `PPP.P`: Output Voltage (V AC)
-  4. `QQQ`: Output Frequency (Hz)
-  5. `RR.R`: Output Load Percentage (%)
-  6. `SS.S`: Output Watts or Battery Voltage (V DC)
-  7. `TT.T`: Battery Voltage (V DC) or Internal Temperature (°C)
+  4. `QQQ`: Output Load Percentage (`000`–`150`%)
+  5. `RR.R`: Output Frequency (Hz, e.g. `50.0`)
+  6. `S.SS` / `SS.S`: Battery Voltage (V DC) or Volts Per Cell (V/cell). If `< 4.0V` (e.g. `2.26`), it is scaled by 12 cells for a nominal 24V pack (`2.26 * 12 = 27.12V`).
+  7. `TT.T`: Internal Inverter / Heatsink Temperature (°C)
   8. `b7-b0`: 8-bit Binary Status Flags:
      - Bit 7: Utility Grid Fail (`1` = On Battery, `0` = Grid Normal)
      - Bit 6: Battery Low (`1` = Warning / Low Capacity)
@@ -80,7 +83,21 @@ This document provides a comprehensive technical reference for the ASCII line-or
      - Bit 1: Shutdown Active (`1` = Shutdown timer running)
      - Bit 0: Buzzer Active (`1` = Audible alarm enabled)
 
-### General Status Query (`QPIGS` - Extended Telemetry)
+- **Axpert Inverter 9-Token Format:**
+  ```text
+  (grid_v grid_f out_v out_f out_load out_watts bat_v temp status_bits\r
+  ```
+  Example: `(238.0 50.0 238.0 50.0 023 0230 025.4 45 00110000\r`
+
+### General Status Query for Online UPS (`QGS`)
+- **Sent:** `QGS\r`
+- **Response Format:**
+  ```text
+  (grid_v grid_hz out_v out_hz out_current load_% pos_bus neg_bus bat_v chg_current temp status_bits\r
+  ```
+- **Example:** `(231.6 50.0 229.7 50.0 000.9 020 370.7 373.3 027.2 ---.- 029.3 100000000001\r`
+
+### General Status Query for Solar Inverters (`QPIGS`)
 - **Sent:** `QPIGS\r`
 - **Response Format (Space-delimited values):**
   ```text

@@ -46,6 +46,9 @@ cargo test
 # Stage T1 (Read-Only queries)
 cargo test --test stage_t1_tests
 
+# Stage T1 (USB HID candidate detection & decode)
+cargo test --test stage_t1_hid_tests
+
 # Stage T2 (Non-Destructive actions)
 cargo test --test stage_t2_tests
 
@@ -64,6 +67,9 @@ cargo test --test concurrency_tests
 # OS Battery bridge (opt-in check)
 cargo test --test battery_bridge_tests
 ```
+
+> [!IMPORTANT]
+> **Strictly Read-Only Live Hardware Invariant**: Any automated test or troubleshooting probe communicating with real physical hardware MUST be marked `#[ignore]` and MUST strictly and exclusively use Stage T1 Read-Only commands (`QPI`, `Q1`, `QID`, `QVFW`). Never probe connected hardware with Stage T2 diagnostics (`T` 10s test, `C` cancel test) or Stage T3/T4 commands to prevent unintended battery discharge or load drops.
 
 ---
 
@@ -137,9 +143,27 @@ export type VoltronicCommand =
 
 ---
 
-## 🔍 5. Troubleshooting & Debugging Serial Ports
+## 🔍 5. Troubleshooting & Debugging Hardware Connections
 
+### Serial COM Ports:
 - **Port Busy / Access Denied:** Ensure no legacy software (e.g. ViewPower, Putty, or another serial terminal) has the COM port open.
 - **Baud Rate Mismatch:** Voltronic UPS hardware operates at either **2400 baud** (standard) or **9600 baud** (some newer King/Max models) with 8 data bits, no parity, 1 stop bit (`8N1`).
 - **Response Timeout:** If a command times out after 1000ms, check physical cabling. High electrical noise on inverter lines can cause frame drops.
+
+### USB HID Interfaces (`VID 0x0665 / PID 0x5161`):
+- **Device Node Format:** VoltWatch identifies HID devices as `USB:0665:5161:<INSTANCE_ID>`.
+- **Packet Framing:** USB HID communication uses 8-byte reports with Report ID `0x00` (`[0x00, byte0, ..., byte7]`). Unused trailing bytes in input reports are null-padded (`0x00`) and stripped during frame decoding.
+- **Exclusive Access:** If `HidTransport::open_path` fails with OS error 5 (Access Denied), check if a background service (such as ViewPower or Windows UPS service) has claimed exclusive access to the HID handle.
+
+### Telemetry Parsing Variations (`Q1`):
+- **Standard Megatec 8-Token Format:**
+  `[0: Grid V, 1: Fault V, 2: Out V, 3: Load %, 4: Frequency Hz, 5: Battery V, 6: Temp C, 7: Status Bits]`
+  - If token 5 is `< 4.0V` (e.g. `2.26V`), the unit is reporting **Volts Per Cell (V/cell)**. VoltWatch scales this by 12 cells for 24V packs (`2.26 * 12 = 27.12V`).
+- **Axpert Inverter 9-Token Format:**
+  `[0: Grid V, 1: Grid Hz, 2: Out V, 3: Out Hz, 4: Load %, 5: Watts, 6: Battery V, 7: Temp C, 8: Status Bits]`
+- The parser dynamically identifies format variants by checking if token 4 contains a decimal point (`50.0`) or is not an integer load.
+
+### Database & Log Files:
+- **Database Path:** `%APPDATA%\com.adsan.voltwatch\voltwatch.db` (never in `src-tauri/` to avoid dev reload loops).
+- **Log Files:** `%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log` (rotating, powered by `tauri-plugin-log`). Logs also stream to stdout and webview console.
 
