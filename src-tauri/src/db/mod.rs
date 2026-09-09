@@ -36,6 +36,7 @@ pub struct AppSettings {
 pub struct UpsMetadata {
     pub unique_id: String,
     pub name: String,
+    pub usb_uuid: Option<String>,
     pub rated_va: u32,
     pub power_factor: f32,
     pub rated_watts: u32,
@@ -93,6 +94,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS ups_metadata (
                 unique_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                usb_uuid TEXT,
                 rated_va INTEGER NOT NULL DEFAULT 1000,
                 power_factor REAL NOT NULL DEFAULT 0.8,
                 rated_watts INTEGER NOT NULL DEFAULT 800,
@@ -106,6 +108,7 @@ impl Database {
         )?;
 
         // Lightweight column migrations for backward compatibility
+        let _ = conn.execute("ALTER TABLE ups_metadata ADD COLUMN usb_uuid TEXT", []);
         let _ = conn.execute(
             "ALTER TABLE ups_metadata ADD COLUMN rated_va INTEGER NOT NULL DEFAULT 1000",
             [],
@@ -217,10 +220,45 @@ impl Database {
         Ok(results)
     }
 
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_device_usb_uuid(
+        &self,
+        unique_id: &str,
+        new_usb_uuid: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE ups_metadata SET usb_uuid = ?1, updated_at = ?2 WHERE unique_id = ?3",
+            params![new_usb_uuid, updated_at, unique_id],
+        )?;
+        Ok(())
+    }
+
     pub fn get_ups_metadata(&self, unique_id: &str) -> Result<Option<UpsMetadata>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
+            "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata WHERE unique_id = ?1",
         )?;
 
@@ -229,14 +267,15 @@ impl Database {
             Ok(Some(UpsMetadata {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
-                rated_va: row.get(2)?,
-                power_factor: row.get(3)?,
-                rated_watts: row.get(4)?,
-                battery_voltage: row.get(5)?,
-                battery_capacity_ah: row.get(6)?,
-                battery_chemistry: row.get(7)?,
-                topology: row.get(8)?,
-                updated_at: row.get(9)?,
+                usb_uuid: row.get(2)?,
+                rated_va: row.get(3)?,
+                power_factor: row.get(4)?,
+                rated_watts: row.get(5)?,
+                battery_voltage: row.get(6)?,
+                battery_capacity_ah: row.get(7)?,
+                battery_chemistry: row.get(8)?,
+                topology: row.get(9)?,
+                updated_at: row.get(10)?,
             }))
         } else {
             Ok(None)
@@ -246,10 +285,11 @@ impl Database {
     pub fn save_ups_metadata(&self, meta: &UpsMetadata) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO ups_metadata (unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO ups_metadata (unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(unique_id) DO UPDATE SET
                 name = excluded.name,
+                usb_uuid = excluded.usb_uuid,
                 rated_va = excluded.rated_va,
                 power_factor = excluded.power_factor,
                 rated_watts = excluded.rated_watts,
@@ -261,6 +301,7 @@ impl Database {
             params![
                 meta.unique_id,
                 meta.name,
+                meta.usb_uuid,
                 meta.rated_va,
                 meta.power_factor,
                 meta.rated_watts,
@@ -277,7 +318,7 @@ impl Database {
     pub fn list_all_ups_metadata(&self) -> Result<Vec<UpsMetadata>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
+            "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata ORDER BY updated_at DESC",
         )?;
 
@@ -285,14 +326,15 @@ impl Database {
             Ok(UpsMetadata {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
-                rated_va: row.get(2)?,
-                power_factor: row.get(3)?,
-                rated_watts: row.get(4)?,
-                battery_voltage: row.get(5)?,
-                battery_capacity_ah: row.get(6)?,
-                battery_chemistry: row.get(7)?,
-                topology: row.get(8)?,
-                updated_at: row.get(9)?,
+                usb_uuid: row.get(2)?,
+                rated_va: row.get(3)?,
+                power_factor: row.get(4)?,
+                rated_watts: row.get(5)?,
+                battery_voltage: row.get(6)?,
+                battery_capacity_ah: row.get(7)?,
+                battery_chemistry: row.get(8)?,
+                topology: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         })?;
 

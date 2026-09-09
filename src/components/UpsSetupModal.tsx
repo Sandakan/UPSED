@@ -74,6 +74,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
     onSave({
       unique_id: device.unique_id,
       name: name.trim() || 'Connected UPS',
+      usb_uuid: device.usb_uuid || null,
       rated_va: Math.max(50, ratedVa),
       power_factor: powerFactor,
       rated_watts: derivedWatts,
@@ -91,6 +92,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
     onSave({
       unique_id: device.unique_id,
       name: name.trim() || 'Connected UPS',
+      usb_uuid: device.usb_uuid || null,
       rated_va: defaultVa,
       power_factor: defaultPf,
       rated_watts: calculateActiveWatts(defaultVa, defaultPf),
@@ -133,6 +135,14 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
           <div className="font-mono text-[11px] text-slate-300 break-all bg-slate-900/90 p-2 rounded-lg border border-slate-800/50">
             {device.unique_id}
           </div>
+          {device.usb_uuid && (
+            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-0.5">
+              <span>USB Locator:</span>
+              <span className="text-cyan-400 truncate max-w-[320px]" title={device.usb_uuid}>
+                {device.usb_uuid}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-1">
             <span>Protocol: {device.protocol_id}</span>
             {device.firmware_version && <span>FW: {device.firmware_version}</span>}

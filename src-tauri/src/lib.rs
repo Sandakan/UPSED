@@ -70,7 +70,11 @@ pub fn run() {
             commands::set_battery_bridge_status,
             commands::get_ups_metadata,
             commands::save_ups_metadata,
-            commands::list_ups_metadata
+            commands::list_ups_metadata,
+            commands::get_last_connected_device,
+            commands::set_last_connected_device,
+            commands::update_device_usb_uuid,
+            commands::fast_probe_device
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoltWatch application");

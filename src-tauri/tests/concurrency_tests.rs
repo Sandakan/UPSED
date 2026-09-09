@@ -15,6 +15,7 @@ fn multi_001_register_multiple_devices() {
         serial_number: Some("9293311030001".into()),
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -23,6 +24,7 @@ fn multi_001_register_multiple_devices() {
         serial_number: Some("9293311030002".into()),
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -46,6 +48,7 @@ fn multi_002_commands_isolated_per_port() {
         serial_number: Some("9293311030001".into()),
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -54,6 +57,7 @@ fn multi_002_commands_isolated_per_port() {
         serial_number: Some("9293311030002".into()),
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -84,6 +88,7 @@ fn multi_003_polling_multiple_ports() {
         serial_number: Some("9293311030001".into()),
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -92,6 +97,7 @@ fn multi_003_polling_multiple_ports() {
         serial_number: Some("9293311030002".into()),
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
+        usb_uuid: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
 

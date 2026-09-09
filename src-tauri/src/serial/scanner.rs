@@ -13,6 +13,7 @@ pub struct DiscoveredDevice {
     pub serial_number: Option<String>,
     pub unique_id: String,
     pub firmware_version: Option<String>,
+    pub usb_uuid: Option<String>,
     pub capabilities: DeviceCapabilities,
 }
 
@@ -133,6 +134,47 @@ fn extract_hid_id(dev: &DeviceInfo) -> String {
     format!("{:04X}", dev.product_id())
 }
 
+/// Resolves the physical USB UUID / instance ID for a port (HID path or Serial USB PNP/Serial).
+pub fn get_port_usb_uuid(port_name: &str) -> Option<String> {
+    if port_name.starts_with("USB:") {
+        if let Ok(api) = HidApi::new() {
+            let parts: Vec<&str> = port_name.split(':').collect();
+            if parts.len() >= 3 {
+                let vid = u16::from_str_radix(parts[1], 16).ok()?;
+                let pid = u16::from_str_radix(parts[2], 16).ok()?;
+                let id_filter = if parts.len() >= 4 {
+                    parts[3].to_lowercase()
+                } else {
+                    String::new()
+                };
+
+                for dev in api.device_list() {
+                    if dev.vendor_id() == vid && dev.product_id() == pid {
+                        let path_str = dev.path().to_string_lossy().to_string();
+                        if id_filter.is_empty()
+                            || path_str.to_lowercase().contains(&id_filter)
+                            || dev.serial_number().unwrap_or("").to_lowercase().contains(&id_filter)
+                        {
+                            return Some(path_str);
+                        }
+                    }
+                }
+            }
+        }
+    } else if let Ok(ports) = serialport::available_ports() {
+        for p in ports {
+            if p.port_name == port_name {
+                if let serialport::SerialPortType::UsbPort(usb) = p.port_type {
+                    return usb
+                        .serial_number
+                        .or_else(|| Some(format!("USB\\VID_{:04X}&PID_{:04X}", usb.vid, usb.pid)));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Safely probes a USB HID device using ONLY Stage T1 read-only queries (QPI, fallback Q1, and QID).
 pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
     let id_str = extract_hid_id(dev);
@@ -142,6 +184,13 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         dev.product_id(),
         id_str
     );
+
+    let path_str = dev.path().to_string_lossy().to_string();
+    let usb_uuid = if !path_str.is_empty() {
+        Some(path_str)
+    } else {
+        dev.serial_number().map(|s| s.to_string())
+    };
 
     let mut transport = HidTransport::open_path(dev.path(), &port_name).ok()?;
 
@@ -195,6 +244,7 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         serial_number,
         unique_id,
         firmware_version,
+        usb_uuid,
         capabilities,
     })
 }
@@ -277,6 +327,7 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
         );
 
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
+        let usb_uuid = get_port_usb_uuid(port_name);
 
         return Some(DiscoveredDevice {
             port_name: port_name.to_string(),
@@ -284,6 +335,7 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             serial_number,
             unique_id,
             firmware_version,
+            usb_uuid,
             capabilities,
         });
     }
@@ -326,6 +378,7 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
         );
 
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
+        let usb_uuid = get_port_usb_uuid(port_name);
 
         return Some(DiscoveredDevice {
             port_name: port_name.to_string(),
@@ -333,6 +386,7 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             serial_number,
             unique_id,
             firmware_version,
+            usb_uuid,
             capabilities,
         });
     }

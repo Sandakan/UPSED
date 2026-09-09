@@ -30,8 +30,17 @@ export function App() {
     staleTime: 60000,
   });
 
-  // Active connected device info
-  const activeDevice = devices.find((d) => d.port_name === selectedDevice) || null;
+  // 1a. Query last connected device from DB on startup
+  const { data: lastSavedDeviceId = null } = useQuery({
+    queryKey: ['lastConnectedDevice'],
+    queryFn: () => api.getLastConnectedDevice(),
+  });
+
+  // Active connected device info (or fallback to discovered device matching last saved id)
+  const activeDevice =
+    devices.find((d) => d.port_name === selectedDevice) ||
+    devices.find((d) => d.unique_id === lastSavedDeviceId) ||
+    null;
 
   // Reset modal dismissed state when active unique_id changes
   useEffect(() => {
@@ -39,11 +48,11 @@ export function App() {
   }, [activeDevice?.unique_id]);
 
   // 1b. UPS Hardware Profile & Specifications query
+  const targetUniqueId = activeDevice?.unique_id || lastSavedDeviceId;
   const { data: upsMetadata = null } = useQuery({
-    queryKey: ['upsMetadata', activeDevice?.unique_id],
-    queryFn: () =>
-      activeDevice?.unique_id ? api.getUpsMetadata(activeDevice.unique_id) : null,
-    enabled: !!activeDevice?.unique_id,
+    queryKey: ['upsMetadata', targetUniqueId],
+    queryFn: () => (targetUniqueId ? api.getUpsMetadata(targetUniqueId) : null),
+    enabled: !!targetUniqueId,
   });
 
   const saveMetadataMutation = useMutation({
@@ -56,7 +65,11 @@ export function App() {
   // 2. Connect device mutation
   const connectMutation = useMutation({
     mutationFn: (portName: string) => api.connectDevice(portName),
-    onSuccess: (_, portName) => {
+    onSuccess: (connectedDevice, portName) => {
+      if (connectedDevice?.unique_id) {
+        api.setLastConnectedDevice(connectedDevice.unique_id).catch(console.error);
+        queryClient.invalidateQueries({ queryKey: ['lastConnectedDevice'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['deviceStatus', portName] });
       queryClient.invalidateQueries({ queryKey: ['telemetryHistory', portName] });
       queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
@@ -71,12 +84,43 @@ export function App() {
     [connectMutation]
   );
 
-  // Auto-select first discovered device
+  // Auto-reconnect to saved device or intelligently match relocated USB port
   useEffect(() => {
-    if (devices.length > 0 && !selectedDevice) {
-      handleSelectDevice(devices[0].port_name);
+    if (devices.length === 0 || selectedDevice) return;
+
+    // 1. Try to find the device matching the last saved unique_id
+    let target = lastSavedDeviceId
+      ? devices.find((d) => d.unique_id === lastSavedDeviceId)
+      : null;
+
+    // 2. If not matched by unique_id, try matching by usb_uuid locator
+    if (!target && upsMetadata?.usb_uuid) {
+      target = devices.find((d) => d.usb_uuid === upsMetadata.usb_uuid) || null;
     }
-  }, [devices, selectedDevice, handleSelectDevice]);
+
+    // 3. Dynamic USB port roaming check: if same physical UPS discovered on a new USB port/UUID, auto-update in SQLite!
+    if (target && upsMetadata && target.unique_id === upsMetadata.unique_id) {
+      if (target.usb_uuid && target.usb_uuid !== upsMetadata.usb_uuid) {
+        console.info(
+          `[VoltWatch] Device ${target.unique_id} moved to new USB port (UUID: ${target.usb_uuid})`
+        );
+        api
+          .updateDeviceUsbUuid(
+            target.unique_id,
+            target.usb_uuid,
+            new Date().toISOString()
+          )
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['upsMetadata', target.unique_id] });
+          })
+          .catch(console.error);
+      }
+    }
+
+    // 4. Connect to matched device or fallback to first discovered
+    const finalDevice = target || devices[0];
+    handleSelectDevice(finalDevice.port_name);
+  }, [devices, selectedDevice, lastSavedDeviceId, upsMetadata, handleSelectDevice, queryClient]);
 
   // 3. Live Device Telemetry query (Q1)
   const {

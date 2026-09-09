@@ -53,5 +53,16 @@ export const api = {
     invoke<void>('save_ups_metadata', { metadata }),
 
   listUpsMetadata: () => invoke<UpsMetadata[]>('list_ups_metadata'),
+
+  getLastConnectedDevice: () => invoke<string | null>('get_last_connected_device'),
+
+  setLastConnectedDevice: (uniqueId: string) =>
+    invoke<void>('set_last_connected_device', { uniqueId }),
+
+  updateDeviceUsbUuid: (uniqueId: string, newUsbUuid: string, updatedAt: string) =>
+    invoke<void>('update_device_usb_uuid', { uniqueId, newUsbUuid, updatedAt }),
+
+  fastProbeDevice: (portName: string) =>
+    invoke<DiscoveredDevice | null>('fast_probe_device', { portName }),
 };
 

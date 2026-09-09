@@ -36,6 +36,7 @@ pub fn connect_device_internal(
         serial_number: None,
         unique_id: format!("MANUAL-{}", port_name),
         firmware_version: None,
+        usb_uuid: None,
         capabilities: protocol::DeviceCapabilities::for_protocol("00"),
     });
 
@@ -286,4 +287,60 @@ pub async fn list_ups_metadata(state: State<'_, AppState>) -> Result<Vec<UpsMeta
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_last_connected_device(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .get_setting("last_connected_device")
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_last_connected_device(
+    state: State<'_, AppState>,
+    unique_id: String,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .set_setting("last_connected_device", &unique_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn update_device_usb_uuid(
+    state: State<'_, AppState>,
+    unique_id: String,
+    new_usb_uuid: String,
+    updated_at: String,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .update_device_usb_uuid(&unique_id, &new_usb_uuid, &updated_at)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fast_probe_device(port_name: String) -> Result<Option<DiscoveredDevice>, String> {
+    tokio::task::spawn_blocking(move || probe_port(&port_name))
+        .await
+        .map_err(|e| e.to_string())
 }

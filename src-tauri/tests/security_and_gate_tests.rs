@@ -81,6 +81,7 @@ fn sec_005_ups_metadata_persistence() {
     let meta = UpsMetadata {
         unique_id: "QID-TESTSERIAL123".into(),
         name: "Office Test UPS".into(),
+        usb_uuid: Some("USB#VID_0665&PID_5161#PORT_1".into()),
         rated_va: 1500,
         power_factor: 0.6,
         rated_watts: 900,
@@ -119,4 +120,50 @@ fn sec_005_ups_metadata_persistence() {
     let list = db.list_all_ups_metadata().unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].unique_id, "QID-TESTSERIAL123");
+}
+
+#[test]
+fn sec_006_usb_uuid_roaming_and_settings() {
+    use voltwatch_lib::db::{Database, UpsMetadata};
+
+    let db = Database::init(":memory:").unwrap();
+
+    // Test 1: General settings storage
+    assert!(db.get_setting("last_connected_device").unwrap().is_none());
+    db.set_setting("last_connected_device", "QID-TESTSERIAL123")
+        .unwrap();
+    assert_eq!(
+        db.get_setting("last_connected_device").unwrap(),
+        Some("QID-TESTSERIAL123".to_string())
+    );
+
+    // Test 2: Dynamic USB UUID Port Roaming
+    let meta = UpsMetadata {
+        unique_id: "QID-TESTSERIAL123".into(),
+        name: "Workstation Prolink".into(),
+        usb_uuid: Some("USB#VID_0665&PID_5161#REAR_USB_PORT_1".into()),
+        rated_va: 6000,
+        power_factor: 0.9,
+        rated_watts: 5400,
+        battery_voltage: 192,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "Online".into(),
+        updated_at: "2026-09-10T00:00:00Z".into(),
+    };
+    db.save_ups_metadata(&meta).unwrap();
+
+    // User unplugs and plugs into a front USB port (new usb_uuid)
+    let new_port_uuid = "USB#VID_0665&PID_5161#FRONT_HUB_PORT_4";
+    db.update_device_usb_uuid(&meta.unique_id, new_port_uuid, "2026-09-10T01:00:00Z")
+        .unwrap();
+
+    // Verify unique_id, name, VA, chemistry remain unchanged while usb_uuid is updated
+    let re_read = db.get_ups_metadata(&meta.unique_id).unwrap().unwrap();
+    assert_eq!(re_read.unique_id, "QID-TESTSERIAL123");
+    assert_eq!(re_read.name, "Workstation Prolink");
+    assert_eq!(re_read.rated_va, 6000);
+    assert_eq!(re_read.rated_watts, 5400);
+    assert_eq!(re_read.usb_uuid, Some(new_port_uuid.to_string()));
+    assert_eq!(re_read.updated_at, "2026-09-10T01:00:00Z");
 }
