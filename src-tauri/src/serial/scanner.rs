@@ -89,15 +89,15 @@ fn extract_hid_id(dev: &DeviceInfo) -> String {
     }
 
     let path_str = dev.path().to_string_lossy();
-    // Windows paths contain instance IDs like "...#7&1d9528fa&0&0000#..."
-    if let Some(pos) = path_str.find('&') {
-        let after = &path_str[pos + 1..];
-        if let Some(end) = after.find('&') {
-            let token = &after[..end];
-            if !token.is_empty() {
-                return token.to_uppercase();
-            }
+    // Windows paths look like: "\\\\?\\HID#VID_0665&PID_5161#7&1d9528fa&0&0000#{guid}"
+    let parts: Vec<&str> = path_str.split('#').collect();
+    if parts.len() >= 3 {
+        let instance_part = parts[2];
+        let subparts: Vec<&str> = instance_part.split('&').collect();
+        if subparts.len() >= 2 && !subparts[1].is_empty() {
+            return subparts[1].to_uppercase(); // e.g. "1D9528FA"
         }
+        return instance_part.replace('&', "_").to_uppercase();
     }
 
     format!("{:04X}", dev.product_id())
@@ -106,22 +106,37 @@ fn extract_hid_id(dev: &DeviceInfo) -> String {
 /// Safely probes a USB HID device using ONLY Stage T1 read-only queries (QPI, fallback Q1, and QID).
 pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
     let id_str = extract_hid_id(dev);
-    let port_name = format!("USB:{:04X}:{:04X}:{}", dev.vendor_id(), dev.product_id(), id_str);
+    let port_name = format!(
+        "USB:{:04X}:{:04X}:{}",
+        dev.vendor_id(),
+        dev.product_id(),
+        id_str
+    );
 
     let mut transport = HidTransport::open_path(dev.path(), &port_name).ok()?;
 
     // Step 1: Send ONLY QPI (Query Protocol ID)
-    let protocol_id = if let Ok(qpi_resp) = transport.send_command("QPI") {
-        parse_protocol_id(&qpi_resp).ok()?
-    } else if let Ok(q1_resp) = transport.send_command("Q1") {
-        // Fallback for older Megatec P00 devices that do not implement QPI
-        if q1_resp.starts_with('(') {
-            "00".to_string()
-        } else {
-            return None;
+    let protocol_id = match transport.send_command("QPI") {
+        Ok(qpi_resp) => match parse_protocol_id(&qpi_resp) {
+            Ok(pid) => pid,
+            Err(_) => {
+                // If response was not a valid protocol ID (e.g. stale telemetry in buffer), retry QPI once
+                let qpi_retry = transport.send_command("QPI").ok()?;
+                parse_protocol_id(&qpi_retry).ok()?
+            }
+        },
+        Err(_) => {
+            // Fallback for older Megatec P00 devices that do not implement QPI
+            if let Ok(q1_resp) = transport.send_command("Q1") {
+                if q1_resp.starts_with('(') {
+                    "00".to_string()
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
         }
-    } else {
-        return None;
     };
 
     // Step 2: Optionally query device serial number with QID (Read-only)
@@ -156,7 +171,10 @@ pub fn scan_hid_devices() -> Vec<DiscoveredDevice> {
         if is_candidate_ups_hid(dev) {
             if let Some(device) = probe_hid_device(dev) {
                 // Avoid duplicates if multiple interface endpoints exist for same UPS
-                if !discovered.iter().any(|d: &DiscoveredDevice| d.port_name == device.port_name) {
+                if !discovered
+                    .iter()
+                    .any(|d: &DiscoveredDevice| d.port_name == device.port_name)
+                {
                     tracing::info!(
                         "Discovered USB HID UPS on {} with protocol ID: {}",
                         device.port_name,
@@ -176,16 +194,25 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
     if port_name.starts_with("USB:") {
         let mut transport = HidTransport::open_by_port_name(port_name).ok()?;
 
-        let protocol_id = if let Ok(qpi_resp) = transport.send_command("QPI") {
-            parse_protocol_id(&qpi_resp).ok()?
-        } else if let Ok(q1_resp) = transport.send_command("Q1") {
-            if q1_resp.starts_with('(') {
-                "00".to_string()
-            } else {
-                return None;
+        let protocol_id = match transport.send_command("QPI") {
+            Ok(qpi_resp) => match parse_protocol_id(&qpi_resp) {
+                Ok(pid) => pid,
+                Err(_) => {
+                    let qpi_retry = transport.send_command("QPI").ok()?;
+                    parse_protocol_id(&qpi_retry).ok()?
+                }
+            },
+            Err(_) => {
+                if let Ok(q1_resp) = transport.send_command("Q1") {
+                    if q1_resp.starts_with('(') {
+                        "00".to_string()
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
             }
-        } else {
-            return None;
         };
 
         let serial_number = transport

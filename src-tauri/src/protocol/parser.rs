@@ -21,9 +21,9 @@ pub struct Q1Status {
 
 impl Q1Status {
     pub fn parse(response: &str) -> Result<Self, ProtocolError> {
-        let content = response.strip_prefix('(').ok_or_else(|| {
-            ProtocolError::ParseError("Q1 response must start with '('".into())
-        })?;
+        let content = response
+            .strip_prefix('(')
+            .ok_or_else(|| ProtocolError::ParseError("Q1 response must start with '('".into()))?;
 
         let parts: Vec<&str> = content.split_whitespace().collect();
         if parts.len() < 8 {
@@ -52,15 +52,15 @@ impl Q1Status {
         // Format variation: some models output watts then bat_v, or bat_v directly
         let (out_watts, bat_v, temp_c, bits_idx) = if parts.len() >= 9 {
             let watts = parts[5].parse().unwrap_or(0);
-            let bat = parts[6]
-                .parse()
-                .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+            let bat = parts[6].parse().map_err(|e| {
+                ProtocolError::ParseError(format!("Invalid battery voltage: {}", e))
+            })?;
             let temp = parts[7].parse().unwrap_or(25);
             (watts, bat, temp, 8)
         } else {
-            let bat = parts[5]
-                .parse()
-                .map_err(|e| ProtocolError::ParseError(format!("Invalid battery voltage: {}", e)))?;
+            let bat = parts[5].parse().map_err(|e| {
+                ProtocolError::ParseError(format!("Invalid battery voltage: {}", e))
+            })?;
             let temp = parts[6].parse().unwrap_or(25);
             (0, bat, temp, 7)
         };
@@ -239,30 +239,37 @@ impl QpiriRatings {
 
 /// Parses the Protocol ID from `QPI`.
 pub fn parse_protocol_id(response: &str) -> Result<String, ProtocolError> {
-    let content = response.strip_prefix('(').ok_or_else(|| {
-        ProtocolError::ParseError("QPI response must start with '('".into())
-    })?;
+    let content = response
+        .strip_prefix('(')
+        .ok_or_else(|| ProtocolError::ParseError("QPI response must start with '('".into()))?;
 
-    if let Some(id) = content.strip_prefix("PI") {
+    let trimmed = content.trim();
+
+    if let Some(id) = trimmed.strip_prefix("PI") {
         Ok(id.trim().to_string())
+    } else if trimmed.len() <= 10 && trimmed.chars().all(|c| c.is_alphanumeric()) {
+        Ok(trimmed.to_string())
     } else {
-        Ok(content.trim().to_string())
+        Err(ProtocolError::ParseError(format!(
+            "Invalid Protocol ID format: {}",
+            trimmed
+        )))
     }
 }
 
 /// Parses the Device Serial Number from `QID`.
 pub fn parse_device_id(response: &str) -> Result<String, ProtocolError> {
-    let content = response.strip_prefix('(').ok_or_else(|| {
-        ProtocolError::ParseError("QID response must start with '('".into())
-    })?;
+    let content = response
+        .strip_prefix('(')
+        .ok_or_else(|| ProtocolError::ParseError("QID response must start with '('".into()))?;
     Ok(content.trim().to_string())
 }
 
 /// Parses Firmware Version from `QVFW`.
 pub fn parse_firmware_version(response: &str) -> Result<String, ProtocolError> {
-    let content = response.strip_prefix('(').ok_or_else(|| {
-        ProtocolError::ParseError("QVFW response must start with '('".into())
-    })?;
+    let content = response
+        .strip_prefix('(')
+        .ok_or_else(|| ProtocolError::ParseError("QVFW response must start with '('".into()))?;
 
     if let Some(fw) = content.strip_prefix("VERFW:") {
         Ok(fw.trim().to_string())
@@ -270,4 +277,3 @@ pub fn parse_firmware_version(response: &str) -> Result<String, ProtocolError> {
         Ok(content.trim().to_string())
     }
 }
-
