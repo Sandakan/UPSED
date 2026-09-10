@@ -24,7 +24,15 @@ pub struct EventLogRecord {
     pub timestamp: String,
     pub port_name: String,
     pub event_type: String,
+    #[serde(default = "default_severity")]
+    pub severity: String,
     pub message: String,
+    #[serde(default)]
+    pub acknowledged: bool,
+}
+
+fn default_severity() -> String {
+    "info".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,7 +97,9 @@ impl Database {
                 timestamp TEXT NOT NULL,
                 port_name TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                message TEXT NOT NULL
+                severity TEXT NOT NULL DEFAULT 'info',
+                message TEXT NOT NULL,
+                acknowledged INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -141,6 +151,14 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE ups_metadata ADD COLUMN topology TEXT NOT NULL DEFAULT 'Online'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE events ADD COLUMN severity TEXT NOT NULL DEFAULT 'info'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE events ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0",
             [],
         );
 
@@ -208,13 +226,15 @@ impl Database {
     pub fn insert_event(&self, record: &EventLogRecord) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO events (timestamp, port_name, event_type, message)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO events (timestamp, port_name, event_type, severity, message, acknowledged)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 record.timestamp,
                 record.port_name,
                 record.event_type,
+                record.severity,
                 record.message,
+                if record.acknowledged { 1 } else { 0 },
             ],
         )?;
         Ok(())
@@ -223,17 +243,20 @@ impl Database {
     pub fn query_recent_events(&self, limit: u32) -> Result<Vec<EventLogRecord>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, port_name, event_type, message
+            "SELECT id, timestamp, port_name, event_type, COALESCE(severity, 'info'), message, COALESCE(acknowledged, 0)
              FROM events ORDER BY id DESC LIMIT ?1",
         )?;
 
         let rows = stmt.query_map(params![limit], |row| {
+            let ack_int: i64 = row.get(6)?;
             Ok(EventLogRecord {
                 id: Some(row.get(0)?),
                 timestamp: row.get(1)?,
                 port_name: row.get(2)?,
                 event_type: row.get(3)?,
-                message: row.get(4)?,
+                severity: row.get(4)?,
+                message: row.get(5)?,
+                acknowledged: ack_int != 0,
             })
         })?;
 
@@ -242,6 +265,18 @@ impl Database {
             results.push(r?);
         }
         Ok(results)
+    }
+
+    pub fn clear_events(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM events", [])?;
+        Ok(())
+    }
+
+    pub fn acknowledge_event(&self, event_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("UPDATE events SET acknowledged = 1 WHERE id = ?1", params![event_id])?;
+        Ok(())
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {

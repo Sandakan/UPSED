@@ -173,3 +173,81 @@ fn sec_006_usb_uuid_roaming_and_settings() {
     assert_eq!(re_read.usb_uuid, Some(new_port_uuid.to_string()));
     assert_eq!(re_read.updated_at, "2026-09-10T01:00:00Z");
 }
+
+#[test]
+fn sec_007_hardware_event_transition_detection() {
+    use voltwatch_lib::commands::detect_status_events;
+    use voltwatch_lib::protocol::Q1Status;
+
+    let base_status = Q1Status {
+        grid_voltage_v: 230.0,
+        grid_frequency_hz: 50.0,
+        output_voltage_v: 230.0,
+        output_frequency_hz: 50.0,
+        output_load_pct: 35,
+        output_watts: 280,
+        battery_voltage_v: 27.2,
+        temperature_c: 32,
+        utility_fail: false,
+        battery_low: false,
+        bypass_active: false,
+        ups_failed: false,
+        raw_status_bits: "00000000".into(),
+    };
+
+    // Test 1: Utility failure rising edge (mains blackout)
+    let blackout_status = Q1Status {
+        utility_fail: true,
+        ..base_status.clone()
+    };
+    let events = detect_status_events(Some(&base_status), &blackout_status, "COM1");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, "UTILITY_FAIL");
+    assert_eq!(events[0].severity, "critical");
+
+    // Test 2: Grid restored falling edge
+    let restored_events = detect_status_events(Some(&blackout_status), &base_status, "COM1");
+    assert_eq!(restored_events.len(), 1);
+    assert_eq!(restored_events[0].event_type, "UTILITY_RESTORE");
+    assert_eq!(restored_events[0].severity, "success");
+
+    // Test 3: Low battery warning rising edge
+    let low_bat_status = Q1Status {
+        battery_low: true,
+        ..base_status.clone()
+    };
+    let bat_events = detect_status_events(Some(&base_status), &low_bat_status, "COM1");
+    assert_eq!(bat_events.len(), 1);
+    assert_eq!(bat_events[0].event_type, "BATTERY_LOW");
+    assert_eq!(bat_events[0].severity, "critical");
+
+    // Test 4: Overload (> 100%)
+    let overload_status = Q1Status {
+        output_load_pct: 125,
+        ..base_status.clone()
+    };
+    let ovld_events = detect_status_events(Some(&base_status), &overload_status, "COM1");
+    assert_eq!(ovld_events.len(), 1);
+    assert_eq!(ovld_events[0].event_type, "OVERLOAD");
+    assert_eq!(ovld_events[0].severity, "critical");
+
+    // Test 5: Overload cleared
+    let cleared_ovld = detect_status_events(Some(&overload_status), &base_status, "COM1");
+    assert_eq!(cleared_ovld.len(), 1);
+    assert_eq!(cleared_ovld[0].event_type, "OVERLOAD_CLEARED");
+    assert_eq!(cleared_ovld[0].severity, "info");
+
+    // Test 6: Over-temperature
+    let hot_status = Q1Status {
+        temperature_c: 58,
+        ..base_status.clone()
+    };
+    let temp_events = detect_status_events(Some(&base_status), &hot_status, "COM1");
+    assert_eq!(temp_events.len(), 1);
+    assert_eq!(temp_events[0].event_type, "OVER_TEMP");
+    assert_eq!(temp_events[0].severity, "warning");
+
+    // Test 7: No change produces no events
+    let no_events = detect_status_events(Some(&base_status), &base_status, "COM1");
+    assert!(no_events.is_empty());
+}

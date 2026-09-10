@@ -68,12 +68,16 @@ export interface TelemetryRecord {
   temperature_c: number;
 }
 
+export type EventSeverity = 'critical' | 'warning' | 'info' | 'success';
+
 export interface EventLogRecord {
   id?: number;
   timestamp: string;
   port_name: string;
   event_type: string;
+  severity: EventSeverity;
   message: string;
+  acknowledged?: boolean;
 }
 
 export type VoltronicCommand =

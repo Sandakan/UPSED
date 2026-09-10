@@ -41,6 +41,11 @@ export const api = {
   getRecentEvents: (limit?: number) =>
     invoke<EventLogRecord[]>('get_recent_events', { limit }),
 
+  clearEvents: () => invoke<void>('clear_events'),
+
+  acknowledgeEvent: (eventId: number) =>
+    invoke<void>('acknowledge_event', { eventId }),
+
   getBatteryBridgeStatus: () => invoke<boolean>('get_battery_bridge_status'),
 
   setBatteryBridgeStatus: (enabled: boolean) =>

@@ -55,6 +55,11 @@ impl MultiPortManager {
         devs.contains_key(port_name)
     }
 
+    pub fn get_last_status(&self, port_name: &str) -> Option<Q1Status> {
+        let devs = self.devices.lock().unwrap();
+        devs.get(port_name).and_then(|d| d.last_status.clone())
+    }
+
     pub fn poll_device(&self, port_name: &str) -> Result<Q1Status, ProtocolError> {
         let mut devs = self.devices.lock().unwrap();
         let device = devs.get_mut(port_name).ok_or_else(|| {
@@ -66,7 +71,11 @@ impl MultiPortManager {
         })?;
 
         let proto = device.info.protocol_id.as_str();
-        tracing::info!("Polling telemetry for device {} (protocol: {})", port_name, proto);
+        tracing::info!(
+            "Polling telemetry for device {} (protocol: {})",
+            port_name,
+            proto
+        );
 
         // Protocol-aware command priority:
         // Universal Megatec / Voltronic Online P01 units support "Q1" directly
@@ -96,7 +105,12 @@ impl MultiPortManager {
             let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
             match device.transport.send_command(&cmd_str) {
                 Ok(raw_resp) => {
-                    tracing::debug!("Query {:?} raw response for {}: {:?}", cmd_str, port_name, raw_resp);
+                    tracing::debug!(
+                        "Query {:?} raw response for {}: {:?}",
+                        cmd_str,
+                        port_name,
+                        raw_resp
+                    );
                     let parsed = match cmd {
                         VoltronicCommand::QueryStatusQs => Q1Status::parse_qs(&raw_resp),
                         VoltronicCommand::QuickStatus => Q1Status::parse(&raw_resp),
@@ -155,7 +169,10 @@ impl MultiPortManager {
             }
         }
 
-        tracing::error!("All telemetry queries (QS, Q1, QPIGS) failed on {}", port_name);
+        tracing::error!(
+            "All telemetry queries (QS, Q1, QPIGS) failed on {}",
+            port_name
+        );
         Err(ProtocolError::CommandNak)
     }
 
@@ -170,9 +187,7 @@ impl MultiPortManager {
             .map_err(|e| ProtocolError::DeviceError(e.to_string()))?;
 
         // Step 2: Validate command payload
-        let cmd_str = cmd
-            .as_cmd_str()
-            .map_err(ProtocolError::EncodingError)?;
+        let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
 
         // Step 3: Dispatch to specific hardware port
         let mut devs = self.devices.lock().unwrap();

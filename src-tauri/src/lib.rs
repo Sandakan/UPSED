@@ -34,6 +34,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -80,7 +81,9 @@ pub fn run() {
             commands::get_last_connected_device,
             commands::set_last_connected_device,
             commands::update_device_usb_uuid,
-            commands::fast_probe_device
+            commands::fast_probe_device,
+            commands::clear_events,
+            commands::acknowledge_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoltWatch application");

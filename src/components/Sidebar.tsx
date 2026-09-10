@@ -9,6 +9,7 @@ import {
   Search,
   Plug,
   CheckCircle2,
+  Bell,
 } from 'lucide-react';
 import { DiscoveredDevice, UnlockStage } from '../lib/types';
 
@@ -21,6 +22,7 @@ interface SidebarProps {
   onScan: () => void;
   isScanning: boolean;
   safetyStage: UnlockStage;
+  unreadEventsCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -32,12 +34,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onScan,
   isScanning,
   safetyStage,
+  unreadEventsCount = 0,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Activity },
+    { id: 'events', label: 'Events', icon: Bell, badge: unreadEventsCount },
     { id: 'control', label: 'Hardware Control', icon: Sliders },
     { id: 'config', label: 'Configuration', icon: Wrench },
-    { id: 'history', label: 'History & Events', icon: History },
+    { id: 'history', label: 'History & Graphs', icon: History },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -123,14 +127,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition ${
                 isActive
                   ? 'bg-blue-600/15 text-cyan-400 border border-cyan-500/30 shadow-sm'
                   : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span>{item.label}</span>
+              <div className="flex items-center space-x-3">
+                <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <span>{item.label}</span>
+              </div>
+              {item.badge !== undefined && item.badge > 0 && (
+                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white shadow-sm animate-pulse">
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
             </button>
           );
         })}

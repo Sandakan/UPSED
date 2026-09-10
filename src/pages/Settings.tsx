@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap } from 'lucide-react';
+import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap, Bell } from 'lucide-react';
 import { api } from '../lib/tauri';
 import { UpsMetadata } from '../lib/types';
 import {
@@ -14,6 +14,10 @@ interface SettingsProps {
   onBatteryBridgeChange: (val: boolean) => void;
   metadata?: UpsMetadata | null;
   onUpdateMetadata?: (val: UpsMetadata) => void;
+  osNotificationsEnabled: boolean;
+  onOsNotificationsChange: (val: boolean) => void;
+  inAppToastsEnabled: boolean;
+  onInAppToastsChange: (val: boolean) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -23,9 +27,15 @@ export const Settings: React.FC<SettingsProps> = ({
   onBatteryBridgeChange,
   metadata,
   onUpdateMetadata,
+  osNotificationsEnabled,
+  onOsNotificationsChange,
+  inAppToastsEnabled,
+  onInAppToastsChange,
 }) => {
   const [intervalVal, setIntervalVal] = useState(pollInterval);
   const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
+  const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
+  const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
   const [savedNotice, setSavedNotice] = useState(false);
 
   // UPS Profile state
@@ -56,6 +66,8 @@ export const Settings: React.FC<SettingsProps> = ({
   const handleSave = async () => {
     onPollIntervalChange(intervalVal);
     onBatteryBridgeChange(bridgeVal);
+    onOsNotificationsChange(osNotifVal);
+    onInAppToastsChange(inAppToastVal);
     try {
       await api.setBatteryBridgeStatus(bridgeVal);
       if (metadata) {
@@ -290,6 +302,61 @@ export const Settings: React.FC<SettingsProps> = ({
           <span className="text-xs font-semibold text-slate-300">
             {bridgeVal ? 'Enabled (Active)' : 'Disabled (Default)'}
           </span>
+        </div>
+      </div>
+
+      {/* Notifications & Hardware Alarms */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-slate-200">
+            <Bell className="w-4 h-4 text-cyan-400" />
+            <h4 className="text-sm font-semibold">Notifications & Hardware Alarms</h4>
+          </div>
+          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+            Real-time
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+          Configure how critical UPS state transitions, power outages, and alarms are delivered.
+        </p>
+
+        <div className="space-y-4 pt-1">
+          <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div>
+              <p className="text-xs font-semibold text-slate-200">Native OS Desktop Notifications</p>
+              <p className="text-[11px] text-slate-400">
+                Trigger Windows Action Center banners with sound when VoltWatch is out of focus, minimized, or in tray.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={osNotifVal}
+                onChange={(e) => setOsNotifVal(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div>
+              <p className="text-xs font-semibold text-slate-200">Custom In-App Toasts</p>
+              <p className="text-[11px] text-slate-400">
+                Display floating glassmorphic alerts in the bottom-right corner during live monitoring.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={inAppToastVal}
+                onChange={(e) => setInAppToastVal(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            </label>
+          </div>
         </div>
       </div>
 

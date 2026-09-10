@@ -8,9 +8,13 @@ import { Dashboard } from './pages/Dashboard';
 import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
+import { Events } from './pages/Events';
 import { Settings } from './pages/Settings';
+import { VoltWatchToaster } from './components/VoltWatchToaster';
+import { handleIncomingUpsEvent } from './lib/notifications';
+import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata } from './lib/types';
+import { UpsMetadata, EventLogRecord } from './lib/types';
 
 export function App() {
   const queryClient = useQueryClient();
@@ -18,6 +22,8 @@ export function App() {
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<number>(10); // 10 seconds default
   const [isSetupModalDismissed, setIsSetupModalDismissed] = useState(false);
+  const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
+  const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
 
   // 1. Scan serial and USB ports query
   const {
@@ -158,6 +164,29 @@ export function App() {
     refetchInterval: pollInterval * 1000,
   });
 
+  // Listen to real-time 'ups-event' broadcast from backend
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<EventLogRecord>('ups-event', (tauriEvent) => {
+      handleIncomingUpsEvent(tauriEvent.payload, {
+        osNotificationsEnabled,
+        inAppToastsEnabled,
+      });
+      // Invalidate events cache to show in table
+      queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [osNotificationsEnabled, inAppToastsEnabled, queryClient]);
+
+  const unreadEventsCount = events.filter(
+    (e) => !e.acknowledged && (e.severity === 'critical' || e.severity === 'warning')
+  ).length;
+
   // 6. Safety Stage query
   const {
     data: safetyStage = 'T1ReadOnly',
@@ -228,6 +257,7 @@ export function App() {
         onScan={handleScan}
         isScanning={isScanning}
         safetyStage={safetyStage}
+        unreadEventsCount={unreadEventsCount}
       />
 
       {/* Main App Canvas */}
@@ -251,6 +281,14 @@ export function App() {
               portName={selectedDevice}
               lastError={lastError}
               metadata={upsMetadata}
+            />
+          )}
+
+          {currentTab === 'events' && (
+            <Events
+              events={events}
+              onRefresh={refetchEvents}
+              isRefreshing={isRefreshing}
             />
           )}
 
@@ -283,10 +321,17 @@ export function App() {
               onBatteryBridgeChange={handleBatteryBridgeChange}
               metadata={upsMetadata}
               onUpdateMetadata={(meta) => saveMetadataMutation.mutate(meta)}
+              osNotificationsEnabled={osNotificationsEnabled}
+              onOsNotificationsChange={setOsNotificationsEnabled}
+              inAppToastsEnabled={inAppToastsEnabled}
+              onInAppToastsChange={setInAppToastsEnabled}
             />
           )}
         </main>
       </div>
+
+      {/* Headless Bespoke Toast Notification Container */}
+      <VoltWatchToaster />
 
       {/* First-time UPS Configuration Modal */}
       {activeDevice && upsMetadata === null && !isSetupModalDismissed && (
