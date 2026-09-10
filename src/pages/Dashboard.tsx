@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Zap,
   Battery,
@@ -12,13 +12,10 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
 } from 'recharts';
 import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
+import { MetricGraphsHub } from '../components/MetricGraphsHub';
 import {
   calculateActiveWatts,
   calculateBatterySoC,
@@ -99,184 +96,187 @@ export const Dashboard: React.FC<DashboardProps> = ({
     metadata?.battery_chemistry ?? 'VRLA_SLA'
   );
 
-  const chartData = history.slice(-20).map((h) => ({
-    time: h.timestamp.split('T')[1]?.substring(0, 8) || '',
-    load: h.load_pct,
-    voltage: h.output_voltage,
-    battery: h.battery_voltage,
-  }));
+  const sparkData = useMemo(() => {
+    return history.slice(-15).map((h) => ({
+      gridV: h.grid_voltage,
+      load: h.load_pct,
+      batV: h.battery_voltage,
+      temp: h.temperature_c,
+    }));
+  }, [history]);
 
   return (
     <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
       {/* Top Stat Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Grid Input Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">AC Input Grid</span>
-            <Zap className="w-4 h-4 text-amber-400" />
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">AC Input Grid</span>
+              <Zap className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-slate-100 font-mono">
+                {status.grid_voltage_v.toFixed(1)}
+              </span>
+              <span className="text-sm text-slate-400">V</span>
+            </div>
+            <div className="text-xs text-slate-400 font-mono mt-1 flex justify-between">
+              <span>Freq: {status.grid_frequency_hz.toFixed(1)} Hz</span>
+              <span className={status.utility_fail ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                {status.utility_fail ? 'FAIL' : 'OK'}
+              </span>
+            </div>
           </div>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-slate-100 font-mono">
-              {status.grid_voltage_v.toFixed(1)}
-            </span>
-            <span className="text-sm text-slate-400">V</span>
-          </div>
-          <div className="text-xs text-slate-400 font-mono mt-1 flex justify-between">
-            <span>Freq: {status.grid_frequency_hz.toFixed(1)} Hz</span>
-            <span className={status.utility_fail ? 'text-rose-400' : 'text-emerald-400'}>
-              {status.utility_fail ? 'FAIL' : 'OK'}
-            </span>
+
+          {/* Mini Sparkline */}
+          <div className="h-8 w-full mt-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="sparkGridV" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="gridV" stroke="#f59e0b" strokeWidth={1.5} fill="url(#sparkGridV)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
         {/* Output Load Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Output Load</span>
-            <Gauge className="w-4 h-4 text-cyan-400" />
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Output Load</span>
+              <Gauge className="w-4 h-4 text-cyan-400" />
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-slate-100 font-mono">
+                {status.output_load_pct}
+              </span>
+              <span className="text-sm text-slate-400">%</span>
+              <span className="text-xs text-slate-400 font-mono ml-auto" title="Active Output Power">
+                {effectiveWatts} W
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 mt-2.5 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  status.output_load_pct > 80
+                    ? 'bg-rose-500'
+                    : status.output_load_pct > 60
+                    ? 'bg-amber-500'
+                    : 'bg-cyan-500'
+                }`}
+                style={{ width: `${Math.min(status.output_load_pct, 100)}%` }}
+              />
+            </div>
           </div>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-slate-100 font-mono">
-              {status.output_load_pct}
-            </span>
-            <span className="text-sm text-slate-400">%</span>
-            <span className="text-xs text-slate-400 font-mono ml-auto" title="Active Output Power">
-              {effectiveWatts} W
-            </span>
-          </div>
-          <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                status.output_load_pct > 80
-                  ? 'bg-rose-500'
-                  : status.output_load_pct > 60
-                  ? 'bg-amber-500'
-                  : 'bg-cyan-500'
-              }`}
-              style={{ width: `${Math.min(status.output_load_pct, 100)}%` }}
-            />
+
+          {/* Mini Sparkline */}
+          <div className="h-8 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="sparkLoad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="load" stroke="#06b6d4" strokeWidth={1.5} fill="url(#sparkLoad)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
         {/* Battery State Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Battery Bank</span>
-            <Battery
-              className={`w-4 h-4 ${status.battery_low ? 'text-rose-400' : 'text-emerald-400'}`}
-            />
-          </div>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-slate-100 font-mono">
-              {status.battery_voltage_v.toFixed(1)}
-            </span>
-            <span className="text-sm text-slate-400">V</span>
-            <div className="ml-auto text-right font-mono">
-              <span className="text-xs text-emerald-400 font-semibold">{batPct}%</span>
-              <span className="text-[11px] text-slate-500 block">~{formatRuntime(estRuntimeMins)}</span>
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Battery Bank</span>
+              <Battery
+                className={`w-4 h-4 ${status.battery_low ? 'text-rose-400' : 'text-emerald-400'}`}
+              />
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-slate-100 font-mono">
+                {status.battery_voltage_v.toFixed(1)}
+              </span>
+              <span className="text-sm text-slate-400">V</span>
+              <div className="ml-auto text-right font-mono">
+                <span className="text-xs text-emerald-400 font-semibold">{batPct}%</span>
+                <span className="text-[11px] text-slate-500 block">~{formatRuntime(estRuntimeMins)}</span>
+              </div>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 mt-2.5 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  status.battery_low ? 'bg-rose-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${batPct}%` }}
+              />
             </div>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                status.battery_low ? 'bg-rose-500' : 'bg-emerald-500'
-              }`}
-              style={{ width: `${batPct}%` }}
-            />
+
+          {/* Mini Sparkline */}
+          <div className="h-8 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="sparkBat" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="batV" stroke="#10b981" strokeWidth={1.5} fill="url(#sparkBat)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
         {/* Internal Thermals Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Inverter Temp</span>
-            <Thermometer className="w-4 h-4 text-orange-400" />
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider">Inverter Temp</span>
+              <Thermometer className="w-4 h-4 text-orange-400" />
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-3xl font-bold text-slate-100 font-mono">
+                {status.temperature_c}
+              </span>
+              <span className="text-sm text-slate-400">°C</span>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Output: {status.output_voltage_v.toFixed(1)}V @ {status.output_frequency_hz.toFixed(1)}Hz
+            </p>
           </div>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-slate-100 font-mono">
-              {status.temperature_c}
-            </span>
-            <span className="text-sm text-slate-400">°C</span>
+
+          {/* Mini Sparkline */}
+          <div className="h-8 w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sparkData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="sparkTemp" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="temp" stroke="#f97316" strokeWidth={1.5} fill="url(#sparkTemp)" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            Output: {status.output_voltage_v.toFixed(1)}V @ {status.output_frequency_hz.toFixed(1)}Hz
-          </p>
         </div>
       </div>
 
       {/* Modern UPS Single-Line Power Flow Topology Graphic */}
       <PowerFlowDiagram status={status} portName={portName} metadata={metadata} />
 
-      {/* Real-Time Telemetry Chart */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-base font-semibold text-slate-100">Live Load & Voltage Telemetry</h3>
-            <p className="text-xs text-slate-400">Continuous hardware sampling</p>
-          </div>
-          <div className="flex items-center space-x-4 text-xs font-mono">
-            <div className="flex items-center space-x-1.5">
-              <div className="w-3 h-3 rounded-full bg-cyan-500" />
-              <span className="text-slate-300">Load %</span>
-            </div>
-            <div className="flex items-center space-x-1.5">
-              <div className="w-3 h-3 rounded-full bg-blue-500" />
-              <span className="text-slate-300">Output Voltage (V)</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="h-64 w-full">
-          {chartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
-              Collecting telemetry points...
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="loadGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="voltGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
-                <YAxis stroke="#64748b" fontSize={11} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#334155',
-                    borderRadius: '0.75rem',
-                    fontSize: '12px',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="load"
-                  stroke="#06b6d4"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#loadGrad)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="voltage"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#voltGrad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+      {/* Real-Time Telemetry & Multi-Metric Graphs Hub */}
+      <MetricGraphsHub status={status} history={history} metadata={metadata} />
 
       {/* Warnings and Status Bit Flags */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

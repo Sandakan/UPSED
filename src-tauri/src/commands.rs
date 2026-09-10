@@ -135,7 +135,10 @@ pub async fn get_device_status(
                     port_name: port_name.clone(),
                     grid_voltage: status.grid_voltage_v,
                     output_voltage: status.output_voltage_v,
+                    grid_frequency: status.grid_frequency_hz,
+                    output_frequency: status.output_frequency_hz,
                     load_pct: status.output_load_pct,
+                    output_watts: status.output_watts,
                     battery_voltage: status.battery_voltage_v,
                     temperature_c: status.temperature_c,
                 });

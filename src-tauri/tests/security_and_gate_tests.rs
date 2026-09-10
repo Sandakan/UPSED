@@ -56,7 +56,10 @@ fn sec_004_sqlite_telemetry_isolation() {
         port_name: "COM1".into(),
         grid_voltage: 230.5,
         output_voltage: 230.0,
+        grid_frequency: 50.1,
+        output_frequency: 50.0,
         load_pct: 25,
+        output_watts: 250,
         battery_voltage: 26.8,
         temperature_c: 35,
     };
@@ -66,6 +69,9 @@ fn sec_004_sqlite_telemetry_isolation() {
     let results = db.query_recent_telemetry("COM1", 10).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].grid_voltage, 230.5);
+    assert_eq!(results[0].grid_frequency, 50.1);
+    assert_eq!(results[0].output_frequency, 50.0);
+    assert_eq!(results[0].output_watts, 250);
 
     // Querying a different port yields empty result (isolation)
     let results_other = db.query_recent_telemetry("COM2", 10).unwrap();

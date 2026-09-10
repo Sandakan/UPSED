@@ -10,7 +10,10 @@ pub struct TelemetryRecord {
     pub port_name: String,
     pub grid_voltage: f32,
     pub output_voltage: f32,
+    pub grid_frequency: f32,
+    pub output_frequency: f32,
     pub load_pct: u32,
+    pub output_watts: u32,
     pub battery_voltage: f32,
     pub temperature_c: i32,
 }
@@ -73,7 +76,10 @@ impl Database {
                 port_name TEXT NOT NULL,
                 grid_voltage REAL,
                 output_voltage REAL,
+                grid_frequency REAL DEFAULT 50.0,
+                output_frequency REAL DEFAULT 50.0,
                 load_pct INTEGER,
+                output_watts INTEGER DEFAULT 0,
                 battery_voltage REAL,
                 temperature_c INTEGER
             );
@@ -108,6 +114,18 @@ impl Database {
         )?;
 
         // Lightweight column migrations for backward compatibility
+        let _ = conn.execute(
+            "ALTER TABLE telemetry ADD COLUMN grid_frequency REAL DEFAULT 50.0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE telemetry ADD COLUMN output_frequency REAL DEFAULT 50.0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE telemetry ADD COLUMN output_watts INTEGER DEFAULT 0",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE ups_metadata ADD COLUMN usb_uuid TEXT", []);
         let _ = conn.execute(
             "ALTER TABLE ups_metadata ADD COLUMN rated_va INTEGER NOT NULL DEFAULT 1000",
@@ -134,14 +152,17 @@ impl Database {
     pub fn insert_telemetry(&self, record: &TelemetryRecord) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO telemetry (timestamp, port_name, grid_voltage, output_voltage, load_pct, battery_voltage, temperature_c)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO telemetry (timestamp, port_name, grid_voltage, output_voltage, grid_frequency, output_frequency, load_pct, output_watts, battery_voltage, temperature_c)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 record.timestamp,
                 record.port_name,
                 record.grid_voltage,
                 record.output_voltage,
+                record.grid_frequency,
+                record.output_frequency,
                 record.load_pct,
+                record.output_watts,
                 record.battery_voltage,
                 record.temperature_c,
             ],
@@ -156,7 +177,7 @@ impl Database {
     ) -> Result<Vec<TelemetryRecord>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, port_name, grid_voltage, output_voltage, load_pct, battery_voltage, temperature_c
+            "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
              FROM telemetry WHERE port_name = ?1 ORDER BY id DESC LIMIT ?2",
         )?;
 
@@ -167,9 +188,12 @@ impl Database {
                 port_name: row.get(2)?,
                 grid_voltage: row.get(3)?,
                 output_voltage: row.get(4)?,
-                load_pct: row.get(5)?,
-                battery_voltage: row.get(6)?,
-                temperature_c: row.get(7)?,
+                grid_frequency: row.get(5)?,
+                output_frequency: row.get(6)?,
+                load_pct: row.get(7)?,
+                output_watts: row.get(8)?,
+                battery_voltage: row.get(9)?,
+                temperature_c: row.get(10)?,
             })
         })?;
 

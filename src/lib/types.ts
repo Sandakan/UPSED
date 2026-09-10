@@ -60,7 +60,10 @@ export interface TelemetryRecord {
   port_name: string;
   grid_voltage: number;
   output_voltage: number;
+  grid_frequency?: number;
+  output_frequency?: number;
   load_pct: number;
+  output_watts?: number;
   battery_voltage: number;
   temperature_c: number;
 }
