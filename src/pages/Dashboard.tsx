@@ -112,9 +112,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Grid Input Card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">AC Input Grid</span>
-              <Zap className="w-4 h-4 text-amber-400" />
+            <div className="flex items-center justify-between text-slate-400 mb-2 h-8">
+              <span className="text-xs font-semibold uppercase tracking-wider leading-none">AC Input Grid</span>
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                <Zap className="w-8 h-8 text-amber-400" />
+              </div>
             </div>
             <div className="flex items-baseline space-x-2">
               <span className="text-3xl font-bold text-slate-100 font-mono">
@@ -149,9 +151,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Output Load Card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Output Load</span>
-              <Gauge className="w-4 h-4 text-cyan-400" />
+            <div className="flex items-center justify-between text-slate-400 mb-2 h-8">
+              <span className="text-xs font-semibold uppercase tracking-wider leading-none">Output Load</span>
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                <Gauge className="w-8 h-8 text-cyan-400 translate-y-1" />
+              </div>
             </div>
             <div className="flex items-baseline space-x-2">
               <span className="text-3xl font-bold text-slate-100 font-mono">
@@ -195,20 +199,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Battery State Card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Battery Bank</span>
-              <Battery
-                className={`w-4 h-4 ${status.battery_low ? 'text-rose-400' : 'text-emerald-400'}`}
-              />
+            <div className="flex items-center justify-between text-slate-400 mb-2 h-8">
+              <span className="text-xs font-semibold uppercase tracking-wider leading-none">Battery Bank</span>
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                <Battery
+                  className={`w-8 h-8 ${status.battery_low ? 'text-rose-400' : 'text-emerald-400'}`}
+                />
+              </div>
             </div>
             <div className="flex items-baseline space-x-2">
               <span className="text-3xl font-bold text-slate-100 font-mono">
-                {status.battery_voltage_v.toFixed(1)}
+                {batPct}
               </span>
-              <span className="text-sm text-slate-400">V</span>
-              <div className="ml-auto text-right font-mono">
-                <span className="text-xs text-emerald-400 font-semibold">{batPct}%</span>
-                <span className="text-[11px] text-slate-500 block">~{formatRuntime(estRuntimeMins)}</span>
+              <span className="text-sm text-slate-400">%</span>
+              <div className="ml-auto text-right font-mono text-xs flex items-baseline space-x-1.5">
+                <span className="text-[11px] text-slate-500">Est. Runtime</span>
+                <span className="text-emerald-400 font-semibold">~{formatRuntime(estRuntimeMins)}</span>
               </div>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-1.5 mt-2.5 overflow-hidden">
@@ -240,9 +246,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Internal Thermals Card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Inverter Temp</span>
-              <Thermometer className="w-4 h-4 text-orange-400" />
+            <div className="flex items-center justify-between text-slate-400 mb-2 h-8">
+              <span className="text-xs font-semibold uppercase tracking-wider leading-none">Inverter Temp</span>
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                <Thermometer className="w-8 h-8 text-orange-400" />
+              </div>
             </div>
             <div className="flex items-baseline space-x-2">
               <span className="text-3xl font-bold text-slate-100 font-mono">

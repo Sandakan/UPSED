@@ -601,19 +601,19 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
                   : 'bg-cyan-950/80 text-cyan-400'
               }`}
             >
-              {status.battery_low ? 'LOW' : `${batPct}%`}
+              {status.battery_low ? 'LOW' : `${status.battery_voltage_v.toFixed(1)} V`}
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+              <span className="text-slate-500 text-[11px] block">Capacity</span>
+              <span className="text-sm font-bold text-cyan-300">{batPct}%</span>
+            </div>
             <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
               <span className="text-slate-500 text-[11px] block">Voltage</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.battery_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
-            </div>
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-              <span className="text-slate-500 text-[11px] block">Capacity</span>
-              <span className="text-sm font-bold text-slate-200">{batPct}%</span>
             </div>
             <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
               <span className="text-slate-500 text-[11px] block">Est. Runtime</span>
