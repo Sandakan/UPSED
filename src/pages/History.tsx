@@ -66,24 +66,24 @@ export const History: React.FC<HistoryProps> = ({
   }, [telemetry]);
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
+    <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] min-w-0">
       {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-slate-800 rounded-xl text-slate-300">
+          <div className="p-2 bg-slate-800 rounded-xl text-slate-300 shrink-0">
             <HistoryIcon className="w-5 h-5" />
           </div>
-          <div>
-            <h3 className="text-base font-semibold text-slate-100">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-100 truncate">
               Telemetry & Event History
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-400 truncate">
               Stored locally in SQLite embedded database
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Tab selector */}
           <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs">
             <button
@@ -140,12 +140,12 @@ export const History: React.FC<HistoryProps> = ({
       </div>
 
       {/* Main Container */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-sm min-w-0">
         {activeTab === 'charts' ? (
-          <div className="p-5 space-y-4">
+          <div className="p-3.5 sm:p-5 space-y-4 min-w-0">
             {/* Metric Filter Strip */}
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800 text-xs">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-nowrap -mx-1 px-1">
                 {[
                   { id: 'voltage', label: 'Voltages (V)', icon: Zap },
                   { id: 'frequency', label: 'Frequencies (Hz)', icon: Activity },
@@ -159,7 +159,7 @@ export const History: React.FC<HistoryProps> = ({
                     <button
                       key={m.id}
                       onClick={() => setChartMetric(m.id as any)}
-                      className={`px-3 py-1.5 rounded-xl border font-semibold flex items-center space-x-1.5 transition ${
+                      className={`px-3 py-1.5 rounded-xl border font-semibold flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap ${
                         isCur
                           ? 'bg-cyan-950/70 border-cyan-500/60 text-cyan-300'
                           : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -177,7 +177,7 @@ export const History: React.FC<HistoryProps> = ({
             </div>
 
             {/* Chart Area */}
-            <div className="h-80 w-full bg-slate-950/60 rounded-xl p-3 border border-slate-800">
+            <div className="h-64 sm:h-80 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
               {chartData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
                   No historical telemetry points recorded yet.
@@ -196,7 +196,7 @@ export const History: React.FC<HistoryProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={30} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} />
                     <Tooltip
                       contentStyle={{

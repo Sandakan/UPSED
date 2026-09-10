@@ -39,6 +39,8 @@ interface MetricGraphsHubProps {
 
 type ViewMode = 'grid' | 'categories';
 type CategoryTab = 'voltage' | 'frequency' | 'power' | 'battery' | 'temperature' | 'runtime';
+type GridColsMode = 'auto' | '2' | '3' | '4' | '5';
+type GridFilterMode = 'all' | 'grid' | 'power' | 'battery' | 'thermal';
 
 export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
   status,
@@ -50,6 +52,8 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
   const [windowLimit, setWindowLimit] = useState<number>(50);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [frozenHistory, setFrozenHistory] = useState<TelemetryRecord[]>([]);
+  const [gridCols, setGridCols] = useState<GridColsMode>('auto');
+  const [gridFilter, setGridFilter] = useState<GridFilterMode>('all');
 
   const togglePause = () => {
     if (!isPaused) {
@@ -164,18 +168,247 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
     value2: d.output_frequency,
   }));
 
+  const gridColsClass = useMemo(() => {
+    switch (gridCols) {
+      case '2':
+        return 'grid-cols-1 md:grid-cols-2';
+      case '3':
+        return 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3';
+      case '4':
+        return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4';
+      case '5':
+        return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5';
+      default:
+        return '';
+    }
+  }, [gridCols]);
+
+  const allCards = useMemo(
+    () => [
+      {
+        id: 'grid-v',
+        category: 'grid' as const,
+        component: (
+          <MetricChartCard
+            key="grid-v"
+            title="Input Grid Voltage"
+            icon={<Zap className="w-4 h-4 text-amber-400" />}
+            currentValue={status.grid_voltage_v.toFixed(1)}
+            unit="V"
+            data={gridVData}
+            color="#f59e0b"
+            name1="Grid V"
+            gradientId="all-grid-v"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'out-v',
+        category: 'power' as const,
+        component: (
+          <MetricChartCard
+            key="out-v"
+            title="Output Voltage"
+            icon={<Zap className="w-4 h-4 text-blue-400" />}
+            currentValue={status.output_voltage_v.toFixed(1)}
+            unit="V"
+            data={outVData}
+            color="#3b82f6"
+            name1="Output V"
+            gradientId="all-out-v"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'grid-f',
+        category: 'grid' as const,
+        component: (
+          <MetricChartCard
+            key="grid-f"
+            title="Input Frequency"
+            icon={<Activity className="w-4 h-4 text-cyan-400" />}
+            currentValue={status.grid_frequency_hz.toFixed(1)}
+            unit="Hz"
+            data={gridFData}
+            color="#06b6d4"
+            name1="Input Hz"
+            gradientId="all-grid-f"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'out-f',
+        category: 'power' as const,
+        component: (
+          <MetricChartCard
+            key="out-f"
+            title="Output Frequency"
+            icon={<Activity className="w-4 h-4 text-indigo-400" />}
+            currentValue={status.output_frequency_hz.toFixed(1)}
+            unit="Hz"
+            data={outFData}
+            color="#818cf8"
+            name1="Output Hz"
+            gradientId="all-out-f"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'load',
+        category: 'power' as const,
+        component: (
+          <MetricChartCard
+            key="load"
+            title="Output Load"
+            icon={<Gauge className="w-4 h-4 text-cyan-400" />}
+            currentValue={status.output_load_pct}
+            unit="%"
+            data={loadData}
+            color="#06b6d4"
+            name1="Load %"
+            domain={[0, 100]}
+            gradientId="all-load"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'watts',
+        category: 'power' as const,
+        component: (
+          <MetricChartCard
+            key="watts"
+            title="Active Power"
+            icon={<Zap className="w-4 h-4 text-emerald-400" />}
+            currentValue={currentWatts}
+            unit="W"
+            data={wattsData}
+            color="#10b981"
+            name1="Watts"
+            gradientId="all-watts"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'bat-v',
+        category: 'battery' as const,
+        component: (
+          <MetricChartCard
+            key="bat-v"
+            title="Battery Voltage"
+            icon={<Battery className="w-4 h-4 text-teal-400" />}
+            currentValue={status.battery_voltage_v.toFixed(1)}
+            unit="V"
+            data={batVData}
+            color="#14b8a6"
+            name1="Battery V"
+            gradientId="all-bat-v"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'bat-soc',
+        category: 'battery' as const,
+        component: (
+          <MetricChartCard
+            key="bat-soc"
+            title="Battery Capacity"
+            icon={<Battery className="w-4 h-4 text-emerald-400" />}
+            currentValue={currentBatPct}
+            unit="%"
+            data={batSocData}
+            color="#10b981"
+            name1="SoC %"
+            domain={[0, 100]}
+            gradientId="all-bat-soc"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'temp',
+        category: 'thermal' as const,
+        component: (
+          <MetricChartCard
+            key="temp"
+            title="Temperature"
+            icon={<Thermometer className="w-4 h-4 text-orange-400" />}
+            currentValue={status.temperature_c}
+            unit="°C"
+            data={tempData}
+            color="#f97316"
+            name1="Temp °C"
+            gradientId="all-temp"
+            height={150}
+          />
+        ),
+      },
+      {
+        id: 'runtime',
+        category: 'battery' as const,
+        component: (
+          <MetricChartCard
+            key="runtime"
+            title="Est. Runtime"
+            icon={<Clock className="w-4 h-4 text-purple-400" />}
+            currentValue={currentRuntime}
+            unit="mins"
+            data={runtimeData}
+            color="#a855f7"
+            name1="Runtime"
+            gradientId="all-runtime"
+            height={150}
+          />
+        ),
+      },
+    ],
+    [
+      status.grid_voltage_v,
+      status.output_voltage_v,
+      status.grid_frequency_hz,
+      status.output_frequency_hz,
+      status.output_load_pct,
+      status.battery_voltage_v,
+      status.temperature_c,
+      currentWatts,
+      currentBatPct,
+      currentRuntime,
+      gridVData,
+      outVData,
+      gridFData,
+      outFData,
+      loadData,
+      wattsData,
+      batVData,
+      batSocData,
+      tempData,
+      runtimeData,
+    ]
+  );
+
+  const filteredCards = useMemo(() => {
+    if (gridFilter === 'all') return allCards;
+    return allCards.filter((card) => card.category === gridFilter);
+  }, [allCards, gridFilter]);
+
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0">
       {/* Top Header & Control Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
         <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-800/40 text-cyan-400">
+          <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-800/40 text-cyan-400 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
-          <div>
-            <h3 className="text-base font-semibold text-slate-100">UPS Metric Graphs</h3>
-            <p className="text-xs text-slate-400">Real-time telemetry and hardware sensor trends</p>
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-100 truncate">UPS Metric Graphs</h3>
+            <p className="text-xs text-slate-400 truncate">Real-time telemetry and hardware sensor trends</p>
           </div>
         </div>
 
@@ -215,7 +448,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
           <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-0.5">
             <button
               onClick={() => setViewMode('categories')}
-              className={`px-3 py-1 rounded-lg font-medium flex items-center space-x-1.5 transition ${
+              className={`px-2.5 sm:px-3 py-1 rounded-lg font-medium flex items-center space-x-1.5 transition ${
                 viewMode === 'categories'
                   ? 'bg-cyan-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
@@ -226,14 +459,14 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             </button>
             <button
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-1 rounded-lg font-medium flex items-center space-x-1.5 transition ${
+              className={`px-2.5 sm:px-3 py-1 rounded-lg font-medium flex items-center space-x-1.5 transition ${
                 viewMode === 'grid'
                   ? 'bg-cyan-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>All Metrics (10)</span>
+              <span>All (10)</span>
             </button>
           </div>
         </div>
@@ -241,9 +474,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
 
       {/* VIEW MODE 1: CATEGORY TABS & DETAILED COMPARISONS */}
       {viewMode === 'categories' && (
-        <div className="space-y-4">
-          {/* Category Tabs Pill Bar */}
-          <div className="flex flex-wrap items-center gap-1.5 pb-1">
+        <div className="space-y-4 min-w-0">
+          {/* Category Tabs Pill Bar with horizontal scrolling */}
+          <div className="flex items-center gap-1.5 pb-1.5 overflow-x-auto no-scrollbar flex-nowrap -mx-1 px-1">
             {[
               { id: 'voltage', label: 'Voltage (Grid vs Out)', icon: Zap },
               { id: 'frequency', label: 'Frequency (Hz)', icon: Activity },
@@ -258,7 +491,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setActiveCategory(tab.id as CategoryTab)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center space-x-2 transition ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center space-x-2 transition shrink-0 whitespace-nowrap ${
                     isActive
                       ? 'bg-cyan-950/70 border-cyan-500/60 text-cyan-300 shadow-sm'
                       : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -290,7 +523,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                 </span>
               </div>
 
-              <div className="h-72 w-full bg-slate-950/60 rounded-xl p-3 border border-slate-800">
+              <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={voltageCombined}>
                     <defs>
@@ -304,7 +537,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="V" />
                     <Tooltip
                       contentStyle={{
@@ -381,7 +614,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                 <span className="text-emerald-400 font-semibold">Frequency Synchronized</span>
               </div>
 
-              <div className="h-72 w-full bg-slate-950/60 rounded-xl p-3 border border-slate-800">
+              <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={frequencyCombined}>
                     <defs>
@@ -395,7 +628,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="Hz" />
                     <Tooltip
                       contentStyle={{
@@ -604,138 +837,68 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
 
       {/* VIEW MODE 2: ALL 10 METRICS GRID */}
       {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5 pt-1">
-          {/* 1. Input Grid Voltage */}
-          <MetricChartCard
-            title="Input Grid Voltage"
-            icon={<Zap className="w-4 h-4 text-amber-400" />}
-            currentValue={status.grid_voltage_v.toFixed(1)}
-            unit="V"
-            data={gridVData}
-            color="#f59e0b"
-            name1="Grid V"
-            gradientId="all-grid-v"
-            height={120}
-          />
+        <div className="space-y-3 min-w-0">
+          {/* Sub-toolbar for Grid view: Filter pills & Column preference */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5 pb-1 text-xs">
+            {/* Category filter pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-full">
+              {[
+                { id: 'all', label: 'All', count: 10 },
+                { id: 'grid', label: 'Grid', count: 2 },
+                { id: 'power', label: 'Power & Load', count: 4 },
+                { id: 'battery', label: 'Battery', count: 3 },
+                { id: 'thermal', label: 'Thermal', count: 1 },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setGridFilter(f.id as GridFilterMode)}
+                  className={`px-2.5 py-1 rounded-xl border text-xs font-medium transition shrink-0 ${
+                    gridFilter === f.id
+                      ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300 shadow-sm'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  {f.label} <span className="opacity-60 text-[10px]">({f.count})</span>
+                </button>
+              ))}
+            </div>
 
-          {/* 2. Output Voltage */}
-          <MetricChartCard
-            title="Output Voltage"
-            icon={<Zap className="w-4 h-4 text-blue-400" />}
-            currentValue={status.output_voltage_v.toFixed(1)}
-            unit="V"
-            data={outVData}
-            color="#3b82f6"
-            name1="Output V"
-            gradientId="all-out-v"
-            height={120}
-          />
+            {/* Column selector */}
+            <div className="flex items-center space-x-1.5 shrink-0 ml-auto">
+              <span className="text-[11px] text-slate-400 hidden sm:inline">Columns:</span>
+              <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-0.5">
+                {(['auto', '2', '3', '4', '5'] as GridColsMode[]).map((col) => (
+                  <button
+                    key={col}
+                    onClick={() => setGridCols(col)}
+                    className={`px-2 py-0.5 rounded-lg text-xs font-mono font-medium transition ${
+                      gridCols === col
+                        ? 'bg-slate-800 text-cyan-400 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={col === 'auto' ? 'Fluid Auto-Fit (min 480px)' : `Fixed ${col} Columns`}
+                  >
+                    {col === 'auto' ? 'Auto' : `${col} Col`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-          {/* 3. Input Frequency */}
-          <MetricChartCard
-            title="Input Frequency"
-            icon={<Activity className="w-4 h-4 text-cyan-400" />}
-            currentValue={status.grid_frequency_hz.toFixed(1)}
-            unit="Hz"
-            data={gridFData}
-            color="#06b6d4"
-            name1="Input Hz"
-            gradientId="all-grid-f"
-            height={120}
-          />
-
-          {/* 4. Output Frequency */}
-          <MetricChartCard
-            title="Output Frequency"
-            icon={<Activity className="w-4 h-4 text-indigo-400" />}
-            currentValue={status.output_frequency_hz.toFixed(1)}
-            unit="Hz"
-            data={outFData}
-            color="#818cf8"
-            name1="Output Hz"
-            gradientId="all-out-f"
-            height={120}
-          />
-
-          {/* 5. Output Load */}
-          <MetricChartCard
-            title="Output Load"
-            icon={<Gauge className="w-4 h-4 text-cyan-400" />}
-            currentValue={status.output_load_pct}
-            unit="%"
-            data={loadData}
-            color="#06b6d4"
-            name1="Load %"
-            domain={[0, 100]}
-            gradientId="all-load"
-            height={120}
-          />
-
-          {/* 6. Active Power */}
-          <MetricChartCard
-            title="Active Power"
-            icon={<Zap className="w-4 h-4 text-emerald-400" />}
-            currentValue={currentWatts}
-            unit="W"
-            data={wattsData}
-            color="#10b981"
-            name1="Watts"
-            gradientId="all-watts"
-            height={120}
-          />
-
-          {/* 7. Battery Voltage */}
-          <MetricChartCard
-            title="Battery Voltage"
-            icon={<Battery className="w-4 h-4 text-teal-400" />}
-            currentValue={status.battery_voltage_v.toFixed(1)}
-            unit="V"
-            data={batVData}
-            color="#14b8a6"
-            name1="Battery V"
-            gradientId="all-bat-v"
-            height={120}
-          />
-
-          {/* 8. Battery SoC */}
-          <MetricChartCard
-            title="Battery Capacity"
-            icon={<Battery className="w-4 h-4 text-emerald-400" />}
-            currentValue={currentBatPct}
-            unit="%"
-            data={batSocData}
-            color="#10b981"
-            name1="SoC %"
-            domain={[0, 100]}
-            gradientId="all-bat-soc"
-            height={120}
-          />
-
-          {/* 9. Internal Temperature */}
-          <MetricChartCard
-            title="Temperature"
-            icon={<Thermometer className="w-4 h-4 text-orange-400" />}
-            currentValue={status.temperature_c}
-            unit="°C"
-            data={tempData}
-            color="#f97316"
-            name1="Temp °C"
-            gradientId="all-temp"
-            height={120}
-          />
-
-          {/* 10. Estimated Runtime */}
-          <MetricChartCard
-            title="Est. Runtime"
-            icon={<Clock className="w-4 h-4 text-purple-400" />}
-            currentValue={currentRuntime}
-            unit="mins"
-            data={runtimeData}
-            color="#a855f7"
-            name1="Runtime"
-            gradientId="all-runtime"
-            height={120}
-          />
+          {/* Responsive Grid Container */}
+          <div
+            className={`grid gap-3.5 min-w-0 ${gridCols !== 'auto' ? gridColsClass : ''}`}
+            style={
+              gridCols === 'auto'
+                ? {
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))',
+                  }
+                : undefined
+            }
+          >
+            {filteredCards.map((c) => c.component)}
+          </div>
         </div>
       )}
     </div>

@@ -65,56 +65,56 @@ export const MetricChartCard: React.FC<MetricChartCardProps> = ({
   }, [data]);
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4.5 flex flex-col justify-between shadow-sm hover:border-slate-700/80 transition group">
+    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between shadow-sm hover:border-slate-700/80 transition group min-w-0">
       {/* Top Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center space-x-2.5">
-          <div className="p-2 rounded-xl bg-slate-800/90 border border-slate-700/50 text-slate-300 group-hover:text-cyan-400 group-hover:border-cyan-500/30 transition">
+      <div className="flex items-start justify-between gap-2 mb-2.5 min-w-0">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="p-1.5 sm:p-2 rounded-xl bg-slate-800/90 border border-slate-700/50 text-slate-300 group-hover:text-cyan-400 group-hover:border-cyan-500/30 transition shrink-0">
             {icon}
           </div>
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <div className="min-w-0">
+            <h4 className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-slate-400 truncate" title={title}>
               {title}
             </h4>
-            <div className="flex items-baseline space-x-1.5 mt-0.5">
-              <span className="text-xl font-bold font-mono text-slate-100">
+            <div className="flex items-baseline space-x-1.5 mt-0.5 min-w-0">
+              <span className="text-lg sm:text-xl font-bold font-mono text-slate-100 truncate">
                 {currentValue}
               </span>
-              <span className="text-xs font-medium text-slate-400">{unit}</span>
+              <span className="text-xs font-medium text-slate-400 shrink-0">{unit}</span>
             </div>
           </div>
         </div>
 
-        {statusBadge && <div>{statusBadge}</div>}
+        {statusBadge && <div className="shrink-0">{statusBadge}</div>}
       </div>
 
       {/* Summary Min / Avg / Max Strip */}
       {showStats && stats && (
-        <div className="grid grid-cols-3 gap-1.5 py-1.5 px-2.5 mb-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-[11px] font-mono">
-          <div className="text-slate-400">
+        <div className="grid grid-cols-3 gap-1 py-1 px-2 mb-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-[10px] sm:text-[11px] font-mono">
+          <div className="text-slate-400 min-w-0">
             <span className="text-slate-500 block text-[9px] uppercase tracking-wider font-sans">Min</span>
-            <span className="text-slate-300 font-semibold">{stats.min}</span> {unit}
+            <span className="text-slate-300 font-semibold truncate block">{stats.min} <span className="text-[9px] text-slate-500 font-sans">{unit}</span></span>
           </div>
-          <div className="text-slate-400">
+          <div className="text-slate-400 min-w-0">
             <span className="text-slate-500 block text-[9px] uppercase tracking-wider font-sans">Avg</span>
-            <span className="text-slate-300 font-semibold">{stats.avg}</span> {unit}
+            <span className="text-slate-300 font-semibold truncate block">{stats.avg} <span className="text-[9px] text-slate-500 font-sans">{unit}</span></span>
           </div>
-          <div className="text-slate-400">
+          <div className="text-slate-400 min-w-0">
             <span className="text-slate-500 block text-[9px] uppercase tracking-wider font-sans">Max</span>
-            <span className="text-slate-300 font-semibold">{stats.max}</span> {unit}
+            <span className="text-slate-300 font-semibold truncate block">{stats.max} <span className="text-[9px] text-slate-500 font-sans">{unit}</span></span>
           </div>
         </div>
       )}
 
       {/* Chart Canvas */}
-      <div style={{ height }} className="w-full">
+      <div style={{ height }} className="w-full min-w-0">
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
             Awaiting telemetry samples...
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 5, right: 8, left: -15, bottom: 0 }}>
               <defs>
                 <linearGradient id={`${gradientId}-grad`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.35} />
@@ -128,10 +128,11 @@ export const MetricChartCard: React.FC<MetricChartCardProps> = ({
                 )}
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="time" stroke="#64748b" fontSize={10} tickLine={false} />
+              <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} minTickGap={35} />
               <YAxis
                 stroke="#64748b"
-                fontSize={10}
+                width={28}
+                tick={{ fontSize: 9, fill: '#64748b' }}
                 domain={domain as any}
                 tickLine={false}
                 axisLine={false}
