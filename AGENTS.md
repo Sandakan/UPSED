@@ -15,6 +15,11 @@ This document establishes the universal rules, safety constraints, and architect
 - **NO Raw Command Injection:** Never implement or expose raw string command endpoints (such as ViewPower's vulnerable `controlNew` method). All hardware interactions must be strongly typed variants of the `VoltronicCommand` enum.
 - **Pre-Transmission Validation:** All parameters (charging current, bypass voltages, battery cutoff thresholds) must be validated against physical safety limits and device-rated specs in Rust before any bytes are transmitted to the serial port.
 - **Port Discovery & Probing Invariant:** Serial and USB HID auto-discovery and automated live hardware probes must strictly and exclusively send Stage T1 Read-Only commands (`QPI\r`, fallback `Q1\r`, `QID\r`, `QVFW\r`). Probing unknown or live hardware with Stage T2 diagnostic commands (such as `T` 10-second battery test or `C` cancel test), Stage T3 configuration writes, or Stage T4 power control is strictly prohibited.
+- **State Transition & Event Detection Invariant:** Hardware event and alarm detection must strictly operate on a poll-and-diff (rising-edge) basis between consecutive telemetry cycles. Event detection must NEVER dispatch Stage T2/T3/T4 commands; it must rely strictly on parsed Stage T1 query payloads (`Q1`, `QPIGS`, `QPIWS`).
+- **Notification Presentation Invariant:** When presenting hardware alarms and warning bitmasks (such as ViewPower `a0`–`a69` or state changes) for user notifications and toasts:
+  - The warning/event text MUST serve as the **Title**.
+  - A descriptive, user-friendly explanation of the condition and recommended action MUST serve as the **Description**.
+  - In-app toasts must use `react-hot-toast` in headless mode; OS Action Center notifications must be sent via `@tauri-apps/plugin-notification` when the window is out of focus, minimized, or in tray.
 - **Database Storage Path Invariant:** The embedded SQLite database (`voltwatch.db`) must never be placed inside `src-tauri/` or project source trees to prevent Tauri dev watcher hot-reload infinite loops. It must always reside in the platform-specific app data directory (`AppHandle::path().app_data_dir()`).
 
 ---
@@ -41,7 +46,7 @@ This document establishes the universal rules, safety constraints, and architect
   cd src-tauri
   cargo test
   ```
-- All 48+ tests across `stage_t1_tests`, `stage_t1_hid_tests`, `stage_t2_tests`, `stage_t3_tests`, `stage_t4_tests`, `security_and_gate_tests`, `concurrency_tests`, and `battery_bridge_tests` must pass with 0 failures and 0 warnings.
+- All 54+ tests across `stage_t1_tests`, `stage_t1_hid_tests`, `stage_t2_tests`, `stage_t3_tests`, `stage_t4_tests`, `security_and_gate_tests`, `concurrency_tests`, and `battery_bridge_tests` must pass with 0 failures and 0 warnings.
 - Any new hardware command added to `VoltronicCommand` must have:
   1. A corresponding safety stage assigned in `required_stage()`.
   2. Input range validation in `as_cmd_str()`.
@@ -52,7 +57,7 @@ This document establishes the universal rules, safety constraints, and architect
 
 ## 📁 5. Tech Stack Standards
 
-- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-log` (stdout + local rotating log file).
-- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Recharts, TanStack Query.
+- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-notification`, `tauri-plugin-log` (stdout + local rotating log file).
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Recharts, TanStack Query, `react-hot-toast` (headless).
 - **Code Style:** Idiomatic Rust (`cargo clippy --tests -- -D warnings`), strict TypeScript (no `any` where typed interfaces exist).
 

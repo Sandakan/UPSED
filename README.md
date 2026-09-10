@@ -12,7 +12,9 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, VoltWa
 - 🛡️ **Safety-First Command Gate:** Incremental 4-stage safety unlock (T1 Read-Only → T2 Non-Destructive → T3 Config Writes → T4 Power Control) preventing accidental firmware corruption or unintended power drop.
 - 🔌 **Multi-UPS Support & Auto-Discovery:** Automatically scans both USB HID interfaces and COM serial ports safely using strictly non-destructive, read-only queries (`QPI`). Manages multiple connected UPS devices concurrently.
 - 📊 **Real-Time Telemetry & Universal Protocol Support:** Robust dual-parser architecture supporting standard Megatec 8-token telemetry (with automatic Volts Per Cell battery scaling) and 9-token Axpert solar inverter status.
-- 💾 **Local Embedded SQLite Database:** Automatically logs telemetry (default: every 30 seconds, configurable) and system events locally in `%APPDATA%\com.adsan.voltwatch\voltwatch.db` with instant CSV export.
+- 🔔 **Real-Time Hardware Alarms & Notifications:** Rising-edge state transition engine detects AC power outages, low battery, overload, over-temperature, and hardware faults. Surfaces alarms via bespoke dark glassmorphic in-app toasts (`react-hot-toast` headless) and native OS desktop notifications (`@tauri-apps/plugin-notification`) when out of focus.
+- 📋 **Dedicated Events Hub & SQLite Persistence:** Dedicated Events page with real-time unread badge counter, severity classification (Critical, Warning, Success, Info), fuzzy search, acknowledgment, and CSV export.
+- 💾 **Local Embedded SQLite Database:** Automatically logs telemetry and system events locally in `%APPDATA%\com.adsan.voltwatch\voltwatch.db`.
 - 📝 **Diagnostic Logging:** Powered by `tauri-plugin-log`, streaming logs simultaneously to terminal `stdout`, developer tools webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log`).
 - 🔋 **OS Native Battery Bridge (Opt-In, Disabled by Default):**
   - **Windows:** Custom system tray battery fill indicator & tooltips.
@@ -74,13 +76,13 @@ Ensure the following are installed:
    npm install
    ```
 
-3. **Run the 48-test verification suite (Cargo):**
+3. **Run the 54-test verification suite (Cargo):**
    ```bash
    cd src-tauri
    cargo test
    cd ..
    ```
-   *All 48+ tests across protocol parsers, USB HID decoders, command gates, and multi-port handlers must pass before launching.*
+   *All 54+ tests across protocol parsers, USB HID decoders, command gates, and hardware event transitions must pass before launching.*
 
 4. **Start in Development Mode:**
    ```bash
@@ -110,26 +112,33 @@ Ensure the following are installed:
 - **Inverter Thermals:** Internal heatsink operating temperatures.
 - **Live Waveform Charts:** Recharts time-series graph tracking voltage and load fluctuations.
 
-### 3. Diagnostics & Hardware Control
+### 3. Hardware Events & Alarms (Events Tab)
+- Switch to the dedicated **Events** tab via the sidebar `Bell` icon.
+- View real-time hardware state transitions (blackouts, restorations, low battery warnings, overloads, and high temperatures).
+- Filter by severity badges (`Critical`, `Warning`, `Success`, `Info`) or search by keyword and port.
+- Individual event acknowledgment (`Ack`) and one-click **Export CSV**.
+
+### 4. Diagnostics & Hardware Control
 - Switch to the **Hardware Control** tab.
 - **Toggle Buzzer:** Mute or unmute the internal UPS beeper (`BUZZER`).
 - **10-Second Self Test:** Run a brief battery discharge diagnostic (`T`).
 - **Emergency Shutdown:** Located under Stage T4 with dual-confirmation countdown dialogs to prevent accidental outages.
 
-### 4. Adjusting Configurations (Stage T3)
+### 5. Adjusting Configurations (Stage T3)
 - Navigate to the **Configuration** tab.
 - Safely update charging parameters such as maximum solar/utility charging current (`MCHGC`) or bypass voltage tolerances (`PBVH`/`PBVL`).
 - Values outside safe physical ranges (e.g. charge currents exceeding device ratings or battery cutoffs below cell safety floors) are rejected before being transmitted.
 
-### 5. Historical Telemetry & CSV Export
-- Go to the **History & Events** tab.
+### 6. Historical Telemetry & Graphs
+- Go to the **History & Graphs** tab.
 - Inspect timestamped records of voltage, load, and battery metrics stored in SQLite.
-- Review system events (connections, disconnects, utility failures).
-- Click **Export CSV** to download tabular data for external analysis or graphing in Excel/Grafana.
+- Review waveform graphs and historical metrics.
+- Click **Export CSV** to download tabular data.
 
-### 6. Application Settings
-- **Telemetry Polling Interval:** Switch between 5s, 10s, 30s (default), or 60s polling intervals.
+### 7. Application Settings
+- **Telemetry Polling Interval:** Switch between 2s, 5s, 10s (default), 30s, or 60s polling intervals.
 - **OS Native Battery Bridge:** Toggle off/on to emulate a laptop battery for your desktop operating system.
+- **Notifications & Alarms:** Toggle Native OS Desktop Notifications (Windows Action Center banners with sound) and In-App Toasts.
 
 ---
 

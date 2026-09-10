@@ -2,7 +2,7 @@
 name: voltwatch-dev
 description: >-
   Essential workflows and development procedures for VoltWatch.
-  Use when building the Tauri v2 backend, running the 45-test mock-hardware test suite,
+  Use when building the Tauri v2 backend, running the 54-test mock-hardware test suite,
   adding new Voltronic commands, or debugging serial UPS communication.
 ---
 
@@ -166,4 +166,29 @@ export type VoltronicCommand =
 ### Database & Log Files:
 - **Database Path:** `%APPDATA%\com.adsan.voltwatch\voltwatch.db` (never in `src-tauri/` to avoid dev reload loops).
 - **Log Files:** `%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log` (rotating, powered by `tauri-plugin-log`). Logs also stream to stdout and webview console.
+
+---
+
+## 🔔 6. Hardware Events & Notification System Runbook
+
+VoltWatch uses a poll-and-diff state transition engine to detect hardware alarms without sending disruptive hardware commands.
+
+### Architecture Overview
+1. **Rising-Edge Engine:** In `src-tauri/src/commands.rs::detect_status_events`, previous and current telemetry states (`Q1Status` and warning bitmasks) are compared on each poll cycle.
+2. **Persistence & Broadcast:** New rising edges are saved to SQLite (`events` table with `severity` and `acknowledged`) and emitted in real time via `app.emit("ups-event", event)`.
+3. **Headless Toast Notifications:** React frontend listens to `"ups-event"` and renders custom glassmorphic toasts with glowing severity borders using `react-hot-toast` in headless mode (`VoltWatchToaster.tsx`).
+4. **Out-of-Focus OS Notifications:** When `document.hasFocus()` is false, `@tauri-apps/plugin-notification` sends a native Windows Action Center notification with sound.
+
+### Procedure: Adding or Mapping a New Hardware Alarm / Warning Code
+1. **Backend Diffing:** Update `detect_status_events()` in `commands.rs` to detect the rising edge transition.
+2. **Notification Details:** Map the event type or warning code (e.g. `warning.aXX`) in `src/lib/notifications.ts` under `EVENT_DETAILS`:
+   - Set `title` to the exact warning/alarm name.
+   - Set `defaultDescription` to a concise, user-facing explanation with troubleshooting guidance.
+3. **Unit Test:** Add test cases in `src-tauri/tests/security_and_gate_tests.rs` to verify rising edge detection, recovery falling edge, and zero false positives during steady state.
+4. **Verification:**
+   ```powershell
+   cargo test --test security_and_gate_tests --target-dir target\test_target
+   npm run build
+   ```
+
 
