@@ -28,6 +28,7 @@ rusqlite = { version = "0.33", features = ["bundled"] }
 hidapi = "2.6"
 log = "0.4"
 tauri-plugin-log = "2"
+tauri-plugin-window-state = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

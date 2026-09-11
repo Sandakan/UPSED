@@ -167,6 +167,13 @@ export type VoltronicCommand =
 - **Database Path:** `%APPDATA%\com.adsan.voltwatch\voltwatch.db` (never in `src-tauri/` to avoid dev reload loops).
 - **Log Files:** `%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log` (rotating, powered by `tauri-plugin-log`). Logs also stream to stdout and webview console.
 
+### Window State & Geometry Persistence:
+- **Mechanism:** Powered by `tauri-plugin-window-state = "2"`.
+- **Saved State Path:** `%APPDATA%\com.adsan.voltwatch\.window-state.json`.
+- **Configuration Invariants:**
+  - In `tauri.conf.json`, the primary window must have `"label": "main"`.
+  - In `capabilities/default.json`, `"window-state:default"` must be granted.
+
 ---
 
 ## 🔔 6. Hardware Events & Notification System Runbook

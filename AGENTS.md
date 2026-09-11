@@ -57,7 +57,8 @@ This document establishes the universal rules, safety constraints, and architect
 
 ## 📁 5. Tech Stack Standards
 
-- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-notification`, `tauri-plugin-log` (stdout + local rotating log file).
+- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-notification`, `tauri-plugin-window-state`, `tauri-plugin-log` (stdout + local rotating log file).
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Recharts, TanStack Query, `react-hot-toast` (headless).
 - **Code Style:** Idiomatic Rust (`cargo clippy --tests -- -D warnings`), strict TypeScript (no `any` where typed interfaces exist).
+
 

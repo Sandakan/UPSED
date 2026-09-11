@@ -16,6 +16,7 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, VoltWa
 - 📋 **Dedicated Events Hub & SQLite Persistence:** Dedicated Events page with real-time unread badge counter, severity classification (Critical, Warning, Success, Info), fuzzy search, acknowledgment, and CSV export.
 - 💾 **Local Embedded SQLite Database:** Automatically logs telemetry and system events locally in `%APPDATA%\com.adsan.voltwatch\voltwatch.db`.
 - 📝 **Diagnostic Logging:** Powered by `tauri-plugin-log`, streaming logs simultaneously to terminal `stdout`, developer tools webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log`).
+- 🪟 **Window Geometry Persistence:** Automatically remembers and restores window dimensions, screen coordinates, and maximized state across application restarts via `tauri-plugin-window-state`.
 - 🔋 **OS Native Battery Bridge (Opt-In, Disabled by Default):**
   - **Windows:** Custom system tray battery fill indicator & tooltips.
   - **Linux:** Virtual HID via `/dev/uhid` recognized by UPower for native GNOME/KDE desktop battery widgets.
