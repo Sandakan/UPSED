@@ -69,5 +69,21 @@ export const api = {
 
   fastProbeDevice: (portName: string) =>
     invoke<DiscoveredDevice | null>('fast_probe_device', { portName }),
+
+  getPollInterval: () => invoke<number>('get_poll_interval'),
+
+  setPollInterval: (secs: number) =>
+    invoke<void>('set_poll_interval', { secs }),
+
+  getCloseToMinimize: () => invoke<boolean>('get_close_to_minimize'),
+
+  setCloseToMinimize: (enabled: boolean) =>
+    invoke<void>('set_close_to_minimize', { enabled }),
+
+  getStartMinimized: () => invoke<boolean>('get_start_minimized'),
+
+  setStartMinimized: (enabled: boolean) =>
+    invoke<void>('set_start_minimized', { enabled }),
 };
+
 

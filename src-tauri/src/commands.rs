@@ -16,6 +16,7 @@ pub struct AppState {
     pub manager: Arc<MultiPortManager>,
     pub db: Arc<Database>,
     pub bridge: Arc<Mutex<BatteryBridge>>,
+    pub poll_interval_tx: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 #[tauri::command]
@@ -48,6 +49,7 @@ pub fn connect_device_internal(
     };
 
     state.manager.register_device(info.clone(), transport);
+    let _ = state.db.set_setting("last_connected_port", port_name);
 
     let _ = state.db.insert_event(&EventLogRecord {
         id: None,
@@ -400,6 +402,55 @@ pub async fn acknowledge_event(state: State<'_, AppState>, event_id: i64) -> Res
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_poll_interval(state: State<AppState>) -> u64 {
+    *state.poll_interval_tx.subscribe().borrow()
+}
+
+#[tauri::command]
+pub fn set_poll_interval(state: State<AppState>, secs: u64) -> Result<(), String> {
+    let secs = secs.clamp(1, 3600);
+    let _ = state.poll_interval_tx.send(secs);
+    state
+        .db
+        .set_setting("poll_interval_secs", &secs.to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_close_to_minimize(state: State<AppState>) -> Result<bool, String> {
+    let val = state
+        .db
+        .get_setting("close_to_minimize")
+        .map_err(|e| e.to_string())?;
+    Ok(val.map(|v| v != "false").unwrap_or(true))
+}
+
+#[tauri::command]
+pub fn set_close_to_minimize(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .db
+        .set_setting("close_to_minimize", if enabled { "true" } else { "false" })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_start_minimized(state: State<AppState>) -> Result<bool, String> {
+    let val = state
+        .db
+        .get_setting("start_minimized")
+        .map_err(|e| e.to_string())?;
+    Ok(val.map(|v| v != "false").unwrap_or(true))
+}
+
+#[tauri::command]
+pub fn set_start_minimized(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .db
+        .set_setting("start_minimized", if enabled { "true" } else { "false" })
+        .map_err(|e| e.to_string())
 }
 
 /// Detects hardware state transitions and alarms by diffing status between consecutive poll cycles.

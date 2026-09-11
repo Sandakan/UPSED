@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap, Bell } from 'lucide-react';
+import { Settings as SettingsIcon, Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor } from 'lucide-react';
+import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata } from '../lib/types';
 import {
@@ -36,7 +37,16 @@ export const Settings: React.FC<SettingsProps> = ({
   const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
   const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
   const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
+  const [autostartVal, setAutostartVal] = useState(false);
+  const [startMinimizedVal, setStartMinimizedVal] = useState(true);
+  const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
   const [savedNotice, setSavedNotice] = useState(false);
+
+  useEffect(() => {
+    isAutostartEnabled().then(setAutostartVal).catch(console.error);
+    api.getCloseToMinimize().then(setCloseToMinimizeVal).catch(console.error);
+    api.getStartMinimized().then(setStartMinimizedVal).catch(console.error);
+  }, []);
 
   // UPS Profile state
   const [upsName, setUpsName] = useState(metadata?.name || 'Connected UPS');
@@ -70,6 +80,15 @@ export const Settings: React.FC<SettingsProps> = ({
     onInAppToastsChange(inAppToastVal);
     try {
       await api.setBatteryBridgeStatus(bridgeVal);
+      await api.setCloseToMinimize(closeToMinimizeVal);
+      await api.setStartMinimized(startMinimizedVal);
+
+      if (autostartVal) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+
       if (metadata) {
         const updatedMeta: UpsMetadata = {
           ...metadata,
@@ -246,14 +265,17 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
         <p className="text-xs text-slate-400 max-w-xl">
           Controls how frequently VoltWatch queries the UPS hardware for live status (Q1/QPIGS).
-          Default is <strong>10 seconds</strong>.
+          Changes take effect <strong>immediately</strong> in the background monitor.
         </p>
 
         <div className="flex items-center space-x-3 pt-2">
           {[2, 5, 10, 30, 60].map((sec) => (
             <button
               key={sec}
-              onClick={() => setIntervalVal(sec)}
+              onClick={() => {
+                setIntervalVal(sec);
+                onPollIntervalChange(sec);
+              }}
               className={`px-4 py-2 rounded-xl text-xs font-semibold transition ${
                 intervalVal === sec
                   ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30'
@@ -266,25 +288,25 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       </div>
 
-      {/* OS Native Battery Bridge (Disabled by default) */}
+      {/* OS Native Battery Bridge & Tray Monitor */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 text-slate-200">
             <Battery className="w-4 h-4 text-emerald-400" />
-            <h4 className="text-sm font-semibold">OS Native Battery Bridge</h4>
+            <h4 className="text-sm font-semibold">OS Native Battery Bridge & Tray Monitor</h4>
           </div>
-          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-            Opt-In (Default: Off)
+          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
+            Active by Default
           </span>
         </div>
 
         <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
-          Exposes your connected desktop UPS to the operating system as a native laptop battery.
+          Exposes your connected desktop UPS to the operating system as a native battery and taskbar icon.
           When active:
           <br />
-          • <strong>Windows:</strong> Updates the system tray battery fill gauge and tooltip.
+          • <strong>Windows:</strong> Updates the system tray battery fill gauge and live tooltip.
           <br />
-          • <strong>Linux:</strong> Bridges through <code className="text-cyan-300">/dev/uhid</code> into UPower for native GNOME/KDE taskbar indicators.
+          • <strong>Linux:</strong> Bridges through <code className="text-cyan-300">/dev/uhid</code> into UPower for native taskbar indicators.
           <br />
           • <strong>macOS:</strong> Registers an IOPMLib power source in the menu bar.
         </p>
@@ -300,8 +322,87 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
           </label>
           <span className="text-xs font-semibold text-slate-300">
-            {bridgeVal ? 'Enabled (Active)' : 'Disabled (Default)'}
+            {bridgeVal ? 'Enabled (Active)' : 'Disabled'}
           </span>
+        </div>
+      </div>
+
+      {/* System Startup & Window Behavior */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-slate-200">
+            <Monitor className="w-4 h-4 text-cyan-400" />
+            <h4 className="text-sm font-semibold">System Startup & Window Behavior</h4>
+          </div>
+          <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+            Background Service
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+          Configure how VoltWatch runs on machine startup and manages its desktop window when dismissed.
+        </p>
+
+        <div className="space-y-4 pt-1">
+          {/* Autostart Toggle */}
+          <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div>
+              <p className="text-xs font-semibold text-slate-200">Start with System Login</p>
+              <p className="text-[11px] text-slate-400">
+                Launch VoltWatch automatically in the background when you log in to your computer.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autostartVal}
+                onChange={(e) => setAutostartVal(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            </label>
+          </div>
+
+          {/* Start Minimized Sub-option */}
+          {autostartVal && (
+            <div className="flex items-center justify-between p-3 ml-4 bg-slate-950/40 rounded-xl border border-slate-800/80">
+              <div>
+                <p className="text-xs font-semibold text-slate-200">Start Minimized to System Tray</p>
+                <p className="text-[11px] text-slate-400">
+                  Starts quietly in the system tray at login without popping up the application window.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={startMinimizedVal}
+                  onChange={(e) => setStartMinimizedVal(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+              </label>
+            </div>
+          )}
+
+          {/* Close to Minimize Toggle */}
+          <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+            <div>
+              <p className="text-xs font-semibold text-slate-200">Close Window to Minimize to Tray</p>
+              <p className="text-[11px] text-slate-400">
+                Clicking the window close button (×) hides the window to the system tray so background telemetry,
+                outage logging, and safety automations continue running 24/7. Quit anytime via tray right-click.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={closeToMinimizeVal}
+                onChange={(e) => setCloseToMinimizeVal(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            </label>
+          </div>
         </div>
       </div>
 

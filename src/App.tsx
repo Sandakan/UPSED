@@ -14,7 +14,7 @@ import { VoltWatchToaster } from './components/VoltWatchToaster';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata, EventLogRecord } from './lib/types';
+import { UpsMetadata, EventLogRecord, Q1Status } from './lib/types';
 
 export function App() {
   const queryClient = useQueryClient();
@@ -128,7 +128,14 @@ export function App() {
     handleSelectDevice(finalDevice.port_name);
   }, [devices, selectedDevice, lastSavedDeviceId, upsMetadata, handleSelectDevice, queryClient]);
 
-  // 3. Live Device Telemetry query (Q1)
+  // Load initial poll interval from backend settings
+  useEffect(() => {
+    api.getPollInterval().then((val) => {
+      if (val) setPollInterval(val);
+    }).catch(console.error);
+  }, []);
+
+  // 3. Live Device Telemetry query (Q1) - Event-driven, populated by background Rust monitor
   const {
     data: status = null,
     error: statusError,
@@ -139,7 +146,6 @@ export function App() {
     queryKey: ['deviceStatus', selectedDevice],
     queryFn: () => api.getDeviceStatus(selectedDevice!),
     enabled: !!selectedDevice,
-    refetchInterval: pollInterval * 1000,
     retry: 1,
   });
 
@@ -151,7 +157,6 @@ export function App() {
     queryKey: ['telemetryHistory', selectedDevice],
     queryFn: () => api.getRecentTelemetry(selectedDevice!, 50),
     enabled: !!selectedDevice,
-    refetchInterval: pollInterval * 1000,
   });
 
   // 5. Recent System Events query
@@ -161,8 +166,22 @@ export function App() {
   } = useQuery({
     queryKey: ['recentEvents'],
     queryFn: () => api.getRecentEvents(50),
-    refetchInterval: pollInterval * 1000,
   });
+
+  // Listen to real-time 'ups-telemetry' broadcast pushed by Rust background monitor task
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<Q1Status>('ups-telemetry', (tauriEvent) => {
+      queryClient.setQueryData(['deviceStatus', selectedDevice], tauriEvent.payload);
+      queryClient.invalidateQueries({ queryKey: ['telemetryHistory', selectedDevice] });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [selectedDevice, queryClient]);
 
   // Listen to real-time 'ups-event' broadcast from backend
   useEffect(() => {
@@ -196,9 +215,9 @@ export function App() {
     queryFn: () => api.getSafetyStage(),
   });
 
-  // 7. Battery Bridge Status query & mutation
+  // 7. Battery Bridge Status query & mutation (default enabled)
   const {
-    data: batteryBridgeActive = false,
+    data: batteryBridgeActive = true,
     refetch: refetchBatteryBridge,
   } = useQuery({
     queryKey: ['batteryBridgeStatus'],
@@ -218,6 +237,11 @@ export function App() {
     },
     [batteryBridgeMutation]
   );
+
+  const handlePollIntervalChange = useCallback((newInterval: number) => {
+    setPollInterval(newInterval);
+    api.setPollInterval(newInterval).catch(console.error);
+  }, []);
 
   // Manual refresh handler
   const pollTelemetry = useCallback(() => {
@@ -316,7 +340,7 @@ export function App() {
           {currentTab === 'settings' && (
             <Settings
               pollInterval={pollInterval}
-              onPollIntervalChange={setPollInterval}
+              onPollIntervalChange={handlePollIntervalChange}
               batteryBridgeActive={batteryBridgeActive}
               onBatteryBridgeChange={handleBatteryBridgeChange}
               metadata={upsMetadata}

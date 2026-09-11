@@ -41,6 +41,8 @@ pub struct AppSettings {
     pub battery_bridge_enabled: bool,
     pub auto_shutdown_enabled: bool,
     pub shutdown_battery_pct: u32,
+    pub close_to_minimize: bool,
+    pub start_minimized: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,10 +63,12 @@ pub struct UpsMetadata {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            poll_interval_secs: 30,
-            battery_bridge_enabled: false, // Default disabled as requested
+            poll_interval_secs: 10,
+            battery_bridge_enabled: true,
             auto_shutdown_enabled: false,
             shutdown_battery_pct: 15,
+            close_to_minimize: true,
+            start_minimized: true,
         }
     }
 }
@@ -78,6 +82,10 @@ impl Database {
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "
+            PRAGMA journal_mode = WAL;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA synchronous = NORMAL;
+
             CREATE TABLE IF NOT EXISTS telemetry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,

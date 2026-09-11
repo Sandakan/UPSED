@@ -15,6 +15,7 @@ import {
 import { EventLogRecord, EventSeverity } from '../lib/types';
 import { getEventInfo } from '../lib/notifications';
 import { api } from '../lib/tauri';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 interface EventsProps {
   events: EventLogRecord[];
@@ -30,6 +31,7 @@ export const Events: React.FC<EventsProps> = ({
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isClearing, setIsClearing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Filter & Search Logic
   const filteredEvents = useMemo(() => {
@@ -68,13 +70,11 @@ export const Events: React.FC<EventsProps> = ({
     return { total: events.length, critical, warning, success, info };
   }, [events]);
 
-  const handleClearHistory = async () => {
-    if (!window.confirm('Are you sure you want to clear all stored event logs from the database?')) {
-      return;
-    }
+  const handleConfirmClear = async () => {
     try {
       setIsClearing(true);
       await api.clearEvents();
+      setShowClearConfirm(false);
       onRefresh();
     } catch (err) {
       console.error('Failed to clear events:', err);
@@ -182,9 +182,9 @@ export const Events: React.FC<EventsProps> = ({
           </button>
 
           <button
-            onClick={handleClearHistory}
+            onClick={() => setShowClearConfirm(true)}
             disabled={events.length === 0 || isClearing}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 disabled:opacity-50 rounded-xl text-xs font-medium transition border border-rose-800/60"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 disabled:opacity-50 rounded-xl text-xs font-medium transition border border-rose-800/60 cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear History</span>
@@ -323,6 +323,24 @@ export const Events: React.FC<EventsProps> = ({
           })}
         </div>
       )}
+
+      {/* Bespoke Confirm Clear History Dialog */}
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        onClose={() => !isClearing && setShowClearConfirm(false)}
+        onConfirm={handleConfirmClear}
+        isLoading={isClearing}
+        itemCount={events.length}
+        title="Clear Event History?"
+        confirmLabel="Clear All Events"
+        cancelLabel="Keep History"
+        variant="danger"
+        description={
+          <p>
+            Are you sure you want to permanently clear all stored event logs from the local database?
+          </p>
+        }
+      />
     </div>
   );
 };

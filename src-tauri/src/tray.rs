@@ -51,8 +51,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    // Disabled / hidden by default until user enables it in Settings
-    let _ = tray.set_visible(false);
+    // Enabled and visible by default per user configuration
+    let _ = tray.set_visible(true);
 
     Ok(())
 }
