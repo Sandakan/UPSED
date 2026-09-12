@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Wrench, ShieldAlert, Check, XCircle, Sliders } from 'lucide-react';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
+import { PrimaryButton } from '../components/PrimaryButton';
 
 interface ConfigProps {
   portName: string | null;
@@ -38,7 +39,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {/* Safety Gate Alert */}
       {isLocked && (
         <div className="p-4 rounded-2xl bg-amber-500/[0.08] border border-amber-500/20 flex items-start space-x-3.5">
@@ -117,8 +118,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 disabled={isLocked || isSaving}
                 className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
               />
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() =>
                   handleSaveParam(
                     { type: 'SetChargeCurrentAmps', payload: chargeCurrent },
@@ -126,10 +126,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                   )
                 }
                 disabled={isLocked || isSaving}
-                className="px-4 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
               >
                 <span>Apply</span>
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 
@@ -152,8 +151,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 disabled={isLocked || isSaving}
                 className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
               />
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() =>
                   handleSaveParam(
                     { type: 'SetBatteryLowShutdownVoltage', payload: batteryCutoff },
@@ -161,10 +159,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                   )
                 }
                 disabled={isLocked || isSaving}
-                className="px-4 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
               >
                 <span>Apply</span>
-              </button>
+              </PrimaryButton>
             </div>
           </div>
         </div>
@@ -210,8 +207,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 disabled={isLocked || isSaving}
                 className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
               />
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() =>
                   handleSaveParam(
                     { type: 'SetBypassHighVoltage', payload: bypassHigh },
@@ -219,10 +215,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                   )
                 }
                 disabled={isLocked || isSaving}
-                className="px-4 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
               >
                 <span>Apply</span>
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 
@@ -243,8 +238,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 disabled={isLocked || isSaving}
                 className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
               />
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() =>
                   handleSaveParam(
                     { type: 'SetBypassLowVoltage', payload: bypassLow },
@@ -252,10 +246,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                   )
                 }
                 disabled={isLocked || isSaving}
-                className="px-4 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
               >
                 <span>Apply</span>
-              </button>
+              </PrimaryButton>
             </div>
           </div>
         </div>

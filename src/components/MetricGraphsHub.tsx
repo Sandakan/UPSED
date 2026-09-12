@@ -459,7 +459,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       {viewMode === 'categories' && (
         <div className="space-y-4 min-w-0">
           {/* Category Tabs Pill Bar with horizontal scrolling */}
-          <div className="flex items-center gap-1.5 pb-1.5 overflow-x-auto no-scrollbar flex-nowrap -mx-1 px-1">
+          <div className="flex items-center gap-1.5 pb-1.5 overflow-x-auto scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-nowrap -mx-1 px-1">
             {[
               { id: 'voltage', label: 'Voltage (Grid vs Out)', icon: Zap },
               { id: 'frequency', label: 'Frequency (Hz)', icon: Activity },
@@ -828,7 +828,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
           {/* Sub-toolbar for Grid view: Filter pills & Column preference */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5 pb-1 text-xs">
             {/* Category filter pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-full">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5 max-w-full">
               {[
                 { id: 'all', label: 'All', count: 10 },
                 { id: 'grid', label: 'Grid', count: 2 },

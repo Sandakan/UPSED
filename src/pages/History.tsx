@@ -144,7 +144,7 @@ export const History: React.FC<HistoryProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {/* ── Section Title ────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
@@ -158,12 +158,12 @@ export const History: React.FC<HistoryProps> = ({
       </div>
 
       {/* ── Toolbar: Filter Tabs & Search & Export ───────────── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 min-w-0">
         {/* Left: View Tabs */}
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 xl:pb-0 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
           <button
             onClick={() => { setActiveTab('telemetry'); setCurrentPage(1); }}
-            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
               activeTab === 'telemetry'
                 ? 'bg-[#22c55e] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
@@ -175,7 +175,7 @@ export const History: React.FC<HistoryProps> = ({
 
           <button
             onClick={() => { setActiveTab('charts'); setCurrentPage(1); }}
-            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
               activeTab === 'charts'
                 ? 'bg-[#22c55e] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
@@ -187,7 +187,7 @@ export const History: React.FC<HistoryProps> = ({
 
           <button
             onClick={() => { setActiveTab('events'); setCurrentPage(1); }}
-            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
               activeTab === 'events'
                 ? 'bg-[#22c55e] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
@@ -199,9 +199,9 @@ export const History: React.FC<HistoryProps> = ({
         </div>
 
         {/* Right: Search, Export, Refresh */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap gap-y-2 min-w-0">
           {activeTab !== 'charts' && (
-            <div className="relative min-w-[180px] sm:min-w-[220px]">
+            <div className="relative flex-1 sm:flex-initial min-w-[140px] sm:min-w-[180px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
               <input
                 type="text"
@@ -215,7 +215,7 @@ export const History: React.FC<HistoryProps> = ({
 
           <button
             onClick={exportCsv}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] transition"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] whitespace-nowrap shrink-0 transition"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
             <span>Export CSV</span>
@@ -224,7 +224,7 @@ export const History: React.FC<HistoryProps> = ({
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition"
+            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0 transition"
             title="Refresh records"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -329,7 +329,7 @@ export const History: React.FC<HistoryProps> = ({
         ) : activeTab === 'telemetry' ? (
           /* Telemetry DataTable */
           <div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
                   <tr
@@ -377,7 +377,10 @@ export const History: React.FC<HistoryProps> = ({
                           <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
                             {row.timestamp.replace('T', ' ').substring(0, 19)}
                           </td>
-                          <td className="py-3 px-4 text-emerald-400 font-semibold">
+                          <td
+                            className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
+                            title={row.port_name}
+                          >
                             {row.port_name}
                           </td>
                           <td className="py-3 px-4">{row.grid_voltage.toFixed(1)}</td>
@@ -449,7 +452,7 @@ export const History: React.FC<HistoryProps> = ({
         ) : (
           /* Events DataTable */
           <div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
                   <tr
@@ -487,7 +490,10 @@ export const History: React.FC<HistoryProps> = ({
                         <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
                           {evt.timestamp.replace('T', ' ').substring(0, 19)}
                         </td>
-                        <td className="py-3 px-4 text-emerald-400 font-semibold">
+                        <td
+                          className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
+                          title={evt.port_name}
+                        >
                           {evt.port_name}
                         </td>
                         <td className="py-3 px-4">
@@ -495,7 +501,9 @@ export const History: React.FC<HistoryProps> = ({
                             {evt.event_type}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-slate-200 font-sans">{evt.message}</td>
+                        <td className="py-3 px-4 text-slate-200 font-sans max-w-xs sm:max-w-md truncate" title={evt.message}>
+                          {evt.message}
+                        </td>
                       </tr>
                     ))
                   )}

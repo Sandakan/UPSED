@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { UnlockStage } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
+import { PrimaryButton } from './PrimaryButton';
 
 interface HeaderProps {
   currentTab: string;
@@ -76,30 +77,30 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
   return (
     <header
-      className="h-14 flex items-center justify-between px-5 z-10 shrink-0"
+      className="h-14 flex items-center justify-between px-3 sm:px-5 z-10 shrink-0 min-w-0"
       style={{
         backgroundColor: 'transparent',
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
       {/* ── Left: Breadcrumb ──────────────────────────────── */}
-      <div className="flex items-center space-x-1.5 text-sm">
+      <div className="flex items-center space-x-1.5 text-sm min-w-0 shrink mr-2">
         <button
           onClick={() => onTabChange('dashboard')}
-          className="p-1 rounded-md text-slate-500 hover:text-slate-300 hover:bg-white/[0.05] transition"
+          className="p-1 rounded-md text-slate-500 hover:text-slate-300 hover:bg-white/[0.05] transition shrink-0"
           title="Dashboard"
         >
           <Home className="w-3.5 h-3.5" />
         </button>
-        <ChevronRight className="w-3 h-3 text-slate-700" />
-        <span className="text-slate-200 font-medium">{pageLabel}</span>
+        <ChevronRight className="w-3 h-3 text-slate-700 shrink-0" />
+        <span className="text-slate-200 font-medium truncate">{pageLabel}</span>
       </div>
 
       {/* ── Right: Actions ────────────────────────────────── */}
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
         {/* Safety Gate pill */}
         <span
-          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
+          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
         >
           <Shield className="w-3 h-3" />
           {getStagePillLabel(safetyStage)}
@@ -109,14 +110,14 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice} />
 
         {/* Primary CTA: Add / Scan UPS */}
-        <button
-          type="button"
+        <PrimaryButton
           onClick={onOpenAddDeviceModal}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#22c55e] hover:bg-green-600 active:bg-green-700 text-white transition-all shadow-md shadow-green-950/30 cursor-pointer"
+          icon={<Plus className="w-3.5 h-3.5" />}
+          title="Add New UPS Device"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Add New UPS Device</span>
-        </button>
+          <span className="hidden xl:inline">Add New UPS Device</span>
+          <span className="hidden sm:inline xl:hidden">Add UPS</span>
+        </PrimaryButton>
 
         {/* Overflow menu (Refresh Telemetry) */}
         <div className="relative" ref={overflowRef}>

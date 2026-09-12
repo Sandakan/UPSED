@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
+import { PrimaryButton } from '../components/PrimaryButton';
 
 interface ControlProps {
   portName: string | null;
@@ -66,7 +67,7 @@ export const Control: React.FC<ControlProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {/* ── Safety Gate Status Card ─────────────────────────── */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
@@ -102,44 +103,38 @@ export const Control: React.FC<ControlProps> = ({
 
           <div className="flex items-center space-x-2 shrink-0">
             {safetyStage === 'T1ReadOnly' && (
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() => handleUnlockStage('T2NonDestructive')}
-                className="px-3.5 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
+                icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <Unlock className="w-3.5 h-3.5" />
                 <span>Unlock Stage T2</span>
-              </button>
+              </PrimaryButton>
             )}
             {safetyStage === 'T2NonDestructive' && (
-              <button
-                type="button"
+              <PrimaryButton
                 onClick={() => handleUnlockStage('T3ConfigWrite')}
-                className="px-3.5 py-2 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-green-950/30 cursor-pointer"
+                icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <Unlock className="w-3.5 h-3.5" />
                 <span>Unlock Stage T3</span>
-              </button>
+              </PrimaryButton>
             )}
             {safetyStage === 'T3ConfigWrite' && (
-              <button
-                type="button"
+              <PrimaryButton
+                variant="danger"
                 onClick={() => handleUnlockStage('T4PowerControl')}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-md shadow-rose-950/30 cursor-pointer"
+                icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <Unlock className="w-3.5 h-3.5" />
                 <span>Unlock Stage T4</span>
-              </button>
+              </PrimaryButton>
             )}
             {safetyStage === 'T4PowerControl' && (
-              <button
-                type="button"
+              <PrimaryButton
+                variant="secondary"
                 onClick={() => handleUnlockStage('T1ReadOnly')}
-                className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.08] text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <Unlock className="w-3.5 h-3.5" />
                 <span>Relock to T1</span>
-              </button>
+              </PrimaryButton>
             )}
           </div>
         </div>
@@ -219,14 +214,14 @@ export const Control: React.FC<ControlProps> = ({
                 Discharges battery for 10 seconds under load to verify battery health.
               </p>
             </div>
-            <button
-              type="button"
+            <PrimaryButton
               onClick={() => handleSendCommand({ type: 'TenSecondTest' }, 'Start 10s Test')}
               disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 text-white text-xs font-semibold transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shadow-md shadow-green-950/30"
+              fullWidth
+              className="mt-4"
             >
-              Start 10s Test (T)
-            </button>
+              <span>Start 10s Test (T)</span>
+            </PrimaryButton>
           </div>
 
           {/* Cancel Running Test */}

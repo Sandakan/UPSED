@@ -181,7 +181,7 @@ export const Events: React.FC<EventsProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {/* ── Section Title ────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
@@ -195,9 +195,9 @@ export const Events: React.FC<EventsProps> = ({
       </div>
 
       {/* ── Toolbar: Filter Tabs & Actions (Reference Style) ── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 min-w-0">
         {/* Left: Filter Pills */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 lg:pb-0">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 xl:pb-0 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
           {[
             { id: 'all', label: 'All Events' },
             { id: 'critical', label: 'Critical / Fault' },
@@ -213,7 +213,7 @@ export const Events: React.FC<EventsProps> = ({
                   setFilterSeverity(tab.id);
                   setCurrentPage(1);
                 }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${
                   isActive
                     ? 'bg-[#22c55e] text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
@@ -226,9 +226,9 @@ export const Events: React.FC<EventsProps> = ({
         </div>
 
         {/* Right: Search, Timeframe, Export, Clear */}
-        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+        <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap gap-y-2 min-w-0">
           {/* Search Input */}
-          <div className="relative min-w-[180px] sm:min-w-[220px]">
+          <div className="relative flex-1 sm:flex-initial min-w-[140px] sm:min-w-[180px]">
             <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
             <input
               type="text"
@@ -249,7 +249,7 @@ export const Events: React.FC<EventsProps> = ({
               setTimeframe(e.target.value as any);
               setCurrentPage(1);
             }}
-            className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer"
+            className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer shrink-0"
           >
             <option value="all" className="bg-slate-900 text-slate-200">All Time</option>
             <option value="today" className="bg-slate-900 text-slate-200">Last 24 Hours</option>
@@ -260,7 +260,7 @@ export const Events: React.FC<EventsProps> = ({
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition"
+            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition shrink-0"
             title="Refresh events"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -270,17 +270,18 @@ export const Events: React.FC<EventsProps> = ({
           <button
             onClick={exportCsv}
             disabled={filteredEvents.length === 0}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition shrink-0"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span>Export CSV</span>
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">CSV</span>
           </button>
 
           {/* Clear History Button */}
           <button
             onClick={() => setShowClearConfirm(true)}
             disabled={events.length === 0 || isClearing}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition shrink-0"
             title="Clear all events from SQLite database"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -293,7 +294,7 @@ export const Events: React.FC<EventsProps> = ({
         className="rounded-2xl border overflow-hidden shadow-sm"
         style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left text-xs">
             {/* Table Header */}
             <thead>
@@ -346,7 +347,10 @@ export const Events: React.FC<EventsProps> = ({
                       </td>
 
                       {/* Device ID / Port */}
-                      <td className="py-3 px-4 font-mono font-medium text-slate-200">
+                      <td
+                        className="py-3 px-4 font-mono font-medium text-slate-200 whitespace-nowrap max-w-[150px] truncate"
+                        title={ev.port_name}
+                      >
                         {ev.port_name}
                       </td>
 

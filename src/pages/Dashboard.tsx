@@ -130,9 +130,9 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   const batVSeries = useMemo(() => sparkData.map((d) => d.batV), [sparkData]);
 
   return (
-    <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-3.5rem)] min-w-0">
+    <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {/* Reference Design Stat Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
         {/* Input Voltage Card */}
         <div
           className="rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0 transition hover:border-white/[0.12]"

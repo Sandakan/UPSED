@@ -351,7 +351,7 @@ export function App() {
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
         />
 
-        <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar">
+        <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar min-w-0">
           {currentTab === 'dashboard' && (
             <Dashboard
               status={status}

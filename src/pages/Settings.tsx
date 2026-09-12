@@ -3,6 +3,7 @@ import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon } fr
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
+import { PrimaryButton } from '../components/PrimaryButton';
 import {
   calculateActiveWatts,
   BatteryChemistry,
@@ -123,7 +124,7 @@ export const Settings: React.FC<SettingsProps> = ({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)]">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {savedNotice && (
         <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-xs font-mono flex items-center space-x-2">
           <Check className="w-4 h-4 text-emerald-400" />
@@ -417,7 +418,7 @@ export const Settings: React.FC<SettingsProps> = ({
               }}
               className={`px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 intervalVal === sec
-                  ? 'bg-[#22c55e] hover:bg-green-600 text-white shadow-md shadow-green-950/30'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
                   : 'bg-white/[0.03] border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
               }`}
             >
@@ -624,14 +625,13 @@ export const Settings: React.FC<SettingsProps> = ({
 
       {/* ── Save Settings Button ────────────────────────────── */}
       <div className="flex justify-end pt-1">
-        <button
-          type="button"
+        <PrimaryButton
           onClick={handleSave}
-          className="px-6 py-2.5 rounded-xl bg-[#22c55e] hover:bg-green-600 active:bg-green-700 text-white text-xs font-semibold flex items-center space-x-2 transition shadow-md shadow-green-950/40 cursor-pointer"
+          icon={<Save className="w-4 h-4" />}
+          size="lg"
         >
-          <Save className="w-4 h-4" />
           <span>Save Settings</span>
-        </button>
+        </PrimaryButton>
       </div>
 
       {/* ── Legal & Clean-Room Notice ───────────────────────── */}

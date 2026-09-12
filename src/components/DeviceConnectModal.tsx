@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plug, RefreshCw, X, Check, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
 import { DiscoveredDevice } from '../lib/types';
+import { PrimaryButton } from './PrimaryButton';
 
 export interface DeviceConnectModalProps {
   isOpen: boolean;
@@ -249,15 +250,13 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
             >
               Cancel
             </button>
-            <button
-              type="button"
+            <PrimaryButton
               onClick={handleConnect}
               disabled={!chosenPort || isScanning}
-              className="px-4 py-2 text-xs font-semibold rounded-xl transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 bg-[#22c55e] hover:bg-green-600 text-white shadow-md shadow-green-950/40"
+              icon={<Plug className="w-3.5 h-3.5" />}
             >
-              <Plug className="w-3.5 h-3.5" />
               <span>Connect Device</span>
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       </div>
