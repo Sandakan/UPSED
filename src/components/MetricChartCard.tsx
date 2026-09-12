@@ -32,7 +32,7 @@ interface MetricChartCardProps {
   statusBadge?: React.ReactNode;
 }
 
-export const MetricChartCard: React.FC<MetricChartCardProps> = ({
+const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   title,
   icon,
   currentValue,
@@ -177,3 +177,25 @@ export const MetricChartCard: React.FC<MetricChartCardProps> = ({
     </div>
   );
 };
+
+export const MetricChartCard = React.memo(MetricChartCardComponent, (prev, next) => {
+  if (
+    prev.currentValue !== next.currentValue ||
+    prev.title !== next.title ||
+    prev.height !== next.height ||
+    prev.color !== next.color ||
+    prev.unit !== next.unit ||
+    prev.showStats !== next.showStats ||
+    prev.gradientId !== next.gradientId
+  ) {
+    return false;
+  }
+
+  if (prev.data === next.data) return true;
+  if (prev.data.length !== next.data.length) return false;
+  if (prev.data.length === 0) return true;
+
+  const prevLast = prev.data[prev.data.length - 1];
+  const nextLast = next.data[next.data.length - 1];
+  return prevLast.time === nextLast.time && prevLast.value === nextLast.value && prevLast.value2 === nextLast.value2;
+});

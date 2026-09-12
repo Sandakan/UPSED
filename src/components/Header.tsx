@@ -5,10 +5,10 @@ import {
   RefreshCw,
   Plus,
   MoreHorizontal,
-  Clock,
   Shield,
 } from 'lucide-react';
 import { UnlockStage } from '../lib/types';
+import { LastUpdatedTimer } from './LastUpdatedTimer';
 
 interface HeaderProps {
   currentTab: string;
@@ -30,18 +30,6 @@ const PAGE_LABELS: Record<string, string> = {
   settings:  'Settings',
 };
 
-const formatRelativeTime = (timestamp?: number): string => {
-  if (!timestamp || timestamp <= 0) return '';
-  const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (diffSec === 0) return 'just now';
-  if (diffSec === 1) return '1s ago';
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  const remSec = diffSec % 60;
-  if (diffMin < 60) return remSec > 0 ? `${diffMin}m ${remSec}s ago` : `${diffMin}m ago`;
-  return `${Math.floor(diffMin / 60)}h ago`;
-};
-
 const getStagePillStyle = (stage: UnlockStage) => {
   switch (stage) {
     case 'T1ReadOnly':       return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/40';
@@ -60,7 +48,7 @@ const getStagePillLabel = (stage: UnlockStage) => {
   }
 };
 
-export const Header: React.FC<HeaderProps> = ({
+export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
   selectedDevice,
   onRefresh,
@@ -70,16 +58,8 @@ export const Header: React.FC<HeaderProps> = ({
   onTabChange,
   onOpenAddDeviceModal,
 }) => {
-  const [, setTick] = useState(0);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
-
-  // Tick every second so relative time stays fresh
-  useEffect(() => {
-    if (!lastUpdatedAt || lastUpdatedAt <= 0) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [lastUpdatedAt]);
 
   // Close overflow menu on outside click
   useEffect(() => {
@@ -92,7 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const relativeTime = formatRelativeTime(lastUpdatedAt);
   const pageLabel = PAGE_LABELS[currentTab] ?? currentTab;
 
   return (
@@ -127,15 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
         </span>
 
         {/* Last updated clock */}
-        {lastUpdatedAt && lastUpdatedAt > 0 && (
-          <div
-            className="hidden md:flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded-lg text-slate-500"
-            title={`Telemetry received: ${new Date(lastUpdatedAt).toLocaleTimeString()}`}
-          >
-            <Clock className="w-3 h-3 text-emerald-500" />
-            <span>{relativeTime || new Date(lastUpdatedAt).toLocaleTimeString()}</span>
-          </div>
-        )}
+        <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice} />
 
         {/* Primary CTA: Add / Scan UPS */}
         <button
@@ -180,4 +151,4 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
     </header>
   );
-};
+});

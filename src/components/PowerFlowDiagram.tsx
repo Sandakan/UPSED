@@ -22,7 +22,7 @@ interface PowerFlowDiagramProps {
   metadata?: UpsMetadata | null;
 }
 
-export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, metadata }) => {
+const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, metadata }) => {
   // Operational mode determination
   const isFault = status.ups_failed;
   const isBypass = !isFault && status.bypass_active;
@@ -666,4 +666,28 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
     </div>
   );
 };
+
+export const PowerFlowDiagram = React.memo(PowerFlowDiagramComponent, (prev, next) => {
+  return (
+    prev.portName === next.portName &&
+    prev.status.grid_voltage_v === next.status.grid_voltage_v &&
+    prev.status.output_voltage_v === next.status.output_voltage_v &&
+    prev.status.grid_frequency_hz === next.status.grid_frequency_hz &&
+    prev.status.output_frequency_hz === next.status.output_frequency_hz &&
+    prev.status.output_load_pct === next.status.output_load_pct &&
+    prev.status.output_watts === next.status.output_watts &&
+    prev.status.battery_voltage_v === next.status.battery_voltage_v &&
+    prev.status.temperature_c === next.status.temperature_c &&
+    prev.status.utility_fail === next.status.utility_fail &&
+    prev.status.battery_low === next.status.battery_low &&
+    prev.status.bypass_active === next.status.bypass_active &&
+    prev.status.ups_failed === next.status.ups_failed &&
+    prev.metadata?.battery_voltage === next.metadata?.battery_voltage &&
+    prev.metadata?.rated_watts === next.metadata?.rated_watts &&
+    prev.metadata?.rated_va === next.metadata?.rated_va &&
+    prev.metadata?.battery_capacity_ah === next.metadata?.battery_capacity_ah &&
+    prev.metadata?.battery_chemistry === next.metadata?.battery_chemistry &&
+    prev.metadata?.topology === next.metadata?.topology
+  );
+});
 

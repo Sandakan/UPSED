@@ -7,7 +7,23 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "html-react-devtools",
+      apply: "serve",
+      transformIndexHtml() {
+        return [
+          {
+            tag: "script",
+            attrs: { src: "http://localhost:8097" },
+            injectTo: "head-prepend",
+          },
+        ];
+      },
+    },
+  ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,

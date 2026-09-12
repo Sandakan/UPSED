@@ -23,7 +23,7 @@ import {
   Legend,
 } from 'recharts';
 import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
-import { MetricChartCard, MetricDataPoint } from './MetricChartCard';
+import { MetricChartCard } from './MetricChartCard';
 import {
   calculateActiveWatts,
   calculateBatterySoC,
@@ -42,7 +42,7 @@ type CategoryTab = 'voltage' | 'frequency' | 'power' | 'battery' | 'temperature'
 type GridColsMode = 'auto' | '2' | '3' | '4' | '5';
 type GridFilterMode = 'all' | 'grid' | 'power' | 'battery' | 'thermal';
 
-export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
+const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   status,
   history,
   metadata,
@@ -143,30 +143,44 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
     metadata?.battery_chemistry ?? 'VRLA_SLA'
   );
 
-  // Transform data series for individual charts
-  const gridVData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.grid_voltage }));
-  const outVData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.output_voltage }));
-  const gridFData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.grid_frequency }));
-  const outFData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.output_frequency }));
-  const loadData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.load_pct }));
-  const wattsData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.output_watts }));
-  const batVData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.battery_voltage }));
-  const batSocData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.battery_soc }));
-  const tempData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.temperature_c }));
-  const runtimeData: MetricDataPoint[] = telemetryData.map((d) => ({ time: d.time, value: d.runtime_mins }));
-
-  // Combined category data
-  const voltageCombined = telemetryData.map((d) => ({
-    time: d.time,
-    value: d.grid_voltage,
-    value2: d.output_voltage,
-  }));
-
-  const frequencyCombined = telemetryData.map((d) => ({
-    time: d.time,
-    value: d.grid_frequency,
-    value2: d.output_frequency,
-  }));
+  // Transform data series for individual charts (memoized to prevent allocating new objects every render)
+  const {
+    gridVData,
+    outVData,
+    gridFData,
+    outFData,
+    loadData,
+    wattsData,
+    batVData,
+    batSocData,
+    tempData,
+    runtimeData,
+    voltageCombined,
+    frequencyCombined,
+  } = useMemo(() => {
+    return {
+      gridVData: telemetryData.map((d) => ({ time: d.time, value: d.grid_voltage })),
+      outVData: telemetryData.map((d) => ({ time: d.time, value: d.output_voltage })),
+      gridFData: telemetryData.map((d) => ({ time: d.time, value: d.grid_frequency })),
+      outFData: telemetryData.map((d) => ({ time: d.time, value: d.output_frequency })),
+      loadData: telemetryData.map((d) => ({ time: d.time, value: d.load_pct })),
+      wattsData: telemetryData.map((d) => ({ time: d.time, value: d.output_watts })),
+      batVData: telemetryData.map((d) => ({ time: d.time, value: d.battery_voltage })),
+      batSocData: telemetryData.map((d) => ({ time: d.time, value: d.battery_soc })),
+      tempData: telemetryData.map((d) => ({ time: d.time, value: d.temperature_c })),
+      runtimeData: telemetryData.map((d) => ({ time: d.time, value: d.runtime_mins })),
+      voltageCombined: telemetryData.map((d) => ({
+        time: d.time,
+        value: d.grid_voltage,
+        value2: d.output_voltage,
+      })),
+      frequencyCombined: telemetryData.map((d) => ({
+        time: d.time,
+        value: d.grid_frequency,
+        value2: d.output_frequency,
+      })),
+    };
+  }, [telemetryData]);
 
   const gridColsClass = useMemo(() => {
     switch (gridCols) {
@@ -183,12 +197,31 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
     }
   }, [gridCols]);
 
-  const allCards = useMemo(
+  const cardDefinitions = useMemo(
     () => [
-      {
-        id: 'grid-v',
-        category: 'grid' as const,
-        component: (
+      { id: 'grid-v', category: 'grid' as const },
+      { id: 'out-v', category: 'power' as const },
+      { id: 'grid-f', category: 'grid' as const },
+      { id: 'out-f', category: 'power' as const },
+      { id: 'load', category: 'power' as const },
+      { id: 'watts', category: 'power' as const },
+      { id: 'bat-v', category: 'battery' as const },
+      { id: 'bat-soc', category: 'battery' as const },
+      { id: 'temp', category: 'thermal' as const },
+      { id: 'runtime', category: 'battery' as const },
+    ],
+    []
+  );
+
+  const filteredCardIds = useMemo(() => {
+    if (gridFilter === 'all') return cardDefinitions.map((c) => c.id);
+    return cardDefinitions.filter((c) => c.category === gridFilter).map((c) => c.id);
+  }, [cardDefinitions, gridFilter]);
+
+  const renderGridCard = (id: string) => {
+    switch (id) {
+      case 'grid-v':
+        return (
           <MetricChartCard
             key="grid-v"
             title="Input Grid Voltage"
@@ -201,12 +234,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-grid-v"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'out-v',
-        category: 'power' as const,
-        component: (
+        );
+      case 'out-v':
+        return (
           <MetricChartCard
             key="out-v"
             title="Output Voltage"
@@ -219,12 +249,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-out-v"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'grid-f',
-        category: 'grid' as const,
-        component: (
+        );
+      case 'grid-f':
+        return (
           <MetricChartCard
             key="grid-f"
             title="Input Frequency"
@@ -237,12 +264,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-grid-f"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'out-f',
-        category: 'power' as const,
-        component: (
+        );
+      case 'out-f':
+        return (
           <MetricChartCard
             key="out-f"
             title="Output Frequency"
@@ -255,12 +279,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-out-f"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'load',
-        category: 'power' as const,
-        component: (
+        );
+      case 'load':
+        return (
           <MetricChartCard
             key="load"
             title="Output Load"
@@ -274,12 +295,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-load"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'watts',
-        category: 'power' as const,
-        component: (
+        );
+      case 'watts':
+        return (
           <MetricChartCard
             key="watts"
             title="Active Power"
@@ -292,12 +310,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-watts"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'bat-v',
-        category: 'battery' as const,
-        component: (
+        );
+      case 'bat-v':
+        return (
           <MetricChartCard
             key="bat-v"
             title="Battery Voltage"
@@ -310,12 +325,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-bat-v"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'bat-soc',
-        category: 'battery' as const,
-        component: (
+        );
+      case 'bat-soc':
+        return (
           <MetricChartCard
             key="bat-soc"
             title="Battery Capacity"
@@ -329,12 +341,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-bat-soc"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'temp',
-        category: 'thermal' as const,
-        component: (
+        );
+      case 'temp':
+        return (
           <MetricChartCard
             key="temp"
             title="Temperature"
@@ -347,12 +356,9 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-temp"
             height={150}
           />
-        ),
-      },
-      {
-        id: 'runtime',
-        category: 'battery' as const,
-        component: (
+        );
+      case 'runtime':
+        return (
           <MetricChartCard
             key="runtime"
             title="Est. Runtime"
@@ -365,37 +371,11 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
             gradientId="all-runtime"
             height={150}
           />
-        ),
-      },
-    ],
-    [
-      status.grid_voltage_v,
-      status.output_voltage_v,
-      status.grid_frequency_hz,
-      status.output_frequency_hz,
-      status.output_load_pct,
-      status.battery_voltage_v,
-      status.temperature_c,
-      currentWatts,
-      currentBatPct,
-      currentRuntime,
-      gridVData,
-      outVData,
-      gridFData,
-      outFData,
-      loadData,
-      wattsData,
-      batVData,
-      batSocData,
-      tempData,
-      runtimeData,
-    ]
-  );
-
-  const filteredCards = useMemo(() => {
-    if (gridFilter === 'all') return allCards;
-    return allCards.filter((card) => card.category === gridFilter);
-  }, [allCards, gridFilter]);
+        );
+      default:
+        return null;
+    }
+  };
 
 
   return (
@@ -559,6 +539,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       strokeWidth={2}
                       fill="url(#gridVGrad)"
                       unit="V"
+                      isAnimationActive={false}
                     />
                     <Area
                       type="monotone"
@@ -568,6 +549,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       strokeWidth={2}
                       fill="url(#outVGrad)"
                       unit="V"
+                      isAnimationActive={false}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -650,6 +632,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       strokeWidth={2}
                       fill="url(#gridFGrad)"
                       unit="Hz"
+                      isAnimationActive={false}
                     />
                     <Area
                       type="monotone"
@@ -659,6 +642,7 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                       strokeWidth={2}
                       fill="url(#outFGrad)"
                       unit="Hz"
+                      isAnimationActive={false}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -900,10 +884,12 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
                 : undefined
             }
           >
-            {filteredCards.map((c) => c.component)}
+            {filteredCardIds.map((id) => renderGridCard(id))}
           </div>
         </div>
       )}
     </div>
   );
 };
+
+export const MetricGraphsHub = React.memo(MetricGraphsHubComponent);

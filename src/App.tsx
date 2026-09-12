@@ -15,7 +15,7 @@ import { VoltWatchToaster } from './components/VoltWatchToaster';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata, EventLogRecord, Q1Status } from './lib/types';
+import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord } from './lib/types';
 import { useTheme } from './lib/theme';
 
 export function App() {
@@ -144,7 +144,6 @@ export function App() {
     data: status = null,
     error: statusError,
     isFetching: isFetchingStatus,
-    dataUpdatedAt: statusUpdatedAt,
     refetch: refetchStatus,
   } = useQuery({
     queryKey: ['deviceStatus', selectedDevice],
@@ -175,14 +174,44 @@ export function App() {
   // Listen to real-time 'ups-telemetry' broadcast pushed by Rust background monitor task
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
     listen<Q1Status>('ups-telemetry', (tauriEvent) => {
-      queryClient.setQueryData(['deviceStatus', selectedDevice], tauriEvent.payload);
-      queryClient.invalidateQueries({ queryKey: ['telemetryHistory', selectedDevice] });
+      const newStatus = tauriEvent.payload;
+      queryClient.setQueryData(['deviceStatus', selectedDevice], newStatus);
+
+      // Optimistically append new telemetry sample to cache to eliminate redundant IPC DB queries and avoid secondary re-renders
+      if (selectedDevice) {
+        queryClient.setQueryData<TelemetryRecord[]>(
+          ['telemetryHistory', selectedDevice],
+          (oldHistory = []) => {
+            const newRecord: TelemetryRecord = {
+              timestamp: new Date().toISOString(),
+              port_name: selectedDevice,
+              grid_voltage: newStatus.grid_voltage_v,
+              output_voltage: newStatus.output_voltage_v,
+              grid_frequency: newStatus.grid_frequency_hz,
+              output_frequency: newStatus.output_frequency_hz,
+              load_pct: newStatus.output_load_pct,
+              output_watts: newStatus.output_watts,
+              battery_voltage: newStatus.battery_voltage_v,
+              temperature_c: newStatus.temperature_c,
+            };
+            const updated = [...oldHistory, newRecord];
+            return updated.length > 50 ? updated.slice(-50) : updated;
+          }
+        );
+      }
     }).then((fn) => {
-      unlisten = fn;
+      if (!isMounted) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
+      isMounted = false;
       unlisten?.();
     };
   }, [selectedDevice, queryClient]);
@@ -190,6 +219,8 @@ export function App() {
   // Listen to real-time 'ups-event' broadcast from backend
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
     listen<EventLogRecord>('ups-event', (tauriEvent) => {
       handleIncomingUpsEvent(tauriEvent.payload, {
         osNotificationsEnabled,
@@ -198,10 +229,15 @@ export function App() {
       // Invalidate events cache to show in table
       queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
     }).then((fn) => {
-      unlisten = fn;
+      if (!isMounted) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
+      isMounted = false;
       unlisten?.();
     };
   }, [osNotificationsEnabled, inAppToastsEnabled, queryClient]);
@@ -268,6 +304,10 @@ export function App() {
     scanPorts();
   }, [scanPorts]);
 
+  const handleOpenAddDeviceModal = useCallback(() => {
+    setIsConnectModalOpen(true);
+  }, []);
+
   const lastError = statusError
     ? statusError instanceof Error
       ? statusError.message
@@ -306,10 +346,9 @@ export function App() {
           selectedDevice={selectedDevice}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
-          lastUpdatedAt={statusUpdatedAt}
           safetyStage={safetyStage}
           onTabChange={setCurrentTab}
-          onOpenAddDeviceModal={() => setIsConnectModalOpen(true)}
+          onOpenAddDeviceModal={handleOpenAddDeviceModal}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar">

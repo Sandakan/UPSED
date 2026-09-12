@@ -4,12 +4,7 @@ import {
   Activity,
   CheckCircle,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  YAxis,
-} from 'recharts';
+import { StatCardSparkline } from '../components/StatCardSparkline';
 import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
 import { MetricGraphsHub } from '../components/MetricGraphsHub';
@@ -29,7 +24,7 @@ interface DashboardProps {
   metadata?: UpsMetadata | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({
+const DashboardComponent: React.FC<DashboardProps> = ({
   status,
   history,
   portName,
@@ -128,7 +123,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       });
     }
     return points;
-  }, [history, status, batPct]);
+  }, [history, status.grid_voltage_v, status.output_load_pct, batPct]);
+
+  const gridVSeries = useMemo(() => sparkData.map((d) => d.gridV), [sparkData]);
+  const loadSeries = useMemo(() => sparkData.map((d) => d.load), [sparkData]);
+  const batVSeries = useMemo(() => sparkData.map((d) => d.batV), [sparkData]);
 
   return (
     <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-3.5rem)] min-w-0">
@@ -158,27 +157,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex-1 h-14 sm:h-16 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={sparkData} margin={{ top: 6, right: 2, left: 2, bottom: 2 }}>
-                <defs>
-                  <linearGradient id="refSparkGrid" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} hide />
-                <Area
-                  type="monotone"
-                  dataKey="gridV"
-                  stroke="#22c55e"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="url(#refSparkGrid)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <StatCardSparkline
+              data={gridVSeries}
+              color="#22c55e"
+              gradientId="refSparkGrid"
+              paddingY={0.5}
+            />
           </div>
         </div>
 
@@ -203,27 +187,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex-1 h-14 sm:h-16 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={sparkData} margin={{ top: 6, right: 2, left: 2, bottom: 2 }}>
-                <defs>
-                  <linearGradient id="refSparkLoad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <YAxis domain={['dataMin - 2', 'dataMax + 2']} hide />
-                <Area
-                  type="monotone"
-                  dataKey="load"
-                  stroke="#22c55e"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="url(#refSparkLoad)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <StatCardSparkline
+              data={loadSeries}
+              color="#22c55e"
+              gradientId="refSparkLoad"
+              paddingY={2}
+            />
           </div>
         </div>
 
@@ -251,27 +220,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex-1 h-14 sm:h-16 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={sparkData} margin={{ top: 6, right: 2, left: 2, bottom: 2 }}>
-                <defs>
-                  <linearGradient id="refSparkBat" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} hide />
-                <Area
-                  type="monotone"
-                  dataKey="batV"
-                  stroke="#22c55e"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="url(#refSparkBat)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <StatCardSparkline
+              data={batVSeries}
+              color="#22c55e"
+              gradientId="refSparkBat"
+              paddingY={0.5}
+            />
           </div>
         </div>
       </div>
@@ -362,4 +316,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     </div>
   );
 };
+
+export const Dashboard = React.memo(DashboardComponent);
+
 
