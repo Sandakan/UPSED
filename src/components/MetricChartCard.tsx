@@ -127,7 +127,7 @@ export const MetricChartCard: React.FC<MetricChartCardProps> = ({
                   </linearGradient>
                 )}
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
               <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} minTickGap={35} />
               <YAxis
                 stroke="#64748b"
@@ -139,13 +139,14 @@ export const MetricChartCard: React.FC<MetricChartCardProps> = ({
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#334155',
+                  backgroundColor: 'var(--card-bg)',
+                  borderColor: 'var(--card-border)',
                   borderRadius: '0.75rem',
                   fontSize: '11px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                  color: 'var(--color-slate-100)',
                 }}
-                labelStyle={{ color: '#94a3b8', marginBottom: '2px' }}
+                labelStyle={{ color: 'var(--color-slate-400)', marginBottom: '2px' }}
               />
               <Area
                 type="monotone"

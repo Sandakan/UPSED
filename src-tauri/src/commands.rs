@@ -453,6 +453,23 @@ pub fn set_start_minimized(state: State<AppState>, enabled: bool) -> Result<(), 
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_theme(state: State<AppState>) -> Result<String, String> {
+    let val = state
+        .db
+        .get_setting("theme")
+        .map_err(|e| e.to_string())?;
+    Ok(val.unwrap_or_else(|| "system".to_string()))
+}
+
+#[tauri::command]
+pub fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
+    state
+        .db
+        .set_setting("theme", &theme)
+        .map_err(|e| e.to_string())
+}
+
 /// Detects hardware state transitions and alarms by diffing status between consecutive poll cycles.
 pub fn detect_status_events(
     prev: Option<&Q1Status>,

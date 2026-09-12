@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Bell,
   Search,
-  Filter,
   Download,
   Trash2,
   RefreshCw,
@@ -11,6 +9,9 @@ import {
   CheckCircle2,
   Info,
   Check,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
 } from 'lucide-react';
 import { EventLogRecord, EventSeverity } from '../lib/types';
 import { getEventInfo } from '../lib/notifications';
@@ -23,6 +24,8 @@ interface EventsProps {
   isRefreshing: boolean;
 }
 
+const PAGE_SIZE = 10;
+
 export const Events: React.FC<EventsProps> = ({
   events,
   onRefresh,
@@ -30,15 +33,26 @@ export const Events: React.FC<EventsProps> = ({
 }) => {
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [timeframe, setTimeframe] = useState<'all' | 'today' | 'week'>('all');
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Filter & Search Logic
   const filteredEvents = useMemo(() => {
+    const now = Date.now();
     return events.filter((ev) => {
       // Severity filter
       if (filterSeverity !== 'all' && ev.severity !== filterSeverity) {
         return false;
+      }
+      // Timeframe filter
+      if (timeframe !== 'all') {
+        const evTime = new Date(ev.timestamp).getTime();
+        const diffHours = (now - evTime) / (1000 * 60 * 60);
+        if (timeframe === 'today' && diffHours > 24) return false;
+        if (timeframe === 'week' && diffHours > 168) return false;
       }
       // Keyword search
       if (searchQuery.trim()) {
@@ -53,28 +67,48 @@ export const Events: React.FC<EventsProps> = ({
       }
       return true;
     });
-  }, [events, filterSeverity, searchQuery]);
+  }, [events, filterSeverity, searchQuery, timeframe]);
 
-  // Event statistics
-  const stats = useMemo(() => {
-    let critical = 0;
-    let warning = 0;
-    let success = 0;
-    let info = 0;
-    for (const e of events) {
-      if (e.severity === 'critical') critical++;
-      else if (e.severity === 'warning') warning++;
-      else if (e.severity === 'success') success++;
-      else info++;
+  // Pagination calculation
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedEvents = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredEvents.slice(start, start + PAGE_SIZE);
+  }, [filteredEvents, safePage]);
+
+  // Checkbox Selection
+  const allCurrentSelected =
+    paginatedEvents.length > 0 &&
+    paginatedEvents.every((e) => e.id && selectedIds.has(e.id));
+
+  const toggleSelectAll = () => {
+    const next = new Set(selectedIds);
+    if (allCurrentSelected) {
+      paginatedEvents.forEach((e) => e.id && next.delete(e.id));
+    } else {
+      paginatedEvents.forEach((e) => e.id && next.add(e.id));
     }
-    return { total: events.length, critical, warning, success, info };
-  }, [events]);
+    setSelectedIds(next);
+  };
+
+  const toggleSelectOne = (id?: number) => {
+    if (!id) return;
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedIds(next);
+  };
 
   const handleConfirmClear = async () => {
     try {
       setIsClearing(true);
       await api.clearEvents();
       setShowClearConfirm(false);
+      setSelectedIds(new Set());
       onRefresh();
     } catch (err) {
       console.error('Failed to clear events:', err);
@@ -95,7 +129,7 @@ export const Events: React.FC<EventsProps> = ({
 
   const exportCsv = () => {
     const headers = 'ID,Timestamp,Port,Event_Type,Severity,Title,Description,Acknowledged\n';
-    const rows = events
+    const rows = filteredEvents
       .map((e) => {
         const info = getEventInfo(e);
         const cleanTitle = `"${info.title.replace(/"/g, '""')}"`;
@@ -116,213 +150,330 @@ export const Events: React.FC<EventsProps> = ({
     switch (severity) {
       case 'critical':
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-            <AlertOctagon className="w-3.5 h-3.5" />
-            <span>CRITICAL</span>
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-950/60 text-rose-400 border border-rose-600/40">
+            <AlertOctagon className="w-3 h-3" />
+            <span>Fault</span>
           </span>
         );
       case 'warning':
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>WARNING</span>
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-950/60 text-amber-400 border border-amber-600/40">
+            <AlertTriangle className="w-3 h-3" />
+            <span>Warning</span>
           </span>
         );
       case 'success':
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>SUCCESS</span>
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-600/40">
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Online</span>
           </span>
         );
       case 'info':
       default:
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-            <Info className="w-3.5 h-3.5" />
-            <span>INFO</span>
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-950/60 text-cyan-400 border border-cyan-600/40">
+            <Info className="w-3 h-3" />
+            <span>Info</span>
           </span>
         );
     }
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)]">
-      {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-slate-800 rounded-xl text-cyan-400">
-            <Bell className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-100">Hardware Alarms & Events</h2>
-            <p className="text-xs text-slate-400">
-              Persistent event log and state transitions recorded directly from UPS hardware
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition border border-slate-700/60"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
-
-          <button
-            onClick={exportCsv}
-            disabled={events.length === 0}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-xl text-xs font-medium transition border border-slate-700/60"
-          >
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Export CSV</span>
-          </button>
-
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            disabled={events.length === 0 || isClearing}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 disabled:opacity-50 rounded-xl text-xs font-medium transition border border-rose-800/60 cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear History</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-xs text-slate-400 font-medium">Total Events</span>
-          <p className="text-xl font-bold text-slate-100">{stats.total}</p>
-        </div>
-        <div className="bg-slate-900/80 border border-rose-900/30 rounded-xl p-3">
-          <span className="text-xs text-rose-400 font-medium">Critical</span>
-          <p className="text-xl font-bold text-rose-400">{stats.critical}</p>
-        </div>
-        <div className="bg-slate-900/80 border border-amber-900/30 rounded-xl p-3">
-          <span className="text-xs text-amber-400 font-medium">Warnings</span>
-          <p className="text-xl font-bold text-amber-400">{stats.warning}</p>
-        </div>
-        <div className="bg-slate-900/80 border border-emerald-900/30 rounded-xl p-3">
-          <span className="text-xs text-emerald-400 font-medium">Recoveries</span>
-          <p className="text-xl font-bold text-emerald-400">{stats.success}</p>
-        </div>
-        <div className="bg-slate-900/80 border border-cyan-900/30 rounded-xl p-3">
-          <span className="text-xs text-cyan-400 font-medium">Info</span>
-          <p className="text-xl font-bold text-cyan-400">{stats.info}</p>
-        </div>
-      </div>
-
-      {/* Filter & Search Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 p-3 rounded-2xl">
-        {/* Severity Pills */}
-        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-          <span className="text-xs text-slate-400 flex items-center mr-1">
-            <Filter className="w-3.5 h-3.5 mr-1" />
-            Filter:
-          </span>
-          {(['all', 'critical', 'warning', 'success', 'info'] as const).map((sev) => (
-            <button
-              key={sev}
-              onClick={() => setFilterSeverity(sev)}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg capitalize transition ${
-                filterSeverity === sev
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {sev}
-            </button>
-          ))}
-        </div>
-
-        {/* Search Input */}
-        <div className="relative min-w-[240px] flex-1 sm:flex-initial">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search events, ports, codes..."
-            className="w-full bg-slate-800 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition"
-          />
-        </div>
-      </div>
-
-      {/* Events List / Cards */}
-      {filteredEvents.length === 0 ? (
-        <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-12 text-center text-slate-400">
-          <Bell className="w-12 h-12 mx-auto mb-3 opacity-30 text-cyan-400" />
-          <p className="text-base font-semibold text-slate-300">No events found</p>
-          <p className="text-xs text-slate-500 mt-1">
-            {searchQuery || filterSeverity !== 'all'
-              ? 'Try adjusting your filters or search terms.'
-              : 'Hardware state transitions and alarms will appear here when detected.'}
+    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar">
+      {/* ── Section Title ────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-slate-100 tracking-tight">
+            Events List
+          </h2>
+          <p className="text-xs text-slate-400">
+            Telemetry hardware transitions, warning codes, and power state events
           </p>
         </div>
-      ) : (
-        <div className="space-y-2.5">
-          {filteredEvents.map((ev) => {
-            const info = getEventInfo(ev);
+      </div>
+
+      {/* ── Toolbar: Filter Tabs & Actions (Reference Style) ── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        {/* Left: Filter Pills */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 lg:pb-0">
+          {[
+            { id: 'all', label: 'All Events' },
+            { id: 'critical', label: 'Critical / Fault' },
+            { id: 'warning', label: 'Warnings' },
+            { id: 'success', label: 'Recoveries' },
+            { id: 'info', label: 'Informational' },
+          ].map((tab) => {
+            const isActive = filterSeverity === tab.id;
             return (
-              <div
-                key={ev.id ?? `${ev.timestamp}-${ev.event_type}`}
-                className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-xl border transition ${
-                  ev.severity === 'critical'
-                    ? 'bg-rose-950/20 border-rose-900/40 hover:border-rose-700/60'
-                    : ev.severity === 'warning'
-                    ? 'bg-amber-950/20 border-amber-900/40 hover:border-amber-700/60'
-                    : ev.severity === 'success'
-                    ? 'bg-emerald-950/20 border-emerald-900/40 hover:border-emerald-700/60'
-                    : 'bg-slate-900/70 border-slate-800 hover:border-slate-700'
-                } gap-3`}
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setFilterSeverity(tab.id);
+                  setCurrentPage(1);
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${
+                  isActive
+                    ? 'bg-[#22c55e] text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
+                }`}
               >
-                <div className="flex items-start space-x-3 min-w-0">
-                  <div className="mt-0.5">{getSeverityBadge(ev.severity)}</div>
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center space-x-2 flex-wrap">
-                      <span className="text-sm font-semibold text-slate-100">{info.title}</span>
-                      <span className="text-xs font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
-                        {ev.event_type}
-                      </span>
-                      <span className="text-xs text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
-                        {ev.port_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-300 leading-relaxed">{info.description}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3 shrink-0 self-end sm:self-center">
-                  <span className="text-xs text-slate-400">
-                    {new Date(ev.timestamp).toLocaleString([], {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                  </span>
-
-                  {!ev.acknowledged && ev.id && (
-                    <button
-                      onClick={() => handleAcknowledge(ev.id)}
-                      title="Acknowledge event"
-                      className="flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition border border-slate-700"
-                    >
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Ack</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+                {tab.label}
+              </button>
             );
           })}
         </div>
-      )}
+
+        {/* Right: Search, Timeframe, Export, Clear */}
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          {/* Search Input */}
+          <div className="relative min-w-[180px] sm:min-w-[220px]">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search..."
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
+            />
+          </div>
+
+          {/* Timeframe Dropdown */}
+          <select
+            value={timeframe}
+            onChange={(e) => {
+              setTimeframe(e.target.value as any);
+              setCurrentPage(1);
+            }}
+            className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer"
+          >
+            <option value="all" className="bg-slate-900 text-slate-200">All Time</option>
+            <option value="today" className="bg-slate-900 text-slate-200">Last 24 Hours</option>
+            <option value="week" className="bg-slate-900 text-slate-200">Last 7 Days</option>
+          </select>
+
+          {/* Refresh button */}
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition"
+            title="Refresh events"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+
+          {/* Export CSV Button */}
+          <button
+            onClick={exportCsv}
+            disabled={filteredEvents.length === 0}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-400" />
+            <span>Export CSV</span>
+          </button>
+
+          {/* Clear History Button */}
+          <button
+            onClick={() => setShowClearConfirm(true)}
+            disabled={events.length === 0 || isClearing}
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition"
+            title="Clear all events from SQLite database"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Reference Style DataTable ────────────────────────── */}
+      <div
+        className="rounded-2xl border overflow-hidden shadow-sm"
+        style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-subtle)' }}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            {/* Table Header */}
+            <thead>
+              <tr
+                className="text-slate-400 font-medium"
+                style={{ borderBottom: '1px solid var(--border-subtle)' }}
+              >
+                <th className="py-3.5 px-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allCurrentSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                  />
+                </th>
+                <th className="py-3.5 px-4 font-semibold">Device ID / Port</th>
+                <th className="py-3.5 px-4 font-semibold">Timestamp</th>
+                <th className="py-3.5 px-4 font-semibold">Event Type</th>
+                <th className="py-3.5 px-4 font-semibold">Status</th>
+                <th className="py-3.5 px-4 font-semibold">Title & Description</th>
+                <th className="py-3.5 px-4 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+
+            {/* Table Body */}
+            <tbody className="divide-y divide-white/[0.04] text-slate-300">
+              {paginatedEvents.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                    No matching events recorded.
+                  </td>
+                </tr>
+              ) : (
+                paginatedEvents.map((ev) => {
+                  const info = getEventInfo(ev);
+                  const isChecked = ev.id ? selectedIds.has(ev.id) : false;
+                  return (
+                    <tr
+                      key={ev.id ?? `${ev.timestamp}-${ev.event_type}`}
+                      className="hover:bg-white/[0.02] transition"
+                    >
+                      {/* Checkbox */}
+                      <td className="py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelectOne(ev.id)}
+                          className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        />
+                      </td>
+
+                      {/* Device ID / Port */}
+                      <td className="py-3 px-4 font-mono font-medium text-slate-200">
+                        {ev.port_name}
+                      </td>
+
+                      {/* Timestamp */}
+                      <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
+                        {new Date(ev.timestamp).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </td>
+
+                      {/* Event Type Code */}
+                      <td className="py-3 px-4 font-mono">
+                        <span className="px-2 py-0.5 rounded text-[11px] bg-white/[0.05] text-slate-300 border border-white/[0.06]">
+                          {ev.event_type}
+                        </span>
+                      </td>
+
+                      {/* Status Pill */}
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {getSeverityBadge(ev.severity)}
+                      </td>
+
+                      {/* Title & Description */}
+                      <td className="py-3 px-4 max-w-xs sm:max-w-md">
+                        <span className="font-semibold text-slate-100 block truncate">
+                          {info.title}
+                        </span>
+                        <span className="text-[11px] text-slate-400 block truncate">
+                          {info.description}
+                        </span>
+                      </td>
+
+                      {/* Action */}
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        {!ev.acknowledged && ev.id ? (
+                          <button
+                            onClick={() => handleAcknowledge(ev.id)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 rounded-lg text-xs transition border border-emerald-700/50"
+                            title="Acknowledge alarm"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>Ack</span>
+                          </button>
+                        ) : (
+                          <button
+                            className="p-1 text-slate-500 hover:text-slate-300 transition"
+                            title="Event details"
+                          >
+                            <MoreHorizontal className="w-4 h-4 inline" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Table Pagination Footer (Reference Design) ────── */}
+        <div
+          className="flex items-center justify-between px-4 py-3 text-xs"
+          style={{ borderTop: '1px solid var(--border-subtle)' }}
+        >
+          {/* Previous Button */}
+          <button
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={safePage <= 1}
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Previous</span>
+          </button>
+
+          {/* Page Indicators */}
+          <div className="flex items-center space-x-1">
+            {Array.from({ length: totalPages }).map((_, idx) => {
+              const page = idx + 1;
+              const isActive = page === safePage;
+              // Show only first, last, and around current page
+              if (
+                totalPages > 6 &&
+                page > 2 &&
+                page < totalPages - 1 &&
+                Math.abs(page - safePage) > 1
+              ) {
+                if (page === 3 || page === totalPages - 2) {
+                  return (
+                    <span key={page} className="px-1 text-slate-600">
+                      …
+                    </span>
+                  );
+                }
+                return null;
+              }
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`min-w-[28px] h-7 px-2 rounded-md font-medium text-xs transition ${
+                    isActive
+                      ? 'bg-[#22c55e] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                  }`}
+                >
+                  {page}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Next Button */}
+          <button
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage >= totalPages}
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+          >
+            <span>Next</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
 
       {/* Bespoke Confirm Clear History Dialog */}
       <ConfirmModal
@@ -344,4 +495,3 @@ export const Events: React.FC<EventsProps> = ({
     </div>
   );
 };
-

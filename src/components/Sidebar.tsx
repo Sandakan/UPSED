@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Activity,
   Sliders,
@@ -7,9 +7,11 @@ import {
   Settings,
   Shield,
   Search,
-  Plug,
+  ChevronDown,
   CheckCircle2,
   Bell,
+  Plug,
+  Loader2,
 } from 'lucide-react';
 import { DiscoveredDevice, UnlockStage } from '../lib/types';
 
@@ -18,156 +20,316 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   devices: DiscoveredDevice[];
   selectedDevice: string | null;
+  activeDeviceLabel: string | null;
   onSelectDevice: (port: string) => void;
   onScan: () => void;
   isScanning: boolean;
   safetyStage: UnlockStage;
-  unreadEventsCount?: number;
+  criticalCount: number;
+  warningCount: number;
 }
+
+const NAV_GROUPS = [
+  {
+    label: 'MONITORING',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: Activity },
+      { id: 'control',   label: 'Hardware Control', icon: Sliders },
+    ],
+  },
+  {
+    label: 'CONTROL',
+    items: [
+      { id: 'config',   label: 'Configuration',   icon: Wrench  },
+      { id: 'history',  label: 'History & Graphs', icon: History },
+    ],
+  },
+];
+
+const getStageBadgeStyle = (stage: UnlockStage) => {
+  switch (stage) {
+    case 'T1ReadOnly':       return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/40';
+    case 'T2NonDestructive': return 'bg-blue-950/80    text-blue-400    border-blue-700/40';
+    case 'T3ConfigWrite':    return 'bg-amber-950/80   text-amber-400   border-amber-700/40';
+    case 'T4PowerControl':   return 'bg-rose-950/80    text-rose-400    border-rose-700/40';
+  }
+};
+
+const getStageLabel = (stage: UnlockStage) => {
+  switch (stage) {
+    case 'T1ReadOnly':       return 'T1 · Read-Only';
+    case 'T2NonDestructive': return 'T2 · Diagnostic';
+    case 'T3ConfigWrite':    return 'T3 · Config Write';
+    case 'T4PowerControl':   return 'T4 · Power Control';
+  }
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onTabChange,
   devices,
   selectedDevice,
+  activeDeviceLabel,
   onSelectDevice,
   onScan,
   isScanning,
   safetyStage,
-  unreadEventsCount = 0,
+  criticalCount,
+  warningCount,
 }) => {
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Activity },
-    { id: 'events', label: 'Events', icon: Bell, badge: unreadEventsCount },
-    { id: 'control', label: 'Hardware Control', icon: Sliders },
-    { id: 'config', label: 'Configuration', icon: Wrench },
-    { id: 'history', label: 'History & Graphs', icon: History },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ];
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const getStageBadgeColor = (stage: UnlockStage) => {
-    switch (stage) {
-      case 'T1ReadOnly':
-        return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/50';
-      case 'T2NonDestructive':
-        return 'bg-blue-950/80 text-blue-400 border-blue-700/50';
-      case 'T3ConfigWrite':
-        return 'bg-amber-950/80 text-amber-400 border-amber-700/50';
-      case 'T4PowerControl':
-        return 'bg-rose-950/80 text-rose-400 border-rose-700/50';
-    }
-  };
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const activeDevice = devices.find((d) => d.port_name === selectedDevice);
+
+  // Badge: red for critical, amber for warning-only
+  const badgeCount = criticalCount > 0 ? criticalCount : warningCount;
+  const badgeColor  = criticalCount > 0
+    ? 'bg-rose-500 text-white'
+    : 'bg-amber-500 text-black';
+
+  const navItemStyle = (isActive: boolean) =>
+    isActive
+      ? {
+          backgroundColor: 'var(--surface-active)',
+          border: '1px solid var(--border-active)',
+        }
+      : {
+          border: '1px solid transparent',
+        };
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen select-none">
-      {/* Brand Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center space-x-3">
-        <div className="p-2 bg-gradient-to-tr from-cyan-600 to-blue-600 rounded-xl shadow-lg shadow-cyan-900/30">
-          <Shield className="w-5 h-5 text-white" />
+    <aside
+      className="w-60 flex flex-col h-screen select-none shrink-0"
+      style={{ backgroundColor: 'var(--sidebar-bg)' }}
+    >
+      {/* ── Brand ───────────────────────────────────────────── */}
+      <div className="px-4 pt-5 pb-4 flex items-center space-x-2.5">
+        <div className="p-1.5 bg-gradient-to-tr from-emerald-600 to-green-500 rounded-lg shadow-lg shadow-emerald-950/40 shrink-0">
+          <Shield className="w-4 h-4 text-white" />
         </div>
         <div>
-          <h1 className="font-bold text-lg text-slate-100 tracking-tight">
-            VoltWatch
+          <h1 className="font-bold text-sm text-slate-100 tracking-tight leading-none">
+            VoltWatch™
           </h1>
-          <p className="text-xs text-slate-400 font-mono">UPS Native Core</p>
+          <p className="text-[10px] text-slate-500 font-mono mt-0.5">UPS Native Core</p>
         </div>
       </div>
 
-      {/* Connected Devices (Multi-UPS Tree) */}
-      <div className="p-4 border-b border-slate-800/80">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            Connected Devices
-          </span>
-          <button
-            onClick={onScan}
-            disabled={isScanning}
-            className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 rounded transition disabled:opacity-50"
-            title="Scan for UPS devices on serial ports"
+      {/* ── UPS Device Dropdown ──────────────────────────────── */}
+      <div className="px-3 pb-4" ref={dropdownRef}>
+        <button
+          onClick={() => setDropdownOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition group"
+          style={{
+            backgroundColor: 'var(--card-bg)',
+            border: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center space-x-2.5 min-w-0">
+            <div
+              className={`w-2 h-2 rounded-full shrink-0 transition ${
+                activeDevice ? 'bg-emerald-400' : 'bg-slate-600'
+              }`}
+            />
+            <span className="text-slate-200 font-medium text-xs truncate">
+              {activeDeviceLabel ?? 'No device connected'}
+            </span>
+          </div>
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform duration-200 ${
+              dropdownOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+
+        {/* Popover */}
+        {dropdownOpen && (
+          <div
+            className="mt-1.5 rounded-xl overflow-hidden shadow-2xl border"
+            style={{
+              backgroundColor: 'var(--popover-bg)',
+              borderColor: 'var(--border-subtle)',
+            }}
           >
-            <Search className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-
-        <div className="space-y-1 max-h-32 overflow-y-auto">
-          {devices.length === 0 ? (
-            <div className="text-xs text-slate-500 italic p-2 bg-slate-950/50 rounded border border-slate-800/50">
-              No UPS connected. Click scan to discover.
-            </div>
-          ) : (
-            devices.map((dev) => (
+            {/* Scan row */}
+            <div
+              className="flex items-center justify-between px-3 py-2"
+              style={{ borderBottom: '1px solid var(--border-subtle)' }}
+            >
+              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
+                Discovered Ports
+              </span>
               <button
-                key={dev.port_name}
-                onClick={() => onSelectDevice(dev.port_name)}
-                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center justify-between transition ${
-                  selectedDevice === dev.port_name
-                    ? 'bg-cyan-950/70 text-cyan-300 border border-cyan-700/60'
-                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                }`}
+                onClick={(e) => { e.stopPropagation(); onScan(); }}
+                disabled={isScanning}
+                className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-700/50 transition disabled:opacity-50"
+                title="Scan for UPS devices"
               >
-                <div className="flex items-center space-x-2 truncate">
-                  <Plug className="w-3 h-3 text-cyan-400 flex-shrink-0" />
-                  <span className="truncate">{dev.port_name}</span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                  {dev.capabilities.protocol_id}
-                </span>
+                {isScanning
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Search  className="w-3.5 h-3.5" />
+                }
               </button>
-            ))
-          )}
-        </div>
+            </div>
+
+            {/* Device list */}
+            <div className="max-h-48 overflow-y-auto py-1">
+              {devices.length === 0 ? (
+                <p className="text-xs text-slate-500 italic px-3 py-2.5">
+                  No UPS found. Click scan to discover.
+                </p>
+              ) : (
+                devices.map((dev) => (
+                  <button
+                    key={dev.port_name}
+                    onClick={() => { onSelectDevice(dev.port_name); setDropdownOpen(false); }}
+                    className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition ${
+                      selectedDevice === dev.port_name
+                        ? 'bg-cyan-950/60 text-cyan-300'
+                        : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <Plug className="w-3 h-3 text-slate-500 shrink-0" />
+                      <span className="font-mono truncate">{dev.port_name}</span>
+                    </div>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ml-2 text-slate-400"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+                    >
+                      {dev.capabilities.protocol_id}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Main Navigation */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentTab === item.id;
+      {/* ── Divider ─────────────────────────────────────────── */}
+      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '0 12px' }} />
+
+      {/* ── Main Navigation ──────────────────────────────────── */}
+      <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto sidebar-nav">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label}>
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold px-3 mb-1.5 select-none">
+              {group.label}
+            </p>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = currentTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'text-white'
+                        : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
+                    }`}
+                    style={navItemStyle(isActive)}
+                  >
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
+                    />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* ── Divider ─────────────────────────────────────────── */}
+      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '0 12px' }} />
+
+      {/* ── Footer Nav: Events + Settings ───────────────────── */}
+      <div className="px-3 py-3 space-y-1">
+        {/* Events */}
+        {(() => {
+          const isActive = currentTab === 'events';
           return (
             <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+              onClick={() => onTabChange('events')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium transition-all ${
                 isActive
-                  ? 'bg-blue-600/15 text-cyan-400 border border-cyan-500/30 shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                  ? 'text-white'
+                  : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
               }`}
+              style={navItemStyle(isActive)}
             >
               <div className="flex items-center space-x-3">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <Bell
+                  className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
+                />
+                <span>Events</span>
               </div>
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white shadow-sm animate-pulse">
-                  {item.badge > 99 ? '99+' : item.badge}
+              {badgeCount > 0 && (
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none ${badgeColor}`}
+                >
+                  {badgeCount > 99 ? '99+' : badgeCount}
                 </span>
               )}
             </button>
           );
-        })}
-      </nav>
+        })()}
 
-      {/* Safety Gate Status Banner */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/40">
+        {/* Settings */}
+        {(() => {
+          const isActive = currentTab === 'settings';
+          return (
+            <button
+              onClick={() => onTabChange('settings')}
+              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                isActive
+                  ? 'text-white'
+                  : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
+              }`}
+              style={navItemStyle(isActive)}
+            >
+              <Settings
+                className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
+              />
+              <span>Settings</span>
+            </button>
+          );
+        })()}
+      </div>
+
+      {/* ── Safety Gate ─────────────────────────────────────── */}
+      <div
+        className="px-3 pb-5 pt-3"
+        style={{ borderTop: '1px solid var(--border-subtle)' }}
+      >
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-slate-400">Safety Gate</span>
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold">
+            Safety Gate
+          </span>
+          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
         </div>
         <div
-          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center justify-center ${getStageBadgeColor(
-            safetyStage
-          )}`}
+          className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold text-center ${getStageBadgeStyle(safetyStage)}`}
         >
-          {safetyStage === 'T1ReadOnly' && 'Stage T1: Read-Only'}
-          {safetyStage === 'T2NonDestructive' && 'Stage T2: Non-Destructive'}
-          {safetyStage === 'T3ConfigWrite' && 'Stage T3: Config Write'}
-          {safetyStage === 'T4PowerControl' && 'Stage T4: Power Control'}
+          {getStageLabel(safetyStage)}
         </div>
-        <p className="text-[10px] text-slate-500 mt-1 text-center">
-          Firmware protection active
-        </p>
       </div>
     </aside>
   );
 };
-

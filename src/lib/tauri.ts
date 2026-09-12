@@ -7,6 +7,7 @@ import {
   UnlockStage,
   VoltronicCommand,
   UpsMetadata,
+  ThemeMode,
 } from './types';
 
 export const api = {
@@ -84,6 +85,11 @@ export const api = {
 
   setStartMinimized: (enabled: boolean) =>
     invoke<void>('set_start_minimized', { enabled }),
+
+  getTheme: () => invoke<ThemeMode>('get_theme'),
+
+  setTheme: (theme: ThemeMode) =>
+    invoke<void>('set_theme', { theme }),
 };
 
 

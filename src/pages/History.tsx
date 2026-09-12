@@ -1,6 +1,24 @@
 import React, { useState, useMemo } from 'react';
-import { History as HistoryIcon, Download, RefreshCw, BarChart2, Zap, Activity, Gauge, Battery, Thermometer } from 'lucide-react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+import {
+  Download,
+  RefreshCw,
+  BarChart2,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Table,
+  Activity,
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
 
 interface HistoryProps {
@@ -10,6 +28,8 @@ interface HistoryProps {
   isRefreshing: boolean;
 }
 
+const PAGE_SIZE = 12;
+
 export const History: React.FC<HistoryProps> = ({
   telemetry,
   events,
@@ -18,11 +38,14 @@ export const History: React.FC<HistoryProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'telemetry' | 'events' | 'charts'>('telemetry');
   const [chartMetric, setChartMetric] = useState<'voltage' | 'frequency' | 'power' | 'battery' | 'temperature'>('voltage');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const exportCsv = () => {
     if (activeTab === 'telemetry' || activeTab === 'charts') {
       const headers = 'ID,Timestamp,Port,Grid_V,Output_V,Grid_Hz,Output_Hz,Load_Pct,Output_Watts,Battery_V,Temp_C\n';
-      const rows = telemetry
+      const rows = filteredTelemetry
         .map(
           (t) =>
             `${t.id || ''},"${t.timestamp}","${t.port_name}",${t.grid_voltage},${t.output_voltage},${t.grid_frequency ?? 50.0},${t.output_frequency ?? 50.0},${t.load_pct},${t.output_watts ?? 0},${t.battery_voltage},${t.temperature_c}`
@@ -36,7 +59,7 @@ export const History: React.FC<HistoryProps> = ({
       a.click();
     } else {
       const headers = 'ID,Timestamp,Port,Type,Message\n';
-      const rows = events
+      const rows = filteredEvents
         .map(
           (e) =>
             `${e.id || ''},"${e.timestamp}","${e.port_name}","${e.event_type}","${e.message}"`
@@ -50,6 +73,53 @@ export const History: React.FC<HistoryProps> = ({
       a.click();
     }
   };
+
+  // Filtered Telemetry
+  const filteredTelemetry = useMemo(() => {
+    if (!searchQuery.trim()) return telemetry;
+    const q = searchQuery.toLowerCase();
+    return telemetry.filter(
+      (t) =>
+        t.port_name.toLowerCase().includes(q) ||
+        t.timestamp.toLowerCase().includes(q) ||
+        String(t.grid_voltage).includes(q) ||
+        String(t.load_pct).includes(q)
+    );
+  }, [telemetry, searchQuery]);
+
+  // Filtered Events
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery.trim()) return events;
+    const q = searchQuery.toLowerCase();
+    return events.filter(
+      (e) =>
+        e.port_name.toLowerCase().includes(q) ||
+        e.event_type.toLowerCase().includes(q) ||
+        e.message.toLowerCase().includes(q) ||
+        e.timestamp.toLowerCase().includes(q)
+    );
+  }, [events, searchQuery]);
+
+  // Active records depending on tab
+  const currentRecordsCount =
+    activeTab === 'telemetry'
+      ? filteredTelemetry.length
+      : activeTab === 'events'
+      ? filteredEvents.length
+      : 0;
+
+  const totalPages = Math.max(1, Math.ceil(currentRecordsCount / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedTelemetry = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredTelemetry.slice(start, start + PAGE_SIZE);
+  }, [filteredTelemetry, safePage]);
+
+  const paginatedEvents = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredEvents.slice(start, start + PAGE_SIZE);
+  }, [filteredEvents, safePage]);
 
   const chartData = useMemo(() => {
     return telemetry.map((t) => ({
@@ -65,172 +135,187 @@ export const History: React.FC<HistoryProps> = ({
     }));
   }, [telemetry]);
 
+  const toggleSelectOne = (id?: number) => {
+    if (!id) return;
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
   return (
-    <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-4rem)] min-w-0">
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-slate-800 rounded-xl text-slate-300 shrink-0">
-            <HistoryIcon className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-sm sm:text-base font-semibold text-slate-100 truncate">
-              Telemetry & Event History
-            </h3>
-            <p className="text-xs text-slate-400 truncate">
-              Stored locally in SQLite embedded database
-            </p>
-          </div>
+    <div className="p-4 sm:p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar">
+      {/* ── Section Title ────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-slate-100 tracking-tight">
+            History & Telemetry Records
+          </h2>
+          <p className="text-xs text-slate-400">
+            Recorded telemetry frames and time-series snapshots saved in local SQLite storage
+          </p>
+        </div>
+      </div>
+
+      {/* ── Toolbar: Filter Tabs & Search & Export ───────────── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        {/* Left: View Tabs */}
+        <div className="flex items-center space-x-1.5">
+          <button
+            onClick={() => { setActiveTab('telemetry'); setCurrentPage(1); }}
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === 'telemetry'
+                ? 'bg-[#22c55e] text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
+            }`}
+          >
+            <Table className="w-3.5 h-3.5" />
+            <span>Telemetry Table ({telemetry.length})</span>
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('charts'); setCurrentPage(1); }}
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === 'charts'
+                ? 'bg-[#22c55e] text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
+            }`}
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            <span>Visual Analytics</span>
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('events'); setCurrentPage(1); }}
+            className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              activeTab === 'events'
+                ? 'bg-[#22c55e] text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Events Log ({events.length})</span>
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Tab selector */}
-          <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs">
-            <button
-              onClick={() => setActiveTab('telemetry')}
-              className={`px-3 py-1 font-semibold rounded-lg transition ${
-                activeTab === 'telemetry'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Telemetry Table ({telemetry.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('charts')}
-              className={`px-3 py-1 font-semibold rounded-lg flex items-center space-x-1.5 transition ${
-                activeTab === 'charts'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <BarChart2 className="w-3.5 h-3.5" />
-              <span>Visual Analytics</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('events')}
-              className={`px-3 py-1 font-semibold rounded-lg transition ${
-                activeTab === 'events'
-                  ? 'bg-cyan-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Events ({events.length})
-            </button>
-          </div>
+        {/* Right: Search, Export, Refresh */}
+        <div className="flex items-center space-x-2">
+          {activeTab !== 'charts' && (
+            <div className="relative min-w-[180px] sm:min-w-[220px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                placeholder="Search records..."
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
+              />
+            </div>
+          )}
 
           <button
             onClick={exportCsv}
-            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center space-x-1.5 transition"
-            title="Export to CSV"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] transition"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-slate-400" />
             <span>Export CSV</span>
           </button>
 
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition"
-            title="Refresh tables"
+            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition"
+            title="Refresh records"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Main Container */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-sm min-w-0">
+      {/* ── Content Container ─────────────────────────────────── */}
+      <div
+        className="rounded-2xl border overflow-hidden shadow-sm"
+        style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border-subtle)' }}
+      >
         {activeTab === 'charts' ? (
-          <div className="p-3.5 sm:p-5 space-y-4 min-w-0">
-            {/* Metric Filter Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800 text-xs">
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-nowrap -mx-1 px-1">
-                {[
-                  { id: 'voltage', label: 'Voltages (V)', icon: Zap },
-                  { id: 'frequency', label: 'Frequencies (Hz)', icon: Activity },
-                  { id: 'power', label: 'Load & Watts', icon: Gauge },
-                  { id: 'battery', label: 'Battery Voltage', icon: Battery },
-                  { id: 'temperature', label: 'Temperature (°C)', icon: Thermometer },
-                ].map((m) => {
-                  const Icon = m.icon;
-                  const isCur = chartMetric === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => setChartMetric(m.id as any)}
-                      className={`px-3 py-1.5 rounded-xl border font-semibold flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap ${
-                        isCur
-                          ? 'bg-cyan-950/70 border-cyan-500/60 text-cyan-300'
-                          : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{m.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <span className="text-slate-500 font-mono text-[11px]">
-                Showing {chartData.length} recorded historical samples
+          /* Visual Analytics Chart View */
+          <div className="p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Metric Stream
               </span>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {(['voltage', 'frequency', 'power', 'battery', 'temperature'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setChartMetric(m)}
+                    className={`px-2.5 py-1 rounded-lg capitalize text-xs font-medium transition ${
+                      chartMetric === m
+                        ? 'bg-[#22c55e] text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 bg-white/[0.04]'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Chart Area */}
-            <div className="h-64 sm:h-80 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
-              {chartData.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
-                  No historical telemetry points recorded yet.
+            <div className="h-80 w-full">
+              {telemetry.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                  No telemetry recorded yet.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="histGrad1" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
                       </linearGradient>
                       <linearGradient id="histGrad2" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={30} />
-                    <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.25} />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} />
+                    <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} tickLine={false} />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#334155',
+                        backgroundColor: '#161922',
+                        borderColor: 'rgba(255,255,255,0.1)',
                         borderRadius: '0.75rem',
                         fontSize: '12px',
+                        color: '#f8fafc',
                       }}
                     />
-                    <Legend />
+                    <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
 
                     {chartMetric === 'voltage' && (
                       <>
-                        <Area type="monotone" dataKey="grid_voltage" name="Grid Voltage (V)" stroke="#f59e0b" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                        <Area type="monotone" dataKey="grid_voltage" name="Grid Voltage (V)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
                         <Area type="monotone" dataKey="output_voltage" name="Output Voltage (V)" stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="V" />
                       </>
                     )}
 
                     {chartMetric === 'frequency' && (
                       <>
-                        <Area type="monotone" dataKey="grid_frequency" name="Grid Freq (Hz)" stroke="#06b6d4" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
+                        <Area type="monotone" dataKey="grid_frequency" name="Grid Freq (Hz)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
                         <Area type="monotone" dataKey="output_frequency" name="Output Freq (Hz)" stroke="#818cf8" strokeWidth={2} fill="url(#histGrad2)" unit="Hz" />
                       </>
                     )}
 
                     {chartMetric === 'power' && (
                       <>
-                        <Area type="monotone" dataKey="load_pct" name="Load (%)" stroke="#06b6d4" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
-                        <Area type="monotone" dataKey="output_watts" name="Active Watts (W)" stroke="#10b981" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
+                        <Area type="monotone" dataKey="load_pct" name="Load (%)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
+                        <Area type="monotone" dataKey="output_watts" name="Active Watts (W)" stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
                       </>
                     )}
 
                     {chartMetric === 'battery' && (
-                      <Area type="monotone" dataKey="battery_voltage" name="Battery Voltage (V)" stroke="#14b8a6" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                      <Area type="monotone" dataKey="battery_voltage" name="Battery Voltage (V)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
                     )}
 
                     {chartMetric === 'temperature' && (
@@ -242,90 +327,225 @@ export const History: React.FC<HistoryProps> = ({
             </div>
           </div>
         ) : activeTab === 'telemetry' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-950/60 border-b border-slate-800 text-slate-400">
-                <tr>
-                  <th className="py-3 px-4">Time</th>
-                  <th className="py-3 px-4">Port</th>
-                  <th className="py-3 px-4">Grid (V)</th>
-                  <th className="py-3 px-4">Grid (Hz)</th>
-                  <th className="py-3 px-4">Output (V)</th>
-                  <th className="py-3 px-4">Output (Hz)</th>
-                  <th className="py-3 px-4">Load (%)</th>
-                  <th className="py-3 px-4">Power (W)</th>
-                  <th className="py-3 px-4">Battery (V)</th>
-                  <th className="py-3 px-4">Temp (°C)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {telemetry.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-500">
-                      No telemetry recorded yet.
-                    </td>
+          /* Telemetry DataTable */
+          <div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr
+                    className="text-slate-400 font-medium"
+                    style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  >
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Time</th>
+                    <th className="py-3.5 px-4">Port</th>
+                    <th className="py-3.5 px-4">Grid In (V)</th>
+                    <th className="py-3.5 px-4">Grid (Hz)</th>
+                    <th className="py-3.5 px-4">Output (V)</th>
+                    <th className="py-3.5 px-4">Out (Hz)</th>
+                    <th className="py-3.5 px-4">Load (%)</th>
+                    <th className="py-3.5 px-4">Power (W)</th>
+                    <th className="py-3.5 px-4">Battery (V)</th>
+                    <th className="py-3.5 px-4">Temp (°C)</th>
                   </tr>
-                ) : (
-                  telemetry.map((row, i) => (
-                    <tr key={row.id || i} className="hover:bg-slate-800/30">
-                      <td className="py-2.5 px-4 text-slate-400">
-                        {row.timestamp.replace('T', ' ').substring(0, 19)}
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] text-slate-300">
+                  {paginatedTelemetry.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-slate-500 font-sans">
+                        No telemetry records recorded yet.
                       </td>
-                      <td className="py-2.5 px-4 text-cyan-400 font-semibold">
-                        {row.port_name}
-                      </td>
-                      <td className="py-2.5 px-4">{row.grid_voltage.toFixed(1)}</td>
-                      <td className="py-2.5 px-4">{(row.grid_frequency ?? 50.0).toFixed(1)}</td>
-                      <td className="py-2.5 px-4">{row.output_voltage.toFixed(1)}</td>
-                      <td className="py-2.5 px-4">{(row.output_frequency ?? 50.0).toFixed(1)}</td>
-                      <td className="py-2.5 px-4">{row.load_pct}%</td>
-                      <td className="py-2.5 px-4">{row.output_watts ?? 0}W</td>
-                      <td className="py-2.5 px-4">{row.battery_voltage.toFixed(1)}</td>
-                      <td className="py-2.5 px-4">{row.temperature_c}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    paginatedTelemetry.map((row, i) => {
+                      const isChecked = row.id ? selectedIds.has(row.id) : false;
+                      return (
+                        <tr key={row.id || i} className="hover:bg-white/[0.02] transition">
+                          <td className="py-3 px-4">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleSelectOne(row.id)}
+                              className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                            />
+                          </td>
+                          <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                            {row.timestamp.replace('T', ' ').substring(0, 19)}
+                          </td>
+                          <td className="py-3 px-4 text-emerald-400 font-semibold">
+                            {row.port_name}
+                          </td>
+                          <td className="py-3 px-4">{row.grid_voltage.toFixed(1)}</td>
+                          <td className="py-3 px-4">{(row.grid_frequency ?? 50.0).toFixed(1)}</td>
+                          <td className="py-3 px-4">{row.output_voltage.toFixed(1)}</td>
+                          <td className="py-3 px-4">{(row.output_frequency ?? 50.0).toFixed(1)}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-100">{row.load_pct}%</td>
+                          <td className="py-3 px-4">{row.output_watts ?? 0}W</td>
+                          <td className="py-3 px-4 text-emerald-400">{row.battery_voltage.toFixed(1)}</td>
+                          <td className="py-3 px-4">{row.temperature_c}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <div
+              className="flex items-center justify-between px-4 py-3 text-xs"
+              style={{ borderTop: '1px solid var(--border-subtle)' }}
+            >
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: totalPages }).map((_, idx) => {
+                  const page = idx + 1;
+                  const isActive = page === safePage;
+                  if (totalPages > 6 && page > 2 && page < totalPages - 1 && Math.abs(page - safePage) > 1) {
+                    if (page === 3 || page === totalPages - 2) {
+                      return <span key={page} className="px-1 text-slate-600">…</span>;
+                    }
+                    return null;
+                  }
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-[28px] h-7 px-2 rounded-md font-medium text-xs transition ${
+                        isActive
+                          ? 'bg-[#22c55e] text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-950/60 border-b border-slate-800 text-slate-400">
-                <tr>
-                  <th className="py-3 px-4">Time</th>
-                  <th className="py-3 px-4">Port</th>
-                  <th className="py-3 px-4">Event Type</th>
-                  <th className="py-3 px-4">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {events.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-slate-500">
-                      No system events logged yet.
-                    </td>
+          /* Events DataTable */
+          <div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr
+                    className="text-slate-400 font-medium"
+                    style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  >
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Time</th>
+                    <th className="py-3.5 px-4">Port</th>
+                    <th className="py-3.5 px-4">Event Type</th>
+                    <th className="py-3.5 px-4">Details</th>
                   </tr>
-                ) : (
-                  events.map((evt, i) => (
-                    <tr key={evt.id || i} className="hover:bg-slate-800/30">
-                      <td className="py-2.5 px-4 text-slate-400">
-                        {evt.timestamp.replace('T', ' ').substring(0, 19)}
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] text-slate-300">
+                  {paginatedEvents.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-500 font-sans">
+                        No system events logged yet.
                       </td>
-                      <td className="py-2.5 px-4 text-cyan-400 font-semibold">
-                        {evt.port_name}
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
-                          {evt.event_type}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-200">{evt.message}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    paginatedEvents.map((evt, i) => (
+                      <tr key={evt.id || i} className="hover:bg-white/[0.02] transition">
+                        <td className="py-3 px-4">
+                          <input
+                            type="checkbox"
+                            className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                          {evt.timestamp.replace('T', ' ').substring(0, 19)}
+                        </td>
+                        <td className="py-3 px-4 text-emerald-400 font-semibold">
+                          {evt.port_name}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded bg-white/[0.05] border border-white/[0.06] text-slate-300 text-[11px]">
+                            {evt.event_type}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-200 font-sans">{evt.message}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <div
+              className="flex items-center justify-between px-4 py-3 text-xs"
+              style={{ borderTop: '1px solid var(--border-subtle)' }}
+            >
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: totalPages }).map((_, idx) => {
+                  const page = idx + 1;
+                  const isActive = page === safePage;
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-[28px] h-7 px-2 rounded-md font-medium text-xs transition ${
+                        isActive
+                          ? 'bg-[#22c55e] text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
       </div>

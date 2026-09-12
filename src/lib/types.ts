@@ -99,3 +99,5 @@ export type VoltronicCommand =
   | { type: 'OutletOn'; payload: { group: number; delay_minutes: number } }
   | { type: 'OutletOff'; payload: { group: number; delay_minutes: number } };
 
+export type ThemeMode = 'system' | 'dark' | 'light';
+

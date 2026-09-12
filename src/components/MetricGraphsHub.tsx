@@ -399,9 +399,12 @@ export const MetricGraphsHub: React.FC<MetricGraphsHubProps> = ({
 
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0">
+    <div
+      className="rounded-2xl p-3.5 sm:p-5 shadow-sm space-y-4 min-w-0 border"
+      style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--card-border)' }}
+    >
       {/* Top Header & Control Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
         <div className="flex items-center space-x-3">
           <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-800/40 text-cyan-400 shrink-0">
             <TrendingUp className="w-5 h-5" />

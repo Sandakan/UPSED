@@ -4,6 +4,7 @@ import './App.css';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { UpsSetupModal } from './components/UpsSetupModal';
+import { DeviceConnectModal } from './components/DeviceConnectModal';
 import { Dashboard } from './pages/Dashboard';
 import { Control } from './pages/Control';
 import { Config } from './pages/Config';
@@ -15,13 +16,16 @@ import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
 import { UpsMetadata, EventLogRecord, Q1Status } from './lib/types';
+import { useTheme } from './lib/theme';
 
 export function App() {
+  const { themeMode, setThemeMode } = useTheme();
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<number>(10); // 10 seconds default
   const [isSetupModalDismissed, setIsSetupModalDismissed] = useState(false);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
 
@@ -202,9 +206,12 @@ export function App() {
     };
   }, [osNotificationsEnabled, inAppToastsEnabled, queryClient]);
 
-  const unreadEventsCount = events.filter(
-    (e) => !e.acknowledged && (e.severity === 'critical' || e.severity === 'warning')
-  ).length;
+  const criticalCount = events.filter((e) => !e.acknowledged && e.severity === 'critical').length;
+  const warningCount = events.filter((e) => !e.acknowledged && e.severity === 'warning').length;
+
+  // Display label for the sidebar UPS device dropdown
+  const activeDeviceLabel: string | null =
+    upsMetadata?.name || activeDevice?.port_name || null;
 
   // 6. Safety Stage query
   const {
@@ -270,34 +277,42 @@ export function App() {
   const isRefreshing = isFetchingStatus;
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
+    <div className="flex h-screen text-slate-100 overflow-hidden font-sans select-none" style={{ backgroundColor: 'var(--app-bg)' }}>
       {/* Sidebar navigation */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         devices={devices}
         selectedDevice={selectedDevice}
+        activeDeviceLabel={activeDeviceLabel}
         onSelectDevice={handleSelectDevice}
         onScan={handleScan}
         isScanning={isScanning}
         safetyStage={safetyStage}
-        unreadEventsCount={unreadEventsCount}
+        criticalCount={criticalCount}
+        warningCount={warningCount}
       />
 
-      {/* Main App Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 bg-slate-950">
+      {/* Hovering Main Outlet */}
+      <div
+        className="flex-1 flex flex-col min-w-0 m-2 sm:m-3 rounded-2xl sm:rounded-3xl overflow-hidden border"
+        style={{
+          backgroundColor: 'var(--outlet-bg)',
+          borderColor: 'var(--border-subtle)',
+        }}
+      >
         <Header
+          currentTab={currentTab}
           selectedDevice={selectedDevice}
-          status={status}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
-          batteryBridgeActive={batteryBridgeActive}
-          lastError={lastError}
           lastUpdatedAt={statusUpdatedAt}
-          upsMetadata={upsMetadata}
+          safetyStage={safetyStage}
+          onTabChange={setCurrentTab}
+          onOpenAddDeviceModal={() => setIsConnectModalOpen(true)}
         />
 
-        <main className="flex-1 overflow-hidden flex flex-col">
+        <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar">
           {currentTab === 'dashboard' && (
             <Dashboard
               status={status}
@@ -349,6 +364,8 @@ export function App() {
               onOsNotificationsChange={setOsNotificationsEnabled}
               inAppToastsEnabled={inAppToastsEnabled}
               onInAppToastsChange={setInAppToastsEnabled}
+              themeMode={themeMode}
+              onThemeModeChange={setThemeMode}
             />
           )}
         </main>
@@ -356,6 +373,20 @@ export function App() {
 
       {/* Headless Bespoke Toast Notification Container */}
       <VoltWatchToaster />
+
+      {/* Device Connection / Scanning Modal */}
+      <DeviceConnectModal
+        isOpen={isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        devices={devices}
+        selectedDevice={selectedDevice}
+        isScanning={isScanning}
+        onScan={handleScan}
+        onSelectDevice={(port) => {
+          handleSelectDevice(port);
+          setIsConnectModalOpen(false);
+        }}
+      />
 
       {/* First-time UPS Configuration Modal */}
       {activeDevice && upsMetadata === null && !isSetupModalDismissed && (

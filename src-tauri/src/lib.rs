@@ -148,7 +148,9 @@ pub fn run() {
             commands::get_close_to_minimize,
             commands::set_close_to_minimize,
             commands::get_start_minimized,
-            commands::set_start_minimized
+            commands::set_start_minimized,
+            commands::get_theme,
+            commands::set_theme
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoltWatch application");

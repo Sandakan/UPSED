@@ -7,9 +7,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "app:preview": "start ./src-tauri/target/release/voltwatch.exe",
+    "app:build": "tauri build"
   },
   "dependencies": {
+    "@fontsource/poppins": "^5.3.0",
     "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-query-devtools": "^5.102.8",
     "@tauri-apps/api": "^2",

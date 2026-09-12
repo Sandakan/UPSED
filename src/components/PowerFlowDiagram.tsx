@@ -80,9 +80,9 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
   };
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-sm backdrop-blur">
+    <div className="rounded-2xl p-5 shadow-sm border" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
       {/* Top Header Summary */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-800/80">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-white/[0.06]">
         <div className="flex items-center space-x-2.5">
           <div className="p-1.5 bg-cyan-950/60 border border-cyan-800/60 rounded-lg text-cyan-400">
             <Activity className="w-4 h-4" />
@@ -553,9 +553,9 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
       </div>
 
       {/* Modern 3-Column Glassmorphism HUD Telemetry Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2 pt-3 border-t border-slate-800/80">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2 pt-3 border-t border-white/[0.06]">
         {/* Card 1: Input Information */}
-        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 shadow-inner">
+        <div className="rounded-xl p-3 shadow-inner border border-white/[0.06] bg-black/20">
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
@@ -572,13 +572,13 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+            <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
               <span className="text-slate-500 text-[11px] block">Voltage</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.grid_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
             </div>
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+            <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
               <span className="text-slate-500 text-[11px] block">Frequency</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.grid_frequency_hz.toFixed(1)} <span className="text-slate-500 font-normal">Hz</span>
@@ -588,7 +588,7 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
         </div>
 
         {/* Card 2: Battery Information */}
-        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 shadow-inner">
+        <div className="rounded-xl p-3 shadow-inner border border-white/[0.06] bg-black/20">
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Battery className="w-3.5 h-3.5 text-cyan-400" />
@@ -605,17 +605,17 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+            <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
               <span className="text-slate-500 text-[11px] block">Capacity</span>
               <span className="text-sm font-bold text-cyan-300">{batPct}%</span>
             </div>
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+            <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
               <span className="text-slate-500 text-[11px] block">Voltage</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.battery_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
             </div>
-            <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
+            <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
               <span className="text-slate-500 text-[11px] block">Est. Runtime</span>
               <span className="text-sm font-bold text-emerald-400">~{estRuntime}m</span>
             </div>
@@ -623,13 +623,13 @@ export const PowerFlowDiagram: React.FC<PowerFlowDiagramProps> = ({ status, meta
         </div>
 
         {/* Card 3: Output Information */}
-        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 shadow-inner">
+        <div className="rounded-xl p-3 shadow-inner border border-white/[0.06] bg-black/20">
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Gauge className="w-3.5 h-3.5 text-cyan-400" />
               <span>Output Load</span>
             </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/[0.06]">
               {effectiveWatts} W • {currentA} A
             </span>
           </div>
