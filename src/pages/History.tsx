@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Download,
   RefreshCw,
@@ -36,6 +37,7 @@ export const History: React.FC<HistoryProps> = ({
   onRefresh,
   isRefreshing,
 }) => {
+  const { t } = useTranslation(['history', 'common']);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'events' | 'charts'>('telemetry');
   const [chartMetric, setChartMetric] = useState<'voltage' | 'frequency' | 'power' | 'battery' | 'temperature'>('voltage');
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,10 +151,10 @@ export const History: React.FC<HistoryProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base sm:text-lg font-bold text-slate-100 tracking-tight">
-            History & Telemetry Records
+            {t('history:title', 'History & Telemetry Records')}
           </h2>
           <p className="text-xs text-slate-400">
-            Recorded telemetry frames and time-series snapshots saved in local SQLite storage
+            {t('history:subtitle', 'Recorded telemetry frames and time-series snapshots saved in local SQLite storage')}
           </p>
         </div>
       </div>
@@ -170,7 +172,7 @@ export const History: React.FC<HistoryProps> = ({
             }`}
           >
             <Table className="w-3.5 h-3.5" />
-            <span>Telemetry Table ({telemetry.length})</span>
+            <span>{t('history:tabs.telemetry', 'Telemetry Table')} ({telemetry.length})</span>
           </button>
 
           <button
@@ -182,7 +184,7 @@ export const History: React.FC<HistoryProps> = ({
             }`}
           >
             <BarChart2 className="w-3.5 h-3.5" />
-            <span>Visual Analytics</span>
+            <span>{t('history:visualAnalytics', 'Visual Analytics')}</span>
           </button>
 
           <button
@@ -194,7 +196,7 @@ export const History: React.FC<HistoryProps> = ({
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Events Log ({events.length})</span>
+            <span>{t('history:tabs.events', 'Events Log')} ({events.length})</span>
           </button>
         </div>
 
@@ -207,7 +209,7 @@ export const History: React.FC<HistoryProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                placeholder="Search records..."
+                placeholder={activeTab === 'events' ? t('history:searchEventsPlaceholder', 'Filter event entries...') : t('history:searchPlaceholder', 'Filter history entries...')}
                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
               />
             </div>
@@ -218,14 +220,14 @@ export const History: React.FC<HistoryProps> = ({
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] whitespace-nowrap shrink-0 transition"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span>Export CSV</span>
+            <span>{t('common:buttons.exportCsv', 'Export CSV')}</span>
           </button>
 
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
             className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0 transition"
-            title="Refresh records"
+            title={t('common:buttons.refresh', 'Refresh records')}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -242,7 +244,7 @@ export const History: React.FC<HistoryProps> = ({
           <div className="p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Metric Stream
+                {t('history:metricStream', 'Metric Stream')}
               </span>
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {(['voltage', 'frequency', 'power', 'battery', 'temperature'] as const).map((m) => (
@@ -255,7 +257,7 @@ export const History: React.FC<HistoryProps> = ({
                         : 'text-slate-400 hover:text-slate-200 bg-white/[0.04]'
                     }`}
                   >
-                    {m}
+                    {t(`history:metricShort.${m}`, m)}
                   </button>
                 ))}
               </div>
@@ -264,7 +266,7 @@ export const History: React.FC<HistoryProps> = ({
             <div className="h-80 w-full">
               {telemetry.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                  No telemetry recorded yet.
+                  {t('history:noRecords', 'No telemetry records recorded yet.')}
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -295,31 +297,31 @@ export const History: React.FC<HistoryProps> = ({
 
                     {chartMetric === 'voltage' && (
                       <>
-                        <Area type="monotone" dataKey="grid_voltage" name="Grid Voltage (V)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
-                        <Area type="monotone" dataKey="output_voltage" name="Output Voltage (V)" stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="V" />
+                        <Area type="monotone" dataKey="grid_voltage" name={t('history:chartLegends.gridV', 'Grid Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                        <Area type="monotone" dataKey="output_voltage" name={t('history:chartLegends.outV', 'Output Voltage (V)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="V" />
                       </>
                     )}
 
                     {chartMetric === 'frequency' && (
                       <>
-                        <Area type="monotone" dataKey="grid_frequency" name="Grid Freq (Hz)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
-                        <Area type="monotone" dataKey="output_frequency" name="Output Freq (Hz)" stroke="#818cf8" strokeWidth={2} fill="url(#histGrad2)" unit="Hz" />
+                        <Area type="monotone" dataKey="grid_frequency" name={t('history:chartLegends.gridHz', 'Grid Freq (Hz)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
+                        <Area type="monotone" dataKey="output_frequency" name={t('history:chartLegends.outHz', 'Output Freq (Hz)')} stroke="#818cf8" strokeWidth={2} fill="url(#histGrad2)" unit="Hz" />
                       </>
                     )}
 
                     {chartMetric === 'power' && (
                       <>
-                        <Area type="monotone" dataKey="load_pct" name="Load (%)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
-                        <Area type="monotone" dataKey="output_watts" name="Active Watts (W)" stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
+                        <Area type="monotone" dataKey="load_pct" name={t('history:chartLegends.loadPct', 'Load (%)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
+                        <Area type="monotone" dataKey="output_watts" name={t('history:chartLegends.outW', 'Active Watts (W)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
                       </>
                     )}
 
                     {chartMetric === 'battery' && (
-                      <Area type="monotone" dataKey="battery_voltage" name="Battery Voltage (V)" stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                      <Area type="monotone" dataKey="battery_voltage" name={t('history:chartLegends.batV', 'Battery Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
                     )}
 
                     {chartMetric === 'temperature' && (
-                      <Area type="monotone" dataKey="temperature_c" name="Temperature (°C)" stroke="#f97316" strokeWidth={2} fill="url(#histGrad1)" unit="°C" />
+                      <Area type="monotone" dataKey="temperature_c" name={t('history:chartLegends.tempC', 'Temperature (°C)')} stroke="#f97316" strokeWidth={2} fill="url(#histGrad1)" unit="°C" />
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
@@ -342,23 +344,23 @@ export const History: React.FC<HistoryProps> = ({
                         className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                       />
                     </th>
-                    <th className="py-3.5 px-4">Time</th>
-                    <th className="py-3.5 px-4">Port</th>
-                    <th className="py-3.5 px-4">Grid In (V)</th>
-                    <th className="py-3.5 px-4">Grid (Hz)</th>
-                    <th className="py-3.5 px-4">Output (V)</th>
-                    <th className="py-3.5 px-4">Out (Hz)</th>
-                    <th className="py-3.5 px-4">Load (%)</th>
-                    <th className="py-3.5 px-4">Power (W)</th>
-                    <th className="py-3.5 px-4">Battery (V)</th>
-                    <th className="py-3.5 px-4">Temp (°C)</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.timestamp', 'Time')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.port', 'Port')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.gridV', 'Grid In (V)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.gridHz', 'Grid (Hz)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.outV', 'Output (V)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.outHz', 'Out (Hz)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.loadPct', 'Load (%)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.outW', 'Power (W)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.batV', 'Battery (V)')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.tempC', 'Temp (°C)')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04] text-slate-300">
                   {paginatedTelemetry.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="py-12 text-center text-slate-500 font-sans">
-                        No telemetry records recorded yet.
+                        {t('history:noRecords', 'No telemetry records recorded yet.')}
                       </td>
                     </tr>
                   ) : (
@@ -410,7 +412,7 @@ export const History: React.FC<HistoryProps> = ({
                 className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Previous</span>
+                <span>{t('history:pagination.prev', 'Previous')}</span>
               </button>
 
               <div className="flex items-center space-x-1">
@@ -444,7 +446,7 @@ export const History: React.FC<HistoryProps> = ({
                 disabled={safePage >= totalPages}
                 className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
               >
-                <span>Next</span>
+                <span>{t('history:pagination.next', 'Next')}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -465,17 +467,17 @@ export const History: React.FC<HistoryProps> = ({
                         className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                       />
                     </th>
-                    <th className="py-3.5 px-4">Time</th>
-                    <th className="py-3.5 px-4">Port</th>
-                    <th className="py-3.5 px-4">Event Type</th>
-                    <th className="py-3.5 px-4">Details</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.timestamp', 'Time')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.port', 'Port')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.type', 'Event Type')}</th>
+                    <th className="py-3.5 px-4">{t('history:tableHeaders.message', 'Details')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04] text-slate-300">
                   {paginatedEvents.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-12 text-center text-slate-500 font-sans">
-                        No system events logged yet.
+                        {t('history:noEvents', 'No system events logged yet.')}
                       </td>
                     </tr>
                   ) : (
@@ -522,7 +524,7 @@ export const History: React.FC<HistoryProps> = ({
                 className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Previous</span>
+                <span>{t('history:pagination.prev', 'Previous')}</span>
               </button>
 
               <div className="flex items-center space-x-1">
@@ -550,7 +552,7 @@ export const History: React.FC<HistoryProps> = ({
                 disabled={safePage >= totalPages}
                 className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
               >
-                <span>Next</span>
+                <span>{t('history:pagination.next', 'Next')}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>

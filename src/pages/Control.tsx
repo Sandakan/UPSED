@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Volume2,
   Clock,
@@ -33,13 +34,14 @@ export const Control: React.FC<ControlProps> = ({
   safetyStage,
   onRefreshStage,
 }) => {
+  const { t } = useTranslation(['control', 'common']);
   const [commandFeedback, setCommandFeedback] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [confirmShutdown, setConfirmShutdown] = useState(false);
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
-      setCommandFeedback('Error: No active UPS device selected');
+      setCommandFeedback(t('control:safetyGate.noDeviceError', 'Error: No active UPS device selected'));
       return;
     }
 
@@ -48,9 +50,9 @@ export const Control: React.FC<ControlProps> = ({
 
     try {
       const resp = await api.sendCommand(portName, cmd);
-      setCommandFeedback(`Success: ${label} returned '${resp}'`);
+      setCommandFeedback(t('control:safetyGate.feedbackSuccess', { label, resp, defaultValue: `Success: ${label} returned '${resp}'` }));
     } catch (err: any) {
-      setCommandFeedback(`Blocked or Failed: ${err?.message || String(err)}`);
+      setCommandFeedback(t('control:safetyGate.feedbackError', { error: err?.message || String(err), defaultValue: `Blocked or Failed: ${err?.message || String(err)}` }));
     } finally {
       setIsExecuting(false);
     }
@@ -60,9 +62,9 @@ export const Control: React.FC<ControlProps> = ({
     try {
       await api.unlockSafetyStage(target);
       onRefreshStage();
-      setCommandFeedback(`Safety stage updated to ${target}`);
+      setCommandFeedback(t('control:safetyGate.feedbackUpdated', { target, defaultValue: `Safety stage updated to ${target}` }));
     } catch (err: any) {
-      setCommandFeedback(`Stage advance failed: ${err?.message || String(err)}`);
+      setCommandFeedback(t('control:safetyGate.feedbackAdvanceError', { error: err?.message || String(err), defaultValue: `Stage advance failed: ${err?.message || String(err)}` }));
     }
   };
 
@@ -84,7 +86,7 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2.5">
                 <h3 className="text-sm font-semibold text-slate-100">
-                  Firmware Safety Gate
+                  {t('control:safetyGate.title', 'Firmware Safety Gate')}
                 </h3>
                 <span
                   className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${getStagePillStyle(
@@ -95,8 +97,7 @@ export const Control: React.FC<ControlProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
-                To prevent firmware corruption or accidental load drop, commands are strictly
-                categorized by risk. Each stage unlocks sequentially.
+                {t('control:safetyGate.desc', 'To prevent firmware corruption or accidental load drop, commands are strictly categorized by risk. Each stage unlocks sequentially.')}
               </p>
             </div>
           </div>
@@ -107,7 +108,7 @@ export const Control: React.FC<ControlProps> = ({
                 onClick={() => handleUnlockStage('T2NonDestructive')}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>Unlock Stage T2</span>
+                <span>{t('control:safetyGate.unlockT2', 'Unlock Stage T2')}</span>
               </PrimaryButton>
             )}
             {safetyStage === 'T2NonDestructive' && (
@@ -115,7 +116,7 @@ export const Control: React.FC<ControlProps> = ({
                 onClick={() => handleUnlockStage('T3ConfigWrite')}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>Unlock Stage T3</span>
+                <span>{t('control:safetyGate.unlockT3', 'Unlock Stage T3')}</span>
               </PrimaryButton>
             )}
             {safetyStage === 'T3ConfigWrite' && (
@@ -124,7 +125,7 @@ export const Control: React.FC<ControlProps> = ({
                 onClick={() => handleUnlockStage('T4PowerControl')}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>Unlock Stage T4</span>
+                <span>{t('control:safetyGate.unlockT4', 'Unlock Stage T4')}</span>
               </PrimaryButton>
             )}
             {safetyStage === 'T4PowerControl' && (
@@ -133,7 +134,7 @@ export const Control: React.FC<ControlProps> = ({
                 onClick={() => handleUnlockStage('T1ReadOnly')}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>Relock to T1</span>
+                <span>{t('control:safetyGate.relockT1', 'Relock to T1')}</span>
               </PrimaryButton>
             )}
           </div>
@@ -169,14 +170,14 @@ export const Control: React.FC<ControlProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <h4 className="text-sm font-semibold text-slate-100">
-                Stage T2: Non-Destructive Actions
+                {t('control:stageT2.title', 'Stage T2: Non-Destructive Actions')}
               </h4>
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Low Risk
+                {t('control:stageT2.risk', 'Low Risk')}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Diagnostic actions that do not alter flash/EEPROM or drop live load power.
+              {t('control:stageT2.desc', 'Diagnostic actions that do not alter flash/EEPROM or drop live load power.')}
             </p>
           </div>
         </div>
@@ -187,10 +188,10 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2 text-slate-200 mb-1">
                 <Volume2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">Alarm Buzzer</span>
+                <span className="text-xs font-semibold">{t('control:stageT2.buzzerTitle', 'Alarm Buzzer')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Toggles the internal hardware alarm beeper on or off.
+                {t('control:stageT2.buzzerDesc', 'Toggles the internal hardware alarm beeper on or off.')}
               </p>
             </div>
             <button
@@ -199,7 +200,7 @@ export const Control: React.FC<ControlProps> = ({
               disabled={isExecuting || safetyStage === 'T1ReadOnly'}
               className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/[0.08] text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
-              Toggle Buzzer (BUZZER)
+              {t('control:stageT2.buzzerBtn', 'Toggle Buzzer (BUZZER)')}
             </button>
           </div>
 
@@ -208,10 +209,10 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2 text-slate-200 mb-1">
                 <Clock className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">10s Battery Test</span>
+                <span className="text-xs font-semibold">{t('control:stageT2.test10sTitle', '10s Battery Test')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Discharges battery for 10 seconds under load to verify battery health.
+                {t('control:stageT2.test10sDesc', 'Discharges battery for 10 seconds under load to verify battery health.')}
               </p>
             </div>
             <PrimaryButton
@@ -220,7 +221,7 @@ export const Control: React.FC<ControlProps> = ({
               fullWidth
               className="mt-4"
             >
-              <span>Start 10s Test (T)</span>
+              <span>{t('control:stageT2.test10sBtn', 'Start 10s Test (T)')}</span>
             </PrimaryButton>
           </div>
 
@@ -229,10 +230,10 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2 text-slate-200 mb-1">
                 <XCircle className="w-4 h-4 text-slate-400" />
-                <span className="text-xs font-semibold">Cancel Self-Test</span>
+                <span className="text-xs font-semibold">{t('control:stageT2.cancelTestTitle', 'Cancel Self-Test')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Immediately terminates any ongoing battery discharge test.
+                {t('control:stageT2.cancelTestDesc', 'Immediately terminates any ongoing battery discharge test.')}
               </p>
             </div>
             <button
@@ -241,7 +242,7 @@ export const Control: React.FC<ControlProps> = ({
               disabled={isExecuting || safetyStage === 'T1ReadOnly'}
               className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/[0.08] text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
-              Cancel Test (CT)
+              {t('control:stageT2.cancelTestBtn', 'Cancel Test (CT)')}
             </button>
           </div>
         </div>
@@ -259,14 +260,14 @@ export const Control: React.FC<ControlProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <h4 className="text-sm font-semibold text-slate-100">
-                Stage T4: Live Power Control
+                {t('control:stageT4.title', 'Stage T4: Live Power Control')}
               </h4>
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                High Risk
+                {t('control:stageT4.risk', 'High Risk')}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Commands that can cut load output or trigger hardware shutdown.
+              {t('control:stageT4.desc', 'Commands that can cut load output or trigger hardware shutdown.')}
             </p>
           </div>
         </div>
@@ -277,17 +278,17 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2 text-rose-300 mb-1">
                 <AlertOctagon className="w-4 h-4 text-rose-400" />
-                <span className="text-xs font-semibold">Emergency Shutdown</span>
+                <span className="text-xs font-semibold">{t('control:stageT4.shutdownTitle', 'Emergency Shutdown')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Shuts down UPS output after a 0.3m (~18 seconds) delay.
+                {t('control:stageT4.shutdownDesc', 'Shuts down UPS output after a 0.3m (~18 seconds) delay.')}
               </p>
             </div>
 
             {confirmShutdown ? (
               <div className="mt-4 space-y-2">
                 <p className="text-[11px] text-rose-400 font-semibold text-center">
-                  Are you sure? Connected equipment will lose power!
+                  {t('control:stageT4.shutdownWarn', 'Are you sure? Connected equipment will lose power!')}
                 </p>
                 <div className="flex space-x-2">
                   <button
@@ -301,14 +302,14 @@ export const Control: React.FC<ControlProps> = ({
                     }}
                     className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
                   >
-                    Confirm Shutdown
+                    {t('control:stageT4.confirmBtn', 'Confirm Shutdown')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmShutdown(false)}
                     className="py-2 px-3 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/[0.08] text-xs rounded-xl transition cursor-pointer"
                   >
-                    Cancel
+                    {t('common:buttons.cancel', 'Cancel')}
                   </button>
                 </div>
               </div>
@@ -319,7 +320,7 @@ export const Control: React.FC<ControlProps> = ({
                 disabled={isExecuting || safetyStage !== 'T4PowerControl'}
                 className="mt-4 w-full py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
               >
-                Initiate Shutdown (S.3)
+                {t('control:stageT4.initiateBtn', 'Initiate Shutdown (S.3)')}
               </button>
             )}
           </div>
@@ -329,10 +330,10 @@ export const Control: React.FC<ControlProps> = ({
             <div>
               <div className="flex items-center space-x-2 text-slate-200 mb-1">
                 <Power className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">Cancel Pending Shutdown</span>
+                <span className="text-xs font-semibold">{t('control:stageT4.cancelShutdownTitle', 'Cancel Pending Shutdown')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Cancels any active shutdown countdown timer immediately.
+                {t('control:stageT4.cancelShutdownDesc', 'Cancels any active shutdown countdown timer immediately.')}
               </p>
             </div>
             <button
@@ -341,7 +342,7 @@ export const Control: React.FC<ControlProps> = ({
               disabled={isExecuting || safetyStage !== 'T4PowerControl'}
               className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-emerald-400 border border-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
             >
-              Cancel Shutdown (CS)
+              {t('control:stageT4.cancelShutdownBtn', 'Cancel Shutdown (CS)')}
             </button>
           </div>
         </div>

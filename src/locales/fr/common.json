@@ -1,0 +1,87 @@
+{
+  "buttons": {
+    "save": "Enregistrer",
+    "saving": "Enregistrement...",
+    "saved": "Enregistré",
+    "cancel": "Annuler",
+    "reset": "Rétablir par défaut",
+    "close": "Fermer",
+    "connect": "Connecter",
+    "disconnect": "Déconnecter",
+    "refresh": "Actualiser",
+    "exportCsv": "Exporter CSV",
+    "clearAll": "Tout effacer",
+    "retry": "Réessayer",
+    "acknowledge": "Acquitter",
+    "dismiss": "Ignorer",
+    "edit": "Modifier",
+    "proceed": "Continuer",
+    "unlock": "Déverrouiller",
+    "lock": "Verrouiller",
+    "apply": "Appliquer les modifications"
+  },
+  "status": {
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "connecting": "Connexion en cours...",
+    "scanning": "Recherche de ports...",
+    "polling": "Interrogation",
+    "offline": "Hors ligne",
+    "onlineMode": "Mode Secteur / Ligne",
+    "batteryMode": "Mode Secours Batterie",
+    "bypassMode": "Mode Dérivation (Bypass)",
+    "faultMode": "Mode Défaut / Alarme",
+    "normal": "Normal",
+    "warning": "Avertissement",
+    "critical": "Critique",
+    "unknown": "Inconnu",
+    "active": "Actif",
+    "standby": "Veille"
+  },
+  "stages": {
+    "t1": {
+      "title": "Niveau 1 : Lecture seule",
+      "badge": "T1 Lecture seule",
+      "desc": "Requêtes de télémétrie matérielle sécurisées sans modification d'état."
+    },
+    "t2": {
+      "title": "Niveau 2 : Diagnostics non destructifs",
+      "badge": "T2 Diagnostic",
+      "desc": "Tests de diagnostic observables (auto-test de décharge batterie, bip sonore)."
+    },
+    "t3": {
+      "title": "Niveau 3 : Écritures de configuration",
+      "badge": "T3 Configuration",
+      "desc": "Modifications persistantes des paramètres et réglages de fonctionnement."
+    },
+    "t4": {
+      "title": "Niveau 4 : Contrôle de puissance et délestage",
+      "badge": "T4 Puissance",
+      "desc": "Commutation d'alimentation critique, coupure des prises et arrêt de l'onduleur."
+    }
+  },
+  "units": {
+    "volt": "V",
+    "hertz": "Hz",
+    "watt": "W",
+    "va": "VA",
+    "amp": "A",
+    "celsius": "°C",
+    "percent": "%",
+    "minute": "min",
+    "minutes": "mins",
+    "ampHours": "Ah"
+  },
+  "language": {
+    "label": "Langue",
+    "system": "Par défaut du système",
+    "en": "English",
+    "fr": "Français"
+  },
+  "time": {
+    "lastUpdated": "Dernière mise à jour",
+    "justNow": "à l'instant",
+    "secondsAgo": "il y a {{count}}s"
+  }
+}
+

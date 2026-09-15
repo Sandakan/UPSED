@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plug, RefreshCw, X, Check, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
 import { DiscoveredDevice } from '../lib/types';
 import { PrimaryButton } from './PrimaryButton';
@@ -22,6 +23,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
   onScan,
   onSelectDevice,
 }) => {
+  const { t } = useTranslation(['modals', 'common']);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
   const [chosenPort, setChosenPort] = useState<string | null>(selectedDevice);
@@ -108,10 +110,10 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
                 id="connect-ups-title"
                 className="text-base font-semibold text-slate-100"
               >
-                Connect UPS Device
+                {t('modals:connect.title', 'Connect UPS Hardware Device')}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Scan and select Voltronic hardware interface
+                {t('modals:connect.subtitle', 'Select a communication port to start real-time telemetry')}
               </p>
             </div>
           </div>
@@ -131,16 +133,16 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
           {isScanning ? (
             <div className="p-3 rounded-xl border border-emerald-600/40 bg-emerald-950/30 text-emerald-300 flex items-center space-x-2.5">
               <Loader2 className="w-4 h-4 animate-spin shrink-0 text-emerald-400" />
-              <span>Scanning serial ports (2400/9600 baud) and USB HID interfaces...</span>
+              <span>{t('modals:connect.scanning', 'Scanning serial ports (2400/9600 baud) and USB HID interfaces...')}</span>
             </div>
           ) : (
             <div className="flex items-center justify-between text-slate-400 px-1">
               <span>
                 {devices.length === 0
-                  ? 'No devices detected yet'
-                  : `Detected ${devices.length} hardware interface${devices.length === 1 ? '' : 's'}`}
+                  ? t('modals:connect.noDevices', 'No devices detected yet')
+                  : t('modals:connect.detectedCount', { count: devices.length, defaultValue: `Detected ${devices.length} hardware interfaces` })}
               </span>
-              <span className="text-[11px] font-mono text-slate-500">Stage T1 Discovery</span>
+              <span className="text-[11px] font-mono text-slate-500">{t('modals:connect.discoveryStage', 'Stage T1 Discovery')}</span>
             </div>
           )}
 
@@ -150,18 +152,18 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
               <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center space-y-2 bg-black/10">
                 <AlertTriangle className="w-8 h-8 mx-auto text-amber-400 opacity-80 mb-1" />
                 <p className="font-semibold text-slate-200 text-sm">
-                  No Voltronic UPS Found
+                  {t('modals:connect.noUpsFound', 'No Voltronic UPS Found')}
                 </p>
                 <p className="text-slate-400 text-xs max-w-sm mx-auto leading-relaxed">
-                  Ensure the USB or serial cable is connected securely and no third-party software (e.g. ViewPower) is locking the COM port.
+                  {t('modals:connect.noUpsDesc', 'Ensure the USB or serial cable is connected securely and no third-party software (e.g. ViewPower) is locking the COM port.')}
                 </p>
                 <div className="pt-2">
                   <button
                     onClick={onScan}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition"
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Scan Again</span>
+                    <span>{t('modals:connect.scanAgain', 'Scan Again')}</span>
                   </button>
                 </div>
               </div>
@@ -202,7 +204,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
                           </span>
                           {isCurrentlyActive && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-950 text-emerald-400 border border-emerald-700/50">
-                              Connected
+                              {t('common:status.connected', 'Connected')}
                             </span>
                           )}
                         </div>
@@ -210,7 +212,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
                           {dev.serial_number && <span>SN: {dev.serial_number}</span>}
                           {dev.firmware_version && <span>FW: {dev.firmware_version}</span>}
                           {!dev.serial_number && !dev.firmware_version && (
-                            <span>Hardware detected & validated</span>
+                            <span>{t('dashboard:autoDiscovery.discovered', 'Hardware detected & validated')}</span>
                           )}
                         </div>
                       </div>
@@ -238,7 +240,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
             className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-            <span>{isScanning ? 'Scanning...' : 'Rescan Ports'}</span>
+            <span>{isScanning ? t('common:status.scanning', 'Scanning...') : t('common:buttons.scan', 'Rescan Ports')}</span>
           </button>
 
           {/* Right: Cancel & Connect */}
@@ -248,14 +250,14 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
               onClick={onClose}
               className="px-3.5 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] rounded-xl transition cursor-pointer"
             >
-              Cancel
+              {t('common:buttons.cancel', 'Cancel')}
             </button>
             <PrimaryButton
               onClick={handleConnect}
               disabled={!chosenPort || isScanning}
               icon={<Plug className="w-3.5 h-3.5" />}
             >
-              <span>Connect Device</span>
+              <span>{chosenPort ? t('modals:connect.connectBtn', { port: chosenPort, defaultValue: `Connect to ${chosenPort}` }) : t('modals:connect.selectPortFirst', 'Connect Device')}</span>
             </PrimaryButton>
           </div>
         </div>

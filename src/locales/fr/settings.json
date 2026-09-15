@@ -1,0 +1,73 @@
+{
+  "savedSuccess": "Paramètres appliqués avec succès !",
+  "themeSection": {
+    "title": "Apparence et thème de couleur",
+    "desc": "Choisissez entre sombre, clair ou synchronisation automatique avec Windows.",
+    "syncingOs": "Synchronisé avec l'OS",
+    "modeLabel": "Mode {{mode}}",
+    "systemTitle": "Par défaut du système",
+    "systemDesc": "S'adapte au thème de couleurs de Windows",
+    "darkTitle": "Thème sombre",
+    "darkDesc": "Design SaaS sombre en noir obsidienne & anthracite",
+    "lightTitle": "Thème clair",
+    "lightDesc": "Design diurne lumineux à fort contraste"
+  },
+  "languageSection": {
+    "title": "Langue & Régionalisation",
+    "desc": "Sélectionnez la langue de l'interface utilisateur. Par défaut, utilise la langue du système d'exploitation.",
+    "systemDesc": "Automatique selon la langue de Windows",
+    "enDesc": "English (Anglais)",
+    "frDesc": "Français"
+  },
+  "profileSection": {
+    "title": "Profil & Spécifications de l'onduleur actif",
+    "desc": "Calibrez les spécifications matérielles pour garantir l'exactitude des calculs d'autonomie et courbes de batterie.",
+    "upsName": "Identifiant / Nom de l'onduleur",
+    "topology": "Topologie / Architecture de l'onduleur",
+    "topologyOnline": "On-Line Double-Conversion",
+    "topologyLineInteractive": "Line-Interactive (In-Line)",
+    "topologyStandby": "Off-Line / Veille passive",
+    "ratedVa": "Puissance apparente nominale (VA)",
+    "powerFactor": "Facteur de puissance (FP)",
+    "batteryVoltage": "Tension nominale du banc de batteries (V)",
+    "batteryCapacity": "Capacité des batteries (Ah)",
+    "batteryChemistry": "Chimie des cellules de batterie",
+    "chemistryVrla": "Plomb étanche VRLA / AGM",
+    "chemistryGEL": "Plomb électrolyte GEL",
+    "chemistryLiFePO4": "Lithium Fer Phosphate (LiFePO4)",
+    "chemistryLiIon": "Lithium-Ion NMC (Li-ion)"
+  },
+  "systemSection": {
+    "title": "Intégration système & Démarrage",
+    "desc": "Configurez le comportement de VoltWatch avec les services d'arrière-plan Windows et la zone de notification.",
+    "autostartTitle": "Démarrer avec Windows",
+    "autostartDesc": "Lance automatiquement VoltWatch en arrière-plan à la connexion de l'utilisateur.",
+    "autostartDevNotice": "Le démarrage auto est désactivé en mode dev (npm run tauri dev) pour éviter les conflits.",
+    "minimizeTrayTitle": "Fermer réduit dans la zone de notification",
+    "minimizeTrayDesc": "Maintient la surveillance de l'onduleur active dans la barre des tâches lors de la fermeture de la fenêtre.",
+    "startMinimizedTitle": "Démarrer réduit dans la zone de notification",
+    "startMinimizedDesc": "Ouvre l'application discrètement dans la barre des tâches sans afficher la fenêtre principale au démarrage."
+  },
+  "pollingSection": {
+    "title": "Fréquence d'interrogation télémétrique",
+    "desc": "Cadence à laquelle les requêtes Q1/QPIGS sont transmises au contrôleur du port série.",
+    "pollSeconds": "{{count}} Secondes",
+    "pollWarning": "Une interrogation très rapprochée (<5s) peut surcharger les liaisons RS-232 à faible débit de bauds."
+  },
+  "bridgeSection": {
+    "title": "Passerelle batterie native Windows",
+    "desc": "Expose l'onduleur connecté comme une batterie d'ordinateur portable native auprès de Windows.",
+    "optInNotice": "Conforme à la règle de sécurité : Désactivé par défaut. Activé uniquement sur consentement explicite.",
+    "bridgeToggle": "Émuler la batterie d'ordinateur portable dans la barre Windows"
+  },
+  "notificationsSection": {
+    "title": "Notifications & Alertes matérielles",
+    "desc": "Configurez la manière dont les transitions d'état et codes d'alarme vous sont notifiés.",
+    "osNotifTitle": "Notifications du Centre d'action Windows",
+    "osNotifDesc": "Affiche des bannières natives lorsque l'application est réduite ou inactive.",
+    "inAppNotifTitle": "Notifications visuelles intégrées (Toasts)",
+    "inAppNotifDesc": "Affiche des alertes interactives au sein de l'application."
+  },
+  "saveButton": "Enregistrer toutes les préférences"
+}
+

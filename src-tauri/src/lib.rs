@@ -103,6 +103,9 @@ pub fn run() {
                 .unwrap_or(true);
 
             if let Some(window) = app.get_webview_window("main") {
+                // Set initial native window background color to signature dark theme (#22262f) to eliminate OS-level black flash during cold boot
+                let _ = window.set_background_color(Some(tauri::window::Color(34, 38, 47, 255)));
+
                 if is_minimized_arg && start_minimized_pref {
                     let _ = window.hide();
                 } else {

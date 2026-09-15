@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Wrench, ShieldAlert, Check, XCircle, Sliders } from 'lucide-react';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
@@ -10,6 +11,7 @@ interface ConfigProps {
 }
 
 export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
+  const { t } = useTranslation(['config', 'common']);
   const [chargeCurrent, setChargeCurrent] = useState<number>(20);
   const [bypassHigh, setBypassHigh] = useState<number>(260);
   const [bypassLow, setBypassLow] = useState<number>(190);
@@ -21,7 +23,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
 
   const handleSaveParam = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
-      setStatusMessage('Error: No active UPS device selected');
+      setStatusMessage(t('config:feedback.noDevice', 'Error: No active UPS device selected'));
       return;
     }
 
@@ -30,9 +32,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
 
     try {
       const resp = await api.sendCommand(portName, cmd);
-      setStatusMessage(`Success: ${label} saved to UPS EEPROM (Response: ${resp})`);
+      setStatusMessage(t('config:feedback.success', { label, resp, defaultValue: `Success: ${label} saved to UPS EEPROM (Response: ${resp})` }));
     } catch (err: any) {
-      setStatusMessage(`Failed: ${err?.message || String(err)}`);
+      setStatusMessage(t('config:feedback.failed', { error: err?.message || String(err), defaultValue: `Failed: ${err?.message || String(err)}` }));
     } finally {
       setIsSaving(false);
     }
@@ -48,12 +50,10 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           </div>
           <div className="text-xs">
             <h4 className="font-semibold text-amber-300">
-              Configuration Writes are Locked (Stage {safetyStage})
+              {t('config:alert.lockedTitle', { stage: safetyStage, defaultValue: `Configuration Writes are Locked (Stage ${safetyStage})` })}
             </h4>
             <p className="text-slate-400 mt-1 leading-relaxed">
-              Writing parameters alters the UPS EEPROM/flash memory. To unlock configuration writes,
-              advance the Safety Gate to <strong>Stage T3 (Config Write)</strong> on the Hardware
-              Control page.
+              {t('config:alert.lockedDesc', 'Writing parameters alters the UPS EEPROM/flash memory. To unlock configuration writes, advance the Safety Gate to Stage T3 (Config Write) on the Hardware Control page.')}
             </p>
           </div>
         </div>
@@ -90,10 +90,10 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-slate-100">
-              Battery & Charging Parameters
+              {t('config:chargingSection.title', 'Battery & Charging Parameters')}
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Calibrate charging current limits and battery cutoff voltages.
+              {t('config:chargingSection.desc', 'Calibrate charging current limits and battery cutoff voltages.')}
             </p>
           </div>
         </div>
@@ -102,10 +102,10 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Max Charge Current */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              Maximum Solar & Utility Charge Current (Amps)
+              {t('config:chargingSection.maxCurrentLabel', 'Maximum Solar & Utility Charge Current (Amps)')}
             </label>
             <p className="text-[11px] text-slate-400">
-              Valid range: 10A to 80A depending on inverter rating (MCHGC)
+              {t('config:chargingSection.maxCurrentDesc', 'Valid range: 10A to 80A depending on inverter rating (MCHGC)')}
             </p>
             <div className="flex space-x-2 pt-1">
               <input
@@ -127,7 +127,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 }
                 disabled={isLocked || isSaving}
               >
-                <span>Apply</span>
+                <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>
             </div>
           </div>
@@ -135,10 +135,10 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Battery Low Cutoff Voltage */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              Battery Low Shutdown Cutoff Voltage (Volts)
+              {t('config:chargingSection.cutoffLabel', 'Battery Low Shutdown Cutoff Voltage (Volts)')}
             </label>
             <p className="text-[11px] text-slate-400">
-              Minimum battery cutoff threshold before power shutdown (PSDV)
+              {t('config:chargingSection.cutoffDesc', 'Minimum battery cutoff threshold before power shutdown (PSDV)')}
             </p>
             <div className="flex space-x-2 pt-1">
               <input
@@ -160,7 +160,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 }
                 disabled={isLocked || isSaving}
               >
-                <span>Apply</span>
+                <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>
             </div>
           </div>
@@ -181,10 +181,10 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-slate-100">
-              AC Bypass Voltage Window
+              {t('config:bypassSection.title', 'AC Bypass Voltage Window')}
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Define the acceptable grid voltage boundaries for automatic bypass transfer.
+              {t('config:bypassSection.desc', 'Define the acceptable grid voltage boundaries for automatic bypass transfer.')}
             </p>
           </div>
         </div>
@@ -193,9 +193,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Bypass High Voltage */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              Bypass High Voltage Limit (PBVH)
+              {t('config:bypassSection.highLabel', 'Bypass High Voltage Limit (PBVH)')}
             </label>
-            <p className="text-[11px] text-slate-400">Upper acceptable threshold (180V - 270V)</p>
+            <p className="text-[11px] text-slate-400">{t('config:bypassSection.highDesc', 'Upper acceptable threshold (180V - 270V)')}</p>
             <div className="flex space-x-2 pt-1">
               <input
                 type="number"
@@ -216,7 +216,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 }
                 disabled={isLocked || isSaving}
               >
-                <span>Apply</span>
+                <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>
             </div>
           </div>
@@ -224,9 +224,9 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Bypass Low Voltage */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              Bypass Low Voltage Limit (PBVL)
+              {t('config:bypassSection.lowLabel', 'Bypass Low Voltage Limit (PBVL)')}
             </label>
-            <p className="text-[11px] text-slate-400">Lower acceptable threshold (170V - 220V)</p>
+            <p className="text-[11px] text-slate-400">{t('config:bypassSection.lowDesc', 'Lower acceptable threshold (170V - 220V)')}</p>
             <div className="flex space-x-2 pt-1">
               <input
                 type="number"
@@ -247,7 +247,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
                 }
                 disabled={isLocked || isSaving}
               >
-                <span>Apply</span>
+                <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>
             </div>
           </div>

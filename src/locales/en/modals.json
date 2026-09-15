@@ -1,0 +1,44 @@
+{
+  "confirm": {
+    "defaultTitle": "Clear Event History?",
+    "defaultConfirm": "Clear All Events",
+    "defaultCancel": "Cancel"
+  },
+  "connect": {
+    "title": "Connect UPS Hardware Device",
+    "subtitle": "Select a communication port to start real-time telemetry",
+    "scanning": "Scanning serial ports (2400/9600 baud) and USB HID interfaces...",
+    "noDevices": "No devices detected yet",
+    "detectedCount": "Detected {{count}} hardware interface",
+    "detectedCount_other": "Detected {{count}} hardware interfaces",
+    "discoveryStage": "Stage T1 Discovery",
+    "noUpsFound": "No Voltronic UPS Found",
+    "noUpsDesc": "Ensure the USB or serial cable is connected securely and no third-party software (e.g. ViewPower) is locking the COM port.",
+    "scanAgain": "Scan Again",
+    "activeBadge": "Active",
+    "autoSwitch": "Auto-switches active telemetry to selected port upon connection.",
+    "connectBtn": "Connect to {{port}}",
+    "selectPortFirst": "Select a port to connect"
+  },
+  "setup": {
+    "title": "Configure Hardware Specifications",
+    "subtitle": "Calibrate ratings for {{port}} to optimize runtime calculations.",
+    "deviceName": "UPS Device Name",
+    "presets": "VA Presets",
+    "customVa": "Custom (VA)",
+    "topology": "Operating Topology",
+    "ratedVa": "Rated VA",
+    "powerFactor": "Power Factor (PF)",
+    "ratedWatts": "Active Capacity",
+    "batVoltage": "Battery Bank Nominal Voltage (V)",
+    "batCapacity": "Battery Capacity (Ah)",
+    "batChemistry": "Battery Chemistry",
+    "livePreview": "Real-Time Preview",
+    "previewDesc": "Calculated based on current telemetry",
+    "estRuntime": "Est. Runtime",
+    "estSoc": "Est. SoC",
+    "quickDefaults": "Apply Recommended Defaults",
+    "saveProfile": "Save & Continue"
+  }
+}
+

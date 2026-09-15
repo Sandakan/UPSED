@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./lib/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@fontsource/poppins/300.css";
 import "@fontsource/poppins/400.css";

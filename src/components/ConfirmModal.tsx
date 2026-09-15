@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Trash2, X, RefreshCw } from 'lucide-react';
 
 export interface ConfirmModalProps {
@@ -19,15 +20,19 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
-  title = 'Clear Event History?',
+  title,
   description,
-  confirmLabel = 'Clear All Events',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'danger',
   isLoading = false,
   itemCount,
   icon,
 }) => {
+  const { t } = useTranslation(['modals', 'common']);
+  const resolvedTitle = title || t('modals:confirm.defaultTitle', 'Clear Event History?');
+  const resolvedConfirmLabel = confirmLabel || t('modals:confirm.defaultConfirm', 'Clear All Events');
+  const resolvedCancelLabel = cancelLabel || t('modals:confirm.defaultCancel', 'Cancel');
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
 
@@ -122,9 +127,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 id="confirm-modal-title"
                 className="text-base font-semibold text-slate-100"
               >
-                {title}
+                {resolvedTitle}
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Permanent action</p>
+              <p className="text-xs text-slate-400 mt-0.5">{t('common:status.permanentAction', 'Permanent action')}</p>
             </div>
           </div>
           <button
@@ -144,8 +149,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             <div>{description}</div>
           ) : (
             <p>
-              Are you sure you want to permanently clear all stored event logs
-              from the local database?
+              {t('events:clearHistoryConfirm', 'Are you sure you want to permanently clear all stored event logs from the local database?')}
             </p>
           )}
 
@@ -156,15 +160,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             >
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>
-                <strong>{itemCount}</strong> recorded event
-                {itemCount === 1 ? '' : 's'} will be permanently deleted.
+                <strong>{itemCount}</strong> {t('events:batchSelected', { count: itemCount, defaultValue: `${itemCount} events selected` })}
               </span>
             </div>
           )}
 
           <p className="text-[11px] text-slate-400">
-            This action cannot be undone. Historical outage logs, low battery
-            warnings, and transition timestamps will be purged from the database.
+            {t('events:clearHistoryConfirm', 'This action cannot be undone.')}
           </p>
         </div>
 
@@ -176,7 +178,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             disabled={isLoading}
             className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition disabled:opacity-40 cursor-pointer"
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </button>
           <button
             type="button"
@@ -187,12 +189,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             {isLoading ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Clearing...</span>
+                <span>{t('common:status.loading', 'Loading...')}</span>
               </>
             ) : (
               <>
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{confirmLabel}</span>
+                <span>{resolvedConfirmLabel}</span>
               </>
             )}
           </button>

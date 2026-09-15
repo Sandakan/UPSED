@@ -1,0 +1,46 @@
+{
+  "title": "Events List",
+  "subtitle": "Telemetry hardware transitions, warning codes, and power state events",
+  "filterTabs": {
+    "all": "All Events",
+    "critical": "Critical / Fault",
+    "warning": "Warnings",
+    "success": "Recoveries",
+    "info": "Informational"
+  },
+  "timeframe": {
+    "all": "All Time",
+    "today": "Last 24 Hours",
+    "week": "Last 7 Days"
+  },
+  "searchPlaceholder": "Search events, port, warnings, codes...",
+  "clearHistory": "Clear History",
+  "clearHistoryTitle": "Clear Event History",
+  "clearHistoryConfirm": "Are you sure you want to clear all logged hardware events? This action cannot be undone.",
+  "batchSelected": "{{count}} events selected",
+  "tableHeaders": {
+    "port": "Port / Interface",
+    "timestamp": "Timestamp",
+    "eventCode": "Event Code",
+    "severity": "Severity",
+    "titleDesc": "Title & Hardware Condition",
+    "action": "Action"
+  },
+  "badges": {
+    "critical": "Fault",
+    "warning": "Warning",
+    "success": "Online",
+    "info": "Info"
+  },
+  "actions": {
+    "ack": "Ack",
+    "acknowledged": "Acknowledged"
+  },
+  "empty": "No hardware events found matching criteria.",
+  "pagination": {
+    "prev": "Previous",
+    "next": "Next",
+    "showing": "Showing {{from}} to {{to}} of {{total}} entries"
+  }
+}
+

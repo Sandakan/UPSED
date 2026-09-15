@@ -1,0 +1,81 @@
+{
+  "cards": {
+    "inputVoltage": "Input Voltage (Avg.)",
+    "freq": "Freq",
+    "gridFail": "Grid Fail",
+    "lineNormal": "Line Normal",
+    "outputLoad": "Output Load (%)",
+    "activeLoad": "Active Load",
+    "batteryHealth": "Battery Health (%)",
+    "capacity": "Capacity"
+  },
+  "discovery": {
+    "connectionError": "Connection Error",
+    "diagnosticStatus": "Diagnostic status:",
+    "errorDesc": "VoltWatch encountered an issue communicating on {{portName}}. Check device power and cable connection.",
+    "retryDiscovery": "Retry Discovery",
+    "autoDiscoveryActive": "Auto-Discovery Active",
+    "discoveringHardware": "Discovering Connected Hardware...",
+    "scanningPortsDesc": "Scanning communication ports & USB HID interfaces...",
+    "readingTelemetry": "Reading Telemetry",
+    "fetchingLive": "Fetching Live Telemetry...",
+    "queryingStatus": "Querying real-time inverter status from {{target}}...",
+    "establishingLink": "Establishing Link",
+    "connectingTo": "Connecting to {{target}}...",
+    "openingTransport": "Opening hardware transport and verifying protocol response...",
+    "scanningPorts": "Scanning Ports",
+    "scanningHardwarePorts": "Scanning Hardware Ports...",
+    "scanningComPorts": "Scanning COM ports and USB HID devices for Voltronic UPS...",
+    "noConnectedUps": "No Connected UPS Detected",
+    "noUpsDesc": "VoltWatch could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.",
+    "checklistTitle": "Troubleshooting Checklist:",
+    "checkCable": "Verify the USB or RS-232 serial cable is securely plugged in.",
+    "checkPower": "Ensure the UPS power switch is turned ON.",
+    "checkLegacy": "Close conflicting legacy tools (e.g. ViewPower, terminal emulators).",
+    "rescanHardware": "Rescan Hardware Ports"
+  },
+  "flags": {
+    "title": "Hardware Status Flags",
+    "acUtilityGrid": "AC Utility Grid",
+    "batteryLevel": "Battery Level",
+    "bypassRelay": "Bypass Relay",
+    "inverterDiagnostics": "Inverter Diagnostics",
+    "failed": "FAILED",
+    "normal": "NORMAL",
+    "low": "LOW",
+    "ok": "OK",
+    "active": "ACTIVE",
+    "off": "OFF",
+    "fault": "FAULT",
+    "healthy": "HEALTHY"
+  },
+  "architecture": {
+    "title": "Safety & Clean-Room Architecture",
+    "desc": "VoltWatch operates directly over serial/USB with zero embedded web servers, RMI, or Struts2 middleware. All protocol communication is strictly validated and safety-gated to protect device firmware.",
+    "portLabel": "Hardware Port: {{port}} • Baud: 2400 8N1 • Protocol: Voltronic Q1"
+  },
+  "topology": {
+    "title": "UPS Power Flow Topology",
+    "subtitle": "Real-time electrical single-line schematic",
+    "modePill": {
+      "fault": "UPS Fault",
+      "bypass": "Bypass Mode",
+      "battery": "Battery Mode (AC Fail)",
+      "line": "Line Mode (Online)"
+    },
+    "utilityGrid": "Utility Grid Input",
+    "staticBypass": "Static Bypass",
+    "rectifierCharger": "Rectifier / Charger",
+    "inverter": "Inverter (DC -> AC)",
+    "batteryReserve": "Battery Reserve",
+    "criticalLoad": "Critical AC Load",
+    "nominal": "Nominal",
+    "runtime": "Runtime",
+    "state": "State",
+    "offline": "Offline",
+    "charging": "Charging",
+    "discharging": "Discharging",
+    "floatReady": "Float / Ready"
+  }
+}
+

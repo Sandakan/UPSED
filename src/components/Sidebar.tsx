@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Activity,
   Sliders,
@@ -31,6 +32,7 @@ interface SidebarProps {
 
 const NAV_GROUPS = [
   {
+    id: 'monitoring',
     label: 'MONITORING',
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: Activity },
@@ -38,6 +40,7 @@ const NAV_GROUPS = [
     ],
   },
   {
+    id: 'control',
     label: 'CONTROL',
     items: [
       { id: 'config',   label: 'Configuration',   icon: Wrench  },
@@ -55,15 +58,6 @@ const getStageBadgeStyle = (stage: UnlockStage) => {
   }
 };
 
-const getStageLabel = (stage: UnlockStage) => {
-  switch (stage) {
-    case 'T1ReadOnly':       return 'T1 · Read-Only';
-    case 'T2NonDestructive': return 'T2 · Diagnostic';
-    case 'T3ConfigWrite':    return 'T3 · Config Write';
-    case 'T4PowerControl':   return 'T4 · Power Control';
-  }
-};
-
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onTabChange,
@@ -77,8 +71,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   criticalCount,
   warningCount,
 }) => {
+  const { t } = useTranslation(['nav', 'common']);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const getStageLabel = (stage: UnlockStage) => {
+    switch (stage) {
+      case 'T1ReadOnly':       return t('common:stages.t1.badge', 'T1 · Read-Only');
+      case 'T2NonDestructive': return t('common:stages.t2.badge', 'T2 · Diagnostic');
+      case 'T3ConfigWrite':    return t('common:stages.t3.badge', 'T3 · Config Write');
+      case 'T4PowerControl':   return t('common:stages.t4.badge', 'T4 · Power Control');
+    }
+  };
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -144,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             />
             <span className="text-slate-200 font-medium text-xs truncate">
-              {activeDeviceLabel ?? 'No device connected'}
+              {activeDeviceLabel ?? t('nav:device.noDevice', 'No device connected')}
             </span>
           </div>
           <ChevronDown
@@ -169,13 +173,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-                Discovered Ports
+                {t('nav:device.discoveredPorts', 'Discovered Ports')}
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); onScan(); }}
                 disabled={isScanning}
-                className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-700/50 transition disabled:opacity-50"
-                title="Scan for UPS devices"
+                className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-700/50 transition disabled:opacity-50 cursor-pointer"
+                title={t('nav:device.scanTitle', 'Scan for UPS devices')}
               >
                 {isScanning
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -188,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="max-h-48 overflow-y-auto py-1">
               {devices.length === 0 ? (
                 <p className="text-xs text-slate-500 italic px-3 py-2.5">
-                  No UPS found. Click scan to discover.
+                  {t('nav:device.noUpsFound', 'No UPS found. Click scan to discover.')}
                 </p>
               ) : (
                 devices.map((dev) => (
@@ -225,9 +229,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* ── Main Navigation ──────────────────────────────────── */}
       <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto sidebar-nav">
         {NAV_GROUPS.map((group) => (
-          <div key={group.label}>
+          <div key={group.id}>
             <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold px-3 mb-1.5 select-none">
-              {group.label}
+              {t(`nav:groups.${group.id}`, group.label)}
             </p>
             <div className="space-y-1">
               {group.items.map((item) => {
@@ -237,7 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onTabChange(item.id)}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                       isActive
                         ? 'text-white'
                         : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
@@ -247,7 +251,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Icon
                       className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
                     />
-                    <span>{item.label}</span>
+                    <span>{t(`nav:items.${item.id}`, item.label)}</span>
                   </button>
                 );
               })}
@@ -267,7 +271,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               onClick={() => onTabChange('events')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                 isActive
                   ? 'text-white'
                   : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
@@ -278,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Bell
                   className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
                 />
-                <span>Events</span>
+                <span>{t('nav:items.events', 'Events')}</span>
               </div>
               {badgeCount > 0 && (
                 <span
@@ -297,7 +301,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               onClick={() => onTabChange('settings')}
-              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                 isActive
                   ? 'text-white'
                   : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'
@@ -307,7 +311,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Settings
                 className={`w-4 h-4 shrink-0 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`}
               />
-              <span>Settings</span>
+              <span>{t('nav:items.settings', 'Settings')}</span>
             </button>
           );
         })()}
@@ -320,7 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold">
-            Safety Gate
+            {t('nav:safetyGate.title', 'Safety Gate')}
           </span>
           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
         </div>

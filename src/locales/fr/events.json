@@ -1,0 +1,46 @@
+{
+  "title": "Journal des événements",
+  "subtitle": "Transitions de télémétrie matérielle, codes d'avertissement et états d'alimentation",
+  "filterTabs": {
+    "all": "Tous les événements",
+    "critical": "Critique / Défaut",
+    "warning": "Avertissements",
+    "success": "Rétablissements",
+    "info": "Informations"
+  },
+  "timeframe": {
+    "all": "Tout l'historique",
+    "today": "Dernières 24 heures",
+    "week": "7 derniers jours"
+  },
+  "searchPlaceholder": "Rechercher événements, port, alarmes, codes...",
+  "clearHistory": "Effacer l'historique",
+  "clearHistoryTitle": "Effacer le journal des événements",
+  "clearHistoryConfirm": "Êtes-vous sûr de vouloir supprimer tous les événements enregistrés ? Cette action est irréversible.",
+  "batchSelected": "{{count}} événements sélectionnés",
+  "tableHeaders": {
+    "port": "Port / Interface",
+    "timestamp": "Horodatage",
+    "eventCode": "Code événement",
+    "severity": "Gravité",
+    "titleDesc": "Titre & Condition matérielle",
+    "action": "Action"
+  },
+  "badges": {
+    "critical": "Défaut",
+    "warning": "Avertissement",
+    "success": "En ligne",
+    "info": "Info"
+  },
+  "actions": {
+    "ack": "Acquitter",
+    "acknowledged": "Acquitté"
+  },
+  "empty": "Aucun événement matériel ne correspond aux critères.",
+  "pagination": {
+    "prev": "Précédent",
+    "next": "Suivant",
+    "showing": "Affichage de {{from}} à {{to}} sur {{total}} entrées"
+  }
+}
+

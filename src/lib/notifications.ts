@@ -5,6 +5,7 @@ import {
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 import { EventLogRecord } from './types';
+import i18n from './i18n';
 
 /**
  * Mapping table of warning labels and rich user-facing explanations.
@@ -191,6 +192,20 @@ export function getEventInfo(event: EventLogRecord): {
   title: string;
   description: string;
 } {
+  const i18nKey = `notifications:${event.event_type}`;
+  if (i18n.exists(`${i18nKey}.title`)) {
+    const title = (i18n.t as any)(`${i18nKey}.title`) as string;
+    const defaultDesc = (i18n.t as any)(`${i18nKey}.description`) as string;
+    const desc =
+      event.message && !event.message.startsWith(title)
+        ? event.message
+        : defaultDesc;
+    return {
+      title,
+      description: desc,
+    };
+  }
+
   const match = EVENT_DETAILS[event.event_type];
   if (match) {
     const desc =
@@ -210,7 +225,7 @@ export function getEventInfo(event: EventLogRecord): {
 
   return {
     title: formattedTitle,
-    description: event.message || 'Hardware event reported by UPS.',
+    description: event.message || i18n.t('notifications:defaultHardwareEvent', 'Hardware event reported by UPS.'),
   };
 }
 

@@ -1,0 +1,44 @@
+{
+  "confirm": {
+    "defaultTitle": "Effacer le journal des événements ?",
+    "defaultConfirm": "Supprimer tous les événements",
+    "defaultCancel": "Annuler"
+  },
+  "connect": {
+    "title": "Connecter un appareil onduleur",
+    "subtitle": "Sélectionnez un port de communication pour démarrer la télémétrie en temps réel",
+    "scanning": "Recherche des ports série (2400/9600 bauds) et interfaces USB HID...",
+    "noDevices": "Aucun port détecté pour le moment",
+    "detectedCount": "{{count}} interface matérielle détectée",
+    "detectedCount_other": "{{count}} interfaces matérielles détectées",
+    "discoveryStage": "Découverte Niveau T1",
+    "noUpsFound": "Aucun onduleur Voltronic trouvé",
+    "noUpsDesc": "Vérifiez que le câble USB ou série est fermement connecté et qu'aucun autre logiciel (ex: ViewPower) ne verrouille le port COM.",
+    "scanAgain": "Scanner à nouveau",
+    "activeBadge": "Actif",
+    "autoSwitch": "Bascule automatiquement la télémétrie sur le port sélectionné dès la connexion.",
+    "connectBtn": "Connecter à {{port}}",
+    "selectPortFirst": "Sélectionnez un port pour vous connecter"
+  },
+  "setup": {
+    "title": "Configurer les spécifications matérielles",
+    "subtitle": "Calibrez les caractéristiques de {{port}} pour fiabiliser l'estimation d'autonomie.",
+    "deviceName": "Nom de l'onduleur",
+    "presets": "Préréglages VA",
+    "customVa": "Personnalisé (VA)",
+    "topology": "Topologie de fonctionnement",
+    "ratedVa": "Puissance VA",
+    "powerFactor": "Facteur de puissance (FP)",
+    "ratedWatts": "Puissance active",
+    "batVoltage": "Tension nominale banc batterie (V)",
+    "batCapacity": "Capacité batterie (Ah)",
+    "batChemistry": "Chimie des batteries",
+    "livePreview": "Aperçu en temps réel",
+    "previewDesc": "Calculé d'après la télémétrie actuelle",
+    "estRuntime": "Autonomie est.",
+    "estSoc": "Niveau est.",
+    "quickDefaults": "Appliquer les valeurs recommandées",
+    "saveProfile": "Enregistrer & Continuer"
+  }
+}
+

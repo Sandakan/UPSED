@@ -1,0 +1,87 @@
+{
+  "buttons": {
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "reset": "Reset Defaults",
+    "close": "Close",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "refresh": "Refresh",
+    "exportCsv": "Export CSV",
+    "clearAll": "Clear All",
+    "retry": "Retry",
+    "acknowledge": "Acknowledge",
+    "dismiss": "Dismiss",
+    "edit": "Edit",
+    "proceed": "Proceed",
+    "unlock": "Unlock",
+    "lock": "Lock",
+    "apply": "Apply Changes"
+  },
+  "status": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "connecting": "Connecting...",
+    "scanning": "Scanning...",
+    "polling": "Polling",
+    "offline": "Offline",
+    "onlineMode": "Line / Utility Mode",
+    "batteryMode": "Battery Backup Mode",
+    "bypassMode": "Static Bypass Mode",
+    "faultMode": "Fault Alarm Mode",
+    "normal": "Normal",
+    "warning": "Warning",
+    "critical": "Critical",
+    "unknown": "Unknown",
+    "active": "Active",
+    "standby": "Standby"
+  },
+  "stages": {
+    "t1": {
+      "title": "Stage 1: Read-Only",
+      "badge": "T1 Read-Only",
+      "desc": "Safe hardware telemetry queries without device state alteration."
+    },
+    "t2": {
+      "title": "Stage 2: Non-Destructive Diagnostics",
+      "badge": "T2 Diagnostic",
+      "desc": "Observable diagnostic tests (battery discharge self-test, buzzer beeper)."
+    },
+    "t3": {
+      "title": "Stage 3: Configuration Writes",
+      "badge": "T3 Config",
+      "desc": "Persistent modifications to device settings and operating parameters."
+    },
+    "t4": {
+      "title": "Stage 4: Power Control & Load Shedding",
+      "badge": "T4 Power Control",
+      "desc": "Critical power switching, outlet shutdown, and inverter inverter halt."
+    }
+  },
+  "units": {
+    "volt": "V",
+    "hertz": "Hz",
+    "watt": "W",
+    "va": "VA",
+    "amp": "A",
+    "celsius": "°C",
+    "percent": "%",
+    "minute": "min",
+    "minutes": "mins",
+    "ampHours": "Ah"
+  },
+  "language": {
+    "label": "Language",
+    "system": "System Default",
+    "en": "English",
+    "fr": "Français"
+  },
+  "time": {
+    "lastUpdated": "Last updated",
+    "justNow": "just now",
+    "secondsAgo": "{{count}}s ago"
+  }
+}
+

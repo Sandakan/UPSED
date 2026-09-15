@@ -1,0 +1,32 @@
+{
+  "alert": {
+    "lockedTitle": "Configuration Writes are Locked (Stage {{stage}})",
+    "lockedDesc": "Writing parameters alters the UPS EEPROM/flash memory. To unlock configuration writes, advance the Safety Gate to Stage T3 (Config Write) on the Hardware Control page."
+  },
+  "chargingSection": {
+    "title": "Battery & Charging Parameters",
+    "desc": "Calibrate charging current limits and battery cutoff voltages.",
+    "maxCurrentLabel": "Max Solar / AC Charge Current",
+    "maxCurrentDesc": "Maximum permissible DC current fed to the battery bank (amps).",
+    "saveCurrentBtn": "Save Current (MCHGC)",
+    "cutoffLabel": "Battery Cutoff Voltage Threshold",
+    "cutoffDesc": "Lowest voltage before inverter enters critical emergency shutdown.",
+    "saveCutoffBtn": "Save Cutoff (PSDV)"
+  },
+  "bypassSection": {
+    "title": "Utility Bypass Voltage Transfer Boundaries",
+    "desc": "Define safe mains voltage window for static bypass line synchronization.",
+    "highLabel": "Bypass High Voltage Boundary",
+    "highDesc": "Upper voltage transfer limit to bypass line (volts).",
+    "saveHighBtn": "Save High Limit (PBVH)",
+    "lowLabel": "Bypass Low Voltage Boundary",
+    "lowDesc": "Lower voltage transfer limit to bypass line (volts).",
+    "saveLowBtn": "Save Low Limit (PBVL)"
+  },
+  "feedback": {
+    "success": "Success: {{label}} saved to UPS EEPROM (Response: {{resp}})",
+    "failed": "Failed: {{error}}",
+    "noDevice": "Error: No active UPS device selected"
+  }
+}
+

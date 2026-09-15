@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Zap,
   Battery,
@@ -23,6 +24,7 @@ interface PowerFlowDiagramProps {
 }
 
 const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, metadata }) => {
+  const { t } = useTranslation(['dashboard', 'common']);
   // Operational mode determination
   const isFault = status.ups_failed;
   const isBypass = !isFault && status.bypass_active;
@@ -89,9 +91,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           </div>
           <div>
             <h3 className="text-sm font-semibold text-slate-100 flex items-center space-x-2">
-              <span>UPS Power Flow Topology</span>
+              <span>{t('dashboard:topology.title', 'UPS Power Flow Topology')}</span>
             </h3>
-            <p className="text-xs text-slate-400">Real-time electrical single-line schematic</p>
+            <p className="text-xs text-slate-400">{t('dashboard:topology.subtitle', 'Real-time electrical single-line schematic')}</p>
           </div>
         </div>
 
@@ -100,22 +102,22 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           {isFault ? (
             <span className="px-2.5 py-1 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-400 flex items-center space-x-1.5 font-sans font-medium">
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>UPS Fault</span>
+              <span>{t('dashboard:topology.modePill.fault', 'UPS Fault')}</span>
             </span>
           ) : isBypass ? (
             <span className="px-2.5 py-1 rounded-lg bg-purple-950/70 border border-purple-800 text-purple-400 flex items-center space-x-1.5 font-sans font-medium">
               <Zap className="w-3.5 h-3.5" />
-              <span>Bypass Mode</span>
+              <span>{t('dashboard:topology.modePill.bypass', 'Bypass Mode')}</span>
             </span>
           ) : isBatteryMode ? (
             <span className="px-2.5 py-1 rounded-lg bg-amber-950/70 border border-amber-800 text-amber-400 flex items-center space-x-1.5 font-sans font-medium animate-pulse">
               <Battery className="w-3.5 h-3.5" />
-              <span>Battery Mode (AC Fail)</span>
+              <span>{t('dashboard:topology.modePill.battery', 'Battery Mode (AC Fail)')}</span>
             </span>
           ) : (
             <span className="px-2.5 py-1 rounded-lg bg-emerald-950/70 border border-emerald-800 text-emerald-400 flex items-center space-x-1.5 font-sans font-medium">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Line Mode (Online)</span>
+              <span>{t('dashboard:topology.modePill.line', 'Line Mode (Online)')}</span>
             </span>
           )}
 
@@ -319,7 +321,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               textAnchor="middle"
               className="fill-slate-300 text-[11px] font-semibold tracking-wider uppercase"
             >
-              Input
+              {t('dashboard:topology.utilityGrid', 'Input')}
             </text>
           </g>
 
@@ -373,7 +375,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               textAnchor="middle"
               className="fill-slate-400 text-[10px] font-medium uppercase tracking-wider"
             >
-              Rectifier
+              {t('dashboard:topology.rectifierCharger', 'Rectifier')}
             </text>
           </g>
 
@@ -433,7 +435,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               textAnchor="middle"
               className="fill-slate-300 text-[11px] font-semibold tracking-wider uppercase"
             >
-              Battery
+              {t('dashboard:topology.batteryReserve', 'Battery')}
             </text>
           </g>
 
@@ -507,7 +509,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               textAnchor="middle"
               className="fill-slate-400 text-[10px] font-medium uppercase tracking-wider"
             >
-              Inverter
+              {t('dashboard:topology.inverter', 'Inverter')}
             </text>
           </g>
 
@@ -546,7 +548,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               textAnchor="middle"
               className="fill-slate-300 text-[11px] font-semibold tracking-wider uppercase"
             >
-              Output
+              {t('dashboard:topology.criticalLoad', 'Output')}
             </text>
           </g>
         </svg>
@@ -559,7 +561,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Input Stage</span>
+              <span>{t('dashboard:topology.utilityGrid', 'Input Stage')}</span>
             </span>
             <span
               className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
@@ -568,18 +570,18 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
                   : 'bg-emerald-950/80 text-emerald-400'
               }`}
             >
-              {status.utility_fail ? 'FAIL' : 'OK'}
+              {status.utility_fail ? t('dashboard:flags.failed', 'FAIL') : t('common:status.ok', 'OK')}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs font-mono">
             <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
-              <span className="text-slate-500 text-[11px] block">Voltage</span>
+              <span className="text-slate-500 text-[11px] block">{t('history:tableHeaders.gridV', 'Voltage')}</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.grid_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
             </div>
             <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
-              <span className="text-slate-500 text-[11px] block">Frequency</span>
+              <span className="text-slate-500 text-[11px] block">{t('dashboard:cards.freq', 'Frequency')}</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.grid_frequency_hz.toFixed(1)} <span className="text-slate-500 font-normal">Hz</span>
               </span>
@@ -592,7 +594,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Battery className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Battery Bank</span>
+              <span>{t('dashboard:topology.batteryReserve', 'Battery Bank')}</span>
             </span>
             <span
               className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
@@ -601,22 +603,22 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
                   : 'bg-cyan-950/80 text-cyan-400'
               }`}
             >
-              {status.battery_low ? 'LOW' : `${status.battery_voltage_v.toFixed(1)} V`}
+              {status.battery_low ? t('dashboard:flags.low', 'LOW') : `${status.battery_voltage_v.toFixed(1)} V`}
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">
             <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
-              <span className="text-slate-500 text-[11px] block">Capacity</span>
+              <span className="text-slate-500 text-[11px] block">{t('dashboard:cards.capacity', 'Capacity')}</span>
               <span className="text-sm font-bold text-cyan-300">{batPct}%</span>
             </div>
             <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
-              <span className="text-slate-500 text-[11px] block">Voltage</span>
+              <span className="text-slate-500 text-[11px] block">{t('history:tableHeaders.batV', 'Voltage')}</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.battery_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
             </div>
             <div className="p-2 rounded-lg border border-white/[0.05] bg-white/[0.02]">
-              <span className="text-slate-500 text-[11px] block">Est. Runtime</span>
+              <span className="text-slate-500 text-[11px] block">{t('dashboard:topology.runtime', 'Est. Runtime')}</span>
               <span className="text-sm font-bold text-emerald-400">~{estRuntime}m</span>
             </div>
           </div>
@@ -627,7 +629,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">
             <span className="flex items-center space-x-1.5">
               <Gauge className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Output Load</span>
+              <span>{t('dashboard:topology.criticalLoad', 'Output Load')}</span>
             </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 border border-white/[0.06]">
               {effectiveWatts} W • {currentA} A
@@ -635,19 +637,19 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">
             <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-              <span className="text-slate-500 text-[11px] block">Voltage</span>
+              <span className="text-slate-500 text-[11px] block">{t('history:tableHeaders.outV', 'Voltage')}</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.output_voltage_v.toFixed(1)} <span className="text-slate-500 font-normal">V</span>
               </span>
             </div>
             <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-              <span className="text-slate-500 text-[11px] block">Frequency</span>
+              <span className="text-slate-500 text-[11px] block">{t('dashboard:cards.freq', 'Frequency')}</span>
               <span className="text-sm font-bold text-slate-200">
                 {status.output_frequency_hz.toFixed(1)} <span className="text-slate-500 font-normal">Hz</span>
               </span>
             </div>
             <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-              <span className="text-slate-500 text-[11px] block">Load Level</span>
+              <span className="text-slate-500 text-[11px] block">{t('dashboard:cards.outputLoad', 'Load Level')}</span>
               <span
                 className={`text-sm font-bold ${
                   status.output_load_pct > 80

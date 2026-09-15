@@ -1,0 +1,142 @@
+{
+  "UTILITY_FAIL": {
+    "title": "AC Utility Power Failure",
+    "description": "Mains utility grid electricity lost. Inverter has automatically transferred to battery backup mode."
+  },
+  "UTILITY_RESTORE": {
+    "title": "AC Utility Power Restored",
+    "description": "Grid electricity returned to nominal range. UPS transferred back to normal line mode and resumed battery charging."
+  },
+  "BATTERY_LOW": {
+    "title": "Low Battery Warning",
+    "description": "Battery reserve capacity is critically low. Connected computers and devices should be shut down safely immediately."
+  },
+  "BATTERY_NORMAL": {
+    "title": "Battery Reserve Normal",
+    "description": "Battery voltage recovered above the critical low-voltage cutoff threshold."
+  },
+  "OVERLOAD": {
+    "title": "UPS Output Overload Alarm",
+    "description": "Connected power consumption exceeds 100% rated capacity. Disconnect non-critical loads to prevent immediate shutdown."
+  },
+  "OVERLOAD_CLEARED": {
+    "title": "Output Load Normalized",
+    "description": "Operating power demand returned within rated capacity boundaries."
+  },
+  "OVER_TEMP": {
+    "title": "High Heatsink Temperature Warning",
+    "description": "Internal inverter heatsink reached thermal warning limits. Verify cooling fan operation and ventilation airflow."
+  },
+  "TEMP_NORMAL": {
+    "title": "Operating Temperature Normal",
+    "description": "Internal unit temperatures returned to standard operating limits."
+  },
+  "BYPASS_ACTIVE": {
+    "title": "Static Bypass Active",
+    "description": "Load is running directly off unconditioned utility bypass line. Inverter protection is bypassed."
+  },
+  "BYPASS_CLEARED": {
+    "title": "Conditioned Inverter Restored",
+    "description": "Output safely transferred from static bypass back to conditioned PWM inverter power."
+  },
+  "UPS_FAULT": {
+    "title": "UPS Hardware Fault Alarm",
+    "description": "Internal hardware failure or power bus abnormality detected by inverter processor."
+  },
+  "CONNECT": {
+    "title": "UPS Communication Established",
+    "description": "Hardware communication link established with local controller."
+  },
+  "DISCONNECT": {
+    "title": "UPS Communication Disconnected",
+    "description": "Communication link to the UPS port closed or disconnected."
+  },
+  "CONNECT_ERROR": {
+    "title": "UPS Connection Failure",
+    "description": "Failed to open serial or USB HID transport to the designated port."
+  },
+  "POLL_ERROR": {
+    "title": "Telemetry Polling Error",
+    "description": "Hardware telemetry query timed out or returned corrupted response packet."
+  },
+  "warning": {
+    "a0": {
+      "title": "Battery Disconnected",
+      "description": "Battery circuit breaker is open or battery terminals are disconnected. Check battery cabling."
+    },
+    "a1": {
+      "title": "Neutral Line Disconnected",
+      "description": "Neutral wire is not detected at input terminals. Check AC wiring polarity."
+    },
+    "a2": {
+      "title": "Site Wiring Fault",
+      "description": "Ground wire or neutral line reverse phase detected at building outlet."
+    },
+    "a3": {
+      "title": "Phase Sequence Incorrect",
+      "description": "Input AC supply three-phase rotation direction is reversed."
+    },
+    "a4": {
+      "title": "Bypass Phase Sequence Incorrect",
+      "description": "Bypass line input phase rotation does not match primary input."
+    },
+    "a5": {
+      "title": "Input Frequency Unstable in Bypass",
+      "description": "Grid frequency fluctuation exceeds synchronized tracking limits."
+    },
+    "a6": {
+      "title": "Battery Overcharged",
+      "description": "Battery float voltage exceeds permissible high threshold. Charger halted."
+    },
+    "a7": {
+      "title": "Low Battery",
+      "description": "Battery energy level low. Operating time is limited."
+    },
+    "a8": {
+      "title": "Output Overload",
+      "description": "Total appliance power draw exceeds continuous rating of inverter."
+    },
+    "a9": {
+      "title": "Cooling Fan Alarm",
+      "description": "Cooling fan speed is abnormal or fan is locked by foreign object."
+    },
+    "a10": {
+      "title": "Emergency Power Off (EPO) Activated",
+      "description": "Hardware emergency power cut switch engaged. Inverter output disabled."
+    },
+    "a11": {
+      "title": "Abnormal Power Turn On",
+      "description": "Inverter power-up sequence failed to establish stable bus voltage."
+    },
+    "a12": {
+      "title": "Over Temperature Alarm",
+      "description": "Thermal sensors report dangerous heatsink or ambient temperatures."
+    },
+    "a13": {
+      "title": "Battery Charger Alarm",
+      "description": "Internal charging circuit malfunctioned. Batteries cannot recharge."
+    },
+    "a14": {
+      "title": "Remote Auto Shutdown Initiated",
+      "description": "Remote command or automated shutdown countdown triggered on UPS."
+    },
+    "a55": {
+      "title": "Battery Replacement Required",
+      "description": "Battery internal resistance test failed. Battery pack aged and needs replacement."
+    },
+    "a60": {
+      "title": "Bypass Unstable",
+      "description": "Static bypass line AC voltage or frequency outside safe bypass transfer window."
+    },
+    "a69": {
+      "title": "Battery Self-Test Failed",
+      "description": "10-second battery discharge test failed to sustain load voltage."
+    }
+  },
+  "defaultHardwareEvent": "Hardware event reported by UPS.",
+  "toast": {
+    "actionNeeded": "Action Needed",
+    "dismiss": "Dismiss"
+  }
+}
+

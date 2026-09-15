@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Home,
   ChevronRight,
@@ -6,10 +7,13 @@ import {
   Plus,
   MoreHorizontal,
   Shield,
+  Languages,
+  Check,
 } from 'lucide-react';
 import { UnlockStage } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
 import { PrimaryButton } from './PrimaryButton';
+import { setAppLanguage } from '../lib/i18n';
 
 interface HeaderProps {
   currentTab: string;
@@ -40,15 +44,6 @@ const getStagePillStyle = (stage: UnlockStage) => {
   }
 };
 
-const getStagePillLabel = (stage: UnlockStage) => {
-  switch (stage) {
-    case 'T1ReadOnly':       return 'T1 · Read-Only';
-    case 'T2NonDestructive': return 'T2 · Diagnostic';
-    case 'T3ConfigWrite':    return 'T3 · Config Write';
-    case 'T4PowerControl':   return 'T4 · Power Control';
-  }
-};
-
 export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
   selectedDevice,
@@ -59,6 +54,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   onTabChange,
   onOpenAddDeviceModal,
 }) => {
+  const { t, i18n } = useTranslation(['common', 'nav', 'modals']);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +69,18 @@ export const Header: React.FC<HeaderProps> = React.memo(({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const pageLabel = PAGE_LABELS[currentTab] ?? currentTab;
+  const pageLabel = t(`nav:items.${currentTab}`, { defaultValue: PAGE_LABELS[currentTab] ?? currentTab });
+
+  const getStageBadgeText = (stage: UnlockStage) => {
+    switch (stage) {
+      case 'T1ReadOnly':       return t('common:stages.t1.badge', 'T1 · Read-Only');
+      case 'T2NonDestructive': return t('common:stages.t2.badge', 'T2 · Diagnostic');
+      case 'T3ConfigWrite':    return t('common:stages.t3.badge', 'T3 · Config Write');
+      case 'T4PowerControl':   return t('common:stages.t4.badge', 'T4 · Power Control');
+    }
+  };
+
+  const currentLang = i18n.language?.startsWith('fr') ? 'fr' : 'en';
 
   return (
     <header
@@ -88,7 +95,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         <button
           onClick={() => onTabChange('dashboard')}
           className="p-1 rounded-md text-slate-500 hover:text-slate-300 hover:bg-white/[0.05] transition shrink-0"
-          title="Dashboard"
+          title={t('nav:items.dashboard', 'Dashboard')}
         >
           <Home className="w-3.5 h-3.5" />
         </button>
@@ -103,7 +110,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
           className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
         >
           <Shield className="w-3 h-3" />
-          {getStagePillLabel(safetyStage)}
+          {getStageBadgeText(safetyStage)}
         </span>
 
         {/* Last updated clock */}
@@ -113,38 +120,71 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         <PrimaryButton
           onClick={onOpenAddDeviceModal}
           icon={<Plus className="w-3.5 h-3.5" />}
-          title="Add New UPS Device"
+          title={t('modals:connect.title', 'Add New UPS Device')}
         >
-          <span className="hidden xl:inline">Add New UPS Device</span>
-          <span className="hidden sm:inline xl:hidden">Add UPS</span>
+          <span className="hidden xl:inline">{t('modals:connect.title', 'Add New UPS Device')}</span>
+          <span className="hidden sm:inline xl:hidden">{t('common:buttons.connect', 'Connect')}</span>
         </PrimaryButton>
 
-        {/* Overflow menu (Refresh Telemetry) */}
+        {/* Overflow menu (Actions & Language Switcher) */}
         <div className="relative" ref={overflowRef}>
           <button
             onClick={() => setOverflowOpen((o) => !o)}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition"
-            title="More actions"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition cursor-pointer"
+            title={t('common:buttons.more', 'More Options')}
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
           {overflowOpen && (
             <div
-              className="absolute right-0 mt-1.5 w-48 rounded-xl overflow-hidden shadow-2xl z-50 border"
+              className="absolute right-0 mt-1.5 w-52 rounded-xl overflow-hidden shadow-2xl z-50 border py-1"
               style={{
                 backgroundColor: 'var(--popover-bg)',
                 borderColor: 'var(--border-subtle)',
               }}
             >
+              {/* Refresh Telemetry */}
               <button
                 onClick={() => { onRefresh(); setOverflowOpen(false); }}
                 disabled={!selectedDevice || isRefreshing}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition disabled:opacity-40"
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition disabled:opacity-40 cursor-pointer"
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}
                 />
-                <span>Refresh Telemetry</span>
+                <span>{t('common:buttons.refresh', 'Refresh Telemetry')}</span>
+              </button>
+
+              <div className="my-1 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+
+              {/* Language Switcher Section */}
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Languages className="w-3 h-3 text-slate-400" />
+                <span>{t('common:language.label', 'Language')}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setAppLanguage('en'); setOverflowOpen(false); }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400 font-semibold">EN</span>
+                  <span>{t('common:language.en', 'English')}</span>
+                </div>
+                {currentLang === 'en' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setAppLanguage('fr'); setOverflowOpen(false); }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400 font-semibold">FR</span>
+                  <span>{t('common:language.fr', 'Français')}</span>
+                </div>
+                {currentLang === 'fr' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
               </button>
             </div>
           )}

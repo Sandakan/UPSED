@@ -1,0 +1,44 @@
+{
+  "safetyGate": {
+    "title": "Firmware Safety Gate",
+    "desc": "To prevent firmware corruption or accidental load drop, commands are strictly categorized by risk. Each stage unlocks sequentially.",
+    "unlockT2": "Unlock Stage T2",
+    "unlockT3": "Unlock Stage T3",
+    "unlockT4": "Unlock Stage T4",
+    "relockT1": "Relock to T1",
+    "feedbackSuccess": "Success: {{label}} returned '{{resp}}'",
+    "feedbackUpdated": "Safety stage updated to {{target}}",
+    "feedbackError": "Blocked or Failed: {{error}}",
+    "feedbackAdvanceError": "Stage advance failed: {{error}}",
+    "noDeviceError": "Error: No active UPS device selected"
+  },
+  "stageT2": {
+    "title": "Stage T2: Non-Destructive Actions",
+    "risk": "Low Risk",
+    "desc": "Diagnostic actions that do not alter flash/EEPROM or drop live load power.",
+    "buzzerTitle": "Alarm Buzzer",
+    "buzzerDesc": "Toggles the internal hardware alarm beeper on or off.",
+    "buzzerBtn": "Toggle Buzzer (BUZZER)",
+    "test10sTitle": "10s Battery Test",
+    "test10sDesc": "Discharges battery for 10 seconds under load to verify battery health.",
+    "test10sBtn": "Start 10s Test (T)",
+    "cancelTestTitle": "Cancel Self-Test",
+    "cancelTestDesc": "Immediately terminates any ongoing battery discharge test.",
+    "cancelTestBtn": "Cancel Test (CT)"
+  },
+  "stageT4": {
+    "title": "Stage T4: Live Power Control",
+    "risk": "High Risk",
+    "desc": "Commands that can cut load output or trigger hardware shutdown.",
+    "shutdownTitle": "Emergency Shutdown",
+    "shutdownDesc": "Shuts down UPS output after a 0.3m (~18 seconds) delay.",
+    "shutdownWarn": "Are you sure? Connected equipment will lose power!",
+    "confirmBtn": "Confirm Shutdown",
+    "cancelBtn": "Cancel",
+    "initiateBtn": "Initiate Shutdown (S.3)",
+    "cancelShutdownTitle": "Cancel Pending Shutdown",
+    "cancelShutdownDesc": "Cancels any active shutdown countdown timer immediately.",
+    "cancelShutdownBtn": "Cancel Shutdown (CS)"
+  }
+}
+

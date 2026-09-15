@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Search,
   Download,
@@ -31,6 +32,7 @@ export const Events: React.FC<EventsProps> = ({
   onRefresh,
   isRefreshing,
 }) => {
+  const { t, i18n } = useTranslation(['events', 'common']);
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -152,21 +154,21 @@ export const Events: React.FC<EventsProps> = ({
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-950/60 text-rose-400 border border-rose-600/40">
             <AlertOctagon className="w-3 h-3" />
-            <span>Fault</span>
+            <span>{t('events:badges.critical', 'Fault')}</span>
           </span>
         );
       case 'warning':
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-950/60 text-amber-400 border border-amber-600/40">
             <AlertTriangle className="w-3 h-3" />
-            <span>Warning</span>
+            <span>{t('events:badges.warning', 'Warning')}</span>
           </span>
         );
       case 'success':
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-600/40">
             <CheckCircle2 className="w-3 h-3" />
-            <span>Online</span>
+            <span>{t('events:badges.success', 'Online')}</span>
           </span>
         );
       case 'info':
@@ -174,7 +176,7 @@ export const Events: React.FC<EventsProps> = ({
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-950/60 text-cyan-400 border border-cyan-600/40">
             <Info className="w-3 h-3" />
-            <span>Info</span>
+            <span>{t('events:badges.info', 'Info')}</span>
           </span>
         );
     }
@@ -186,10 +188,10 @@ export const Events: React.FC<EventsProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base sm:text-lg font-bold text-slate-100 tracking-tight">
-            Events List
+            {t('events:title', 'Events List')}
           </h2>
           <p className="text-xs text-slate-400">
-            Telemetry hardware transitions, warning codes, and power state events
+            {t('events:subtitle', 'Telemetry hardware transitions, warning codes, and power state events')}
           </p>
         </div>
       </div>
@@ -199,11 +201,11 @@ export const Events: React.FC<EventsProps> = ({
         {/* Left: Filter Pills */}
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 xl:pb-0 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
           {[
-            { id: 'all', label: 'All Events' },
-            { id: 'critical', label: 'Critical / Fault' },
-            { id: 'warning', label: 'Warnings' },
-            { id: 'success', label: 'Recoveries' },
-            { id: 'info', label: 'Informational' },
+            { id: 'all', label: t('events:filterTabs.all', 'All Events') },
+            { id: 'critical', label: t('events:filterTabs.critical', 'Critical / Fault') },
+            { id: 'warning', label: t('events:filterTabs.warning', 'Warnings') },
+            { id: 'success', label: t('events:filterTabs.success', 'Recoveries') },
+            { id: 'info', label: t('events:filterTabs.info', 'Informational') },
           ].map((tab) => {
             const isActive = filterSeverity === tab.id;
             return (
@@ -213,7 +215,7 @@ export const Events: React.FC<EventsProps> = ({
                   setFilterSeverity(tab.id);
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap cursor-pointer ${
                   isActive
                     ? 'bg-[#22c55e] text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
@@ -237,7 +239,7 @@ export const Events: React.FC<EventsProps> = ({
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search..."
+              placeholder={t('events:searchPlaceholder', 'Search events, port, warnings, codes...')}
               className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
             />
           </div>
@@ -251,17 +253,17 @@ export const Events: React.FC<EventsProps> = ({
             }}
             className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer shrink-0"
           >
-            <option value="all" className="bg-slate-900 text-slate-200">All Time</option>
-            <option value="today" className="bg-slate-900 text-slate-200">Last 24 Hours</option>
-            <option value="week" className="bg-slate-900 text-slate-200">Last 7 Days</option>
+            <option value="all" className="bg-slate-900 text-slate-200">{t('events:timeframe.all', 'All Time')}</option>
+            <option value="today" className="bg-slate-900 text-slate-200">{t('events:timeframe.today', 'Last 24 Hours')}</option>
+            <option value="week" className="bg-slate-900 text-slate-200">{t('events:timeframe.week', 'Last 7 Days')}</option>
           </select>
 
           {/* Refresh button */}
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition shrink-0"
-            title="Refresh events"
+            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition shrink-0 cursor-pointer"
+            title={t('common:buttons.refresh', 'Refresh')}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -270,10 +272,10 @@ export const Events: React.FC<EventsProps> = ({
           <button
             onClick={exportCsv}
             disabled={filteredEvents.length === 0}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition shrink-0"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline">Export CSV</span>
+            <span className="hidden sm:inline">{t('common:buttons.exportCsv', 'Export CSV')}</span>
             <span className="sm:hidden">CSV</span>
           </button>
 
@@ -281,8 +283,8 @@ export const Events: React.FC<EventsProps> = ({
           <button
             onClick={() => setShowClearConfirm(true)}
             disabled={events.length === 0 || isClearing}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition shrink-0"
-            title="Clear all events from SQLite database"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition shrink-0 cursor-pointer"
+            title={t('events:clearHistory', 'Clear History')}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -310,12 +312,12 @@ export const Events: React.FC<EventsProps> = ({
                     className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                   />
                 </th>
-                <th className="py-3.5 px-4 font-semibold">Device ID / Port</th>
-                <th className="py-3.5 px-4 font-semibold">Timestamp</th>
-                <th className="py-3.5 px-4 font-semibold">Event Type</th>
-                <th className="py-3.5 px-4 font-semibold">Status</th>
-                <th className="py-3.5 px-4 font-semibold">Title & Description</th>
-                <th className="py-3.5 px-4 text-right font-semibold">Action</th>
+                <th className="py-3.5 px-4 font-semibold">{t('events:tableHeaders.port', 'Device ID / Port')}</th>
+                <th className="py-3.5 px-4 font-semibold">{t('events:tableHeaders.timestamp', 'Timestamp')}</th>
+                <th className="py-3.5 px-4 font-semibold">{t('events:tableHeaders.eventCode', 'Event Type')}</th>
+                <th className="py-3.5 px-4 font-semibold">{t('events:tableHeaders.severity', 'Status')}</th>
+                <th className="py-3.5 px-4 font-semibold">{t('events:tableHeaders.titleDesc', 'Title & Description')}</th>
+                <th className="py-3.5 px-4 text-right font-semibold">{t('events:tableHeaders.action', 'Action')}</th>
               </tr>
             </thead>
 
@@ -324,7 +326,7 @@ export const Events: React.FC<EventsProps> = ({
               {paginatedEvents.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-500">
-                    No matching events recorded.
+                    {t('events:empty', 'No matching events recorded.')}
                   </td>
                 </tr>
               ) : (
@@ -356,7 +358,7 @@ export const Events: React.FC<EventsProps> = ({
 
                       {/* Timestamp */}
                       <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
-                        {new Date(ev.timestamp).toLocaleString([], {
+                        {new Date(ev.timestamp).toLocaleString(i18n.language, {
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
@@ -393,10 +395,10 @@ export const Events: React.FC<EventsProps> = ({
                           <button
                             onClick={() => handleAcknowledge(ev.id)}
                             className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 rounded-lg text-xs transition border border-emerald-700/50"
-                            title="Acknowledge alarm"
+                            title={t('events:actions.ack', 'Acknowledge alarm')}
                           >
                             <Check className="w-3 h-3" />
-                            <span>Ack</span>
+                            <span>{t('events:actions.ack', 'Ack')}</span>
                           </button>
                         ) : (
                           <button
@@ -427,7 +429,7 @@ export const Events: React.FC<EventsProps> = ({
             className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
-            <span>Previous</span>
+            <span>{t('events:pagination.prev', 'Previous')}</span>
           </button>
 
           {/* Page Indicators */}
@@ -473,7 +475,7 @@ export const Events: React.FC<EventsProps> = ({
             disabled={safePage >= totalPages}
             className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none transition"
           >
-            <span>Next</span>
+            <span>{t('events:pagination.next', 'Next')}</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -486,13 +488,13 @@ export const Events: React.FC<EventsProps> = ({
         onConfirm={handleConfirmClear}
         isLoading={isClearing}
         itemCount={events.length}
-        title="Clear Event History?"
-        confirmLabel="Clear All Events"
-        cancelLabel="Keep History"
+        title={t('events:clearHistoryTitle', 'Clear Event History?')}
+        confirmLabel={t('events:clearHistory', 'Clear All Events')}
+        cancelLabel={t('common:buttons.cancel', 'Keep History')}
         variant="danger"
         description={
           <p>
-            Are you sure you want to permanently clear all stored event logs from the local database?
+            {t('events:clearHistoryConfirm', 'Are you sure you want to permanently clear all stored event logs from the local database?')}
           </p>
         }
       />

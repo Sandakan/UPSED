@@ -1,0 +1,142 @@
+{
+  "UTILITY_FAIL": {
+    "title": "Coupure de courant secteur CA",
+    "description": "Perte de l'alimentation secteur du réseau. L'onduleur a automatiquement basculé en mode secours batterie."
+  },
+  "UTILITY_RESTORE": {
+    "title": "Courant secteur CA rétabli",
+    "description": "L'électricité du réseau est revenue dans les tolérances nominales. L'onduleur a basculé en mode normal et repris la charge."
+  },
+  "BATTERY_LOW": {
+    "title": "Avertissement batterie faible",
+    "description": "La réserve de batterie est à un niveau critique. Les ordinateurs et équipements connectés doivent être arrêtés immédiatement."
+  },
+  "BATTERY_NORMAL": {
+    "title": "Niveau de batterie normal",
+    "description": "La tension de la batterie est repassée au-dessus du seuil critique de coupure basse tension."
+  },
+  "OVERLOAD": {
+    "title": "Alarme de surcharge en sortie",
+    "description": "La puissance consommée dépasse 100% de la capacité nominale. Débranchez les charges non critiques pour éviter un arrêt d'urgence."
+  },
+  "OVERLOAD_CLEARED": {
+    "title": "Charge en sortie normalisée",
+    "description": "La demande de puissance est redescendue dans les limites admissibles de l'onduleur."
+  },
+  "OVER_TEMP": {
+    "title": "Avertissement surchauffe dissipateur",
+    "description": "Le dissipateur thermique interne a atteint le seuil d'avertissement. Vérifiez le ventilateur et la ventilation de l'armoire."
+  },
+  "TEMP_NORMAL": {
+    "title": "Température normale",
+    "description": "La température interne de l'appareil est revenue dans les limites de fonctionnement standard."
+  },
+  "BYPASS_ACTIVE": {
+    "title": "Dérivation statique (Bypass) active",
+    "description": "La charge est alimentée directement par la ligne secteur brute non conditionnée. La protection onduleur est désactivée."
+  },
+  "BYPASS_CLEARED": {
+    "title": "Alimentation onduleur rétablie",
+    "description": "La sortie a été basculée en toute sécurité du bypass vers l'onduleur PWM conditionné."
+  },
+  "UPS_FAULT": {
+    "title": "Alarme de défaut matériel onduleur",
+    "description": "Une défaillance matérielle interne ou une anomalie de bus d'alimentation a été détectée par le processeur."
+  },
+  "CONNECT": {
+    "title": "Communication onduleur établie",
+    "description": "Liaison de communication matérielle établie avec le contrôleur local."
+  },
+  "DISCONNECT": {
+    "title": "Communication onduleur interrompue",
+    "description": "La liaison de communication vers le port de l'onduleur a été fermée ou débranchée."
+  },
+  "CONNECT_ERROR": {
+    "title": "Échec de connexion onduleur",
+    "description": "Impossible d'ouvrir le port série ou le transport USB HID désigné."
+  },
+  "POLL_ERROR": {
+    "title": "Erreur d'interrogation télémétrie",
+    "description": "La requête de télémétrie a expiré ou a retourné un paquet corrompu."
+  },
+  "warning": {
+    "a0": {
+      "title": "Batterie déconnectée",
+      "description": "Le disjoncteur batterie est ouvert ou les cosses sont débranchées. Vérifiez le câblage batterie."
+    },
+    "a1": {
+      "title": "Ligne neutre déconnectée",
+      "description": "Le conducteur de neutre n'est pas détecté aux bornes d'entrée. Vérifiez la polarité du câblage CA."
+    },
+    "a2": {
+      "title": "Défaut de câblage sur site",
+      "description": "Inversion de phase ou rupture du conducteur de terre détectée sur la prise murale du bâtiment."
+    },
+    "a3": {
+      "title": "Ordre des phases incorrect",
+      "description": "Le sens de rotation des trois phases de l'alimentation CA d'entrée est inversé."
+    },
+    "a4": {
+      "title": "Ordre des phases bypass incorrect",
+      "description": "L'ordre des phases de la ligne de dérivation ne correspond pas à l'entrée principale."
+    },
+    "a5": {
+      "title": "Fréquence d'entrée instable en dérivation",
+      "description": "Les fluctuations de fréquence du réseau dépassent les tolérances de synchronisation."
+    },
+    "a6": {
+      "title": "Batterie en surcharge",
+      "description": "La tension de floating dépasse le seuil maximal admissible. Chargeur désactivé."
+    },
+    "a7": {
+      "title": "Batterie faible",
+      "description": "Niveau d'énergie de la batterie bas. L'autonomie restante est limitée."
+    },
+    "a8": {
+      "title": "Surcharge en sortie",
+      "description": "La consommation totale des appareils branchés dépasse la puissance nominale continue."
+    },
+    "a9": {
+      "title": "Alarme ventilateur de refroidissement",
+      "description": "La vitesse du ventilateur est anormale ou le ventilateur est bloqué par un corps étranger."
+    },
+    "a10": {
+      "title": "Arrêt d'urgence (EPO) activé",
+      "description": "Interrupteur d'arrêt d'urgence matériel enclenché. Sortie onduleur désactivée."
+    },
+    "a11": {
+      "title": "Démarrage anormal",
+      "description": "La séquence de démarrage de l'onduleur n'a pas pu stabiliser la tension de bus."
+    },
+    "a12": {
+      "title": "Alarme de température excessive",
+      "description": "Les capteurs thermiques signalent une température dangereuse sur les radiateurs ou dans le châssis."
+    },
+    "a13": {
+      "title": "Alarme chargeur de batterie",
+      "description": "Le circuit interne de charge présente un dysfonctionnement. Les batteries ne peuvent pas se recharger."
+    },
+    "a14": {
+      "title": "Arrêt automatique à distance initié",
+      "description": "Une commande distante ou un compte à rebours d'extinction automatique a été déclenché sur l'onduleur."
+    },
+    "a55": {
+      "title": "Remplacement de batterie requis",
+      "description": "Le test de résistance interne a échoué. Les batteries sont vieillissantes et doivent être remplacées."
+    },
+    "a60": {
+      "title": "Ligne de dérivation instable",
+      "description": "La tension ou la fréquence de la ligne bypass est en dehors de la plage de transfert sécurisée."
+    },
+    "a69": {
+      "title": "Auto-test batterie échoué",
+      "description": "Le test de décharge batterie de 10 secondes n'a pas réussi à maintenir la tension sous charge."
+    }
+  },
+  "defaultHardwareEvent": "Événement matériel signalé par l'onduleur.",
+  "toast": {
+    "actionNeeded": "Action requise",
+    "dismiss": "Fermer"
+  }
+}
+

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Zap, Battery, Sparkles, X, Info, Gauge } from 'lucide-react';
 import { DiscoveredDevice, Q1Status, UpsMetadata } from '../lib/types';
 import {
@@ -29,6 +30,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const { t } = useTranslation(['modals', 'settings', 'common']);
   // Auto-detect sensible nominal battery voltage from live telemetry if available
   const detectedBatVolt = detectNominalVoltage(status?.battery_voltage_v ?? 0);
 
@@ -114,8 +116,8 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-100">Configure Your UPS</h2>
-              <p className="text-xs text-slate-400">First-time profile for accurate capacity (%) & runtime</p>
+              <h2 className="text-base font-semibold text-slate-100">{t('modals:setup.title', 'Configure Your UPS')}</h2>
+              <p className="text-xs text-slate-400">{t('modals:setup.subtitle', { port: device.port_name, defaultValue: 'First-time profile for accurate capacity (%) & runtime' })}</p>
             </div>
           </div>
           <button
@@ -129,7 +131,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
         {/* Hardware Identification Banner */}
         <div className="p-3.5 mx-5 mt-4 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs space-y-1.5">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="font-semibold uppercase tracking-wider text-[10px]">Detected Hardware</span>
+            <span className="font-semibold uppercase tracking-wider text-[10px]">{t('modals:connect.discoveryStage', 'Detected Hardware')}</span>
             <span className="font-mono text-emerald-400">{device.port_name}</span>
           </div>
           <div className="font-mono text-[11px] text-slate-300 break-all bg-slate-900/90 p-2 rounded-lg border border-slate-800/50">
@@ -154,7 +156,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
           {/* Friendly Name */}
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1">
-              UPS Model / Display Name
+              {t('modals:setup.deviceName', 'UPS Model / Display Name')}
             </label>
             <input
               type="text"
@@ -171,7 +173,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-slate-300 flex items-center space-x-1.5">
                 <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Rated Capacity (Apparent Power)</span>
+                <span>{t('modals:setup.ratedVa', 'Rated Capacity (Apparent Power)')}</span>
               </label>
               <span className="text-[11px] font-mono text-slate-500">Commercial Standard: VA</span>
             </div>
@@ -211,10 +213,10 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-slate-300 flex items-center space-x-1.5">
                 <Gauge className="w-3.5 h-3.5 text-amber-400" />
-                <span>Inverter Class / Power Factor (PF)</span>
+                <span>{t('modals:setup.powerFactor', 'Inverter Class / Power Factor (PF)')}</span>
               </label>
               <span className="text-[11px] font-mono text-amber-400">
-                Active Power: <strong className="text-white font-semibold">{derivedWatts}W</strong>
+                {t('modals:setup.ratedWatts', 'Active Power')}: <strong className="text-white font-semibold">{derivedWatts}W</strong>
               </span>
             </div>
             <div className="space-y-1.5">
@@ -253,16 +255,16 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center space-x-1.5">
                 <Battery className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Battery Chemistry</span>
+                <span>{t('modals:setup.batChemistry', 'Battery Chemistry')}</span>
               </label>
               <select
                 value={batteryChemistry}
                 onChange={(e) => setBatteryChemistry(e.target.value as BatteryChemistry)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 transition"
               >
-                <option value="VRLA_SLA">Standard VRLA / AGM (Default)</option>
-                <option value="GEL">Gel Cell Lead-Acid</option>
-                <option value="LIFEPO4">Lithium Iron Phosphate (LiFePO4)</option>
+                <option value="VRLA_SLA">{t('settings:profileSection.chemistryVrla', 'Standard VRLA / AGM (Default)')}</option>
+                <option value="GEL">{t('settings:profileSection.chemistryGEL', 'Gel Cell Lead-Acid')}</option>
+                <option value="LIFEPO4">{t('settings:profileSection.chemistryLiFePO4', 'Lithium Iron Phosphate (LiFePO4)')}</option>
               </select>
               <p className="text-[10px] text-slate-500 mt-1">
                 {CHEMISTRY_SPECS[batteryChemistry]?.description || 'Sealed Lead-Acid'}
@@ -272,7 +274,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             {/* Pack Voltage */}
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Pack Nominal Voltage
+                {t('modals:setup.batVoltage', 'Pack Nominal Voltage')}
               </label>
               <select
                 value={batteryVoltage}
@@ -300,7 +302,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-slate-300">
-                Battery Capacity (Ah per block)
+                {t('modals:setup.batCapacity', 'Battery Capacity (Ah per block)')}
               </label>
               <span className="text-[11px] font-mono text-slate-500">Default: 9.0 Ah</span>
             </div>
@@ -324,15 +326,15 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             <div className="p-3 bg-emerald-950/30 border border-emerald-800/60 rounded-xl flex items-center justify-between text-xs">
               <div className="flex items-center space-x-2 text-emerald-300">
                 <Info className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Live Calibration Preview:</span>
+                <span>{t('modals:setup.livePreview', 'Live Calibration Preview')}:</span>
               </div>
               <div className="flex items-center space-x-4 font-mono">
                 <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Capacity</span>
+                  <span className="text-slate-400 text-[10px] uppercase block">{t('modals:setup.estSoc', 'Capacity')}</span>
                   <span className="text-emerald-400 font-bold text-sm">{liveSoc}%</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Est. Runtime</span>
+                  <span className="text-slate-400 text-[10px] uppercase block">{t('modals:setup.estRuntime', 'Est. Runtime')}</span>
                   <span className="text-cyan-400 font-bold text-sm">{formatRuntime(liveRuntime)}</span>
                 </div>
               </div>
@@ -344,9 +346,9 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             <button
               type="button"
               onClick={handleApplyDefaults}
-              className="px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition"
+              className="px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition cursor-pointer"
             >
-              Apply Standard Defaults (1kVA / 0.8 PF)
+              {t('modals:setup.quickDefaults', 'Apply Standard Defaults (1kVA / 0.8 PF)')}
             </button>
             <div className="flex items-center space-x-2">
               <button
@@ -354,7 +356,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
                 className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-semibold rounded-xl transition flex items-center space-x-1.5 shadow-md shadow-emerald-950 cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>Save & Start Monitoring</span>
+                <span>{t('modals:setup.saveProfile', 'Save & Start Monitoring')}</span>
               </button>
             </div>
           </div>

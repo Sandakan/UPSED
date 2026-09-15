@@ -1,0 +1,59 @@
+{
+  "title": "History & Telemetry Records",
+  "subtitle": "Recorded telemetry frames and time-series snapshots saved in local SQLite storage",
+  "metricStream": "Metric Stream",
+  "visualAnalytics": "Visual Analytics",
+  "metricShort": {
+    "voltage": "Voltage",
+    "frequency": "Frequency",
+    "power": "Power",
+    "battery": "Battery",
+    "temperature": "Temperature"
+  },
+  "tabs": {
+    "telemetry": "Telemetry Log",
+    "events": "Events Log",
+    "charts": "Telemetry Trends"
+  },
+  "searchPlaceholder": "Filter history entries...",
+  "searchEventsPlaceholder": "Filter event entries...",
+  "metrics": {
+    "voltage": "Input & Output Voltage (V)",
+    "frequency": "Input & Output Frequency (Hz)",
+    "power": "Load % & Power Output (W)",
+    "battery": "Battery Voltage (V)",
+    "temperature": "Heatsink Temp (°C)"
+  },
+  "chartLegends": {
+    "gridV": "Grid Input (V)",
+    "outV": "Output Voltage (V)",
+    "gridHz": "Grid Freq (Hz)",
+    "outHz": "Output Freq (Hz)",
+    "loadPct": "Load (%)",
+    "outW": "Output (W)",
+    "batV": "Battery Voltage (V)",
+    "tempC": "Inverter Temp (°C)"
+  },
+  "tableHeaders": {
+    "id": "ID",
+    "timestamp": "Timestamp",
+    "port": "Port",
+    "gridV": "Grid V",
+    "outV": "Out V",
+    "gridHz": "Grid Hz",
+    "outHz": "Out Hz",
+    "loadPct": "Load %",
+    "outW": "Power (W)",
+    "batV": "Battery V",
+    "tempC": "Temp °C",
+    "type": "Type",
+    "message": "Message"
+  },
+  "noRecords": "No telemetry records found matching query.",
+  "noEvents": "No events recorded in historical session.",
+  "pagination": {
+    "prev": "Previous",
+    "next": "Next",
+    "showing": "Showing {{from}} to {{to}} of {{total}} entries"
+  }
+}

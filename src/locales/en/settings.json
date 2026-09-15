@@ -1,0 +1,73 @@
+{
+  "savedSuccess": "Settings successfully applied!",
+  "themeSection": {
+    "title": "Appearance & Color Theme",
+    "desc": "Choose between dark, light, or automated OS preference syncing.",
+    "syncingOs": "Syncing with OS",
+    "modeLabel": "{{mode}} mode",
+    "systemTitle": "System Default",
+    "systemDesc": "Matches Windows color scheme",
+    "darkTitle": "Dark Theme",
+    "darkDesc": "Obsidian & charcoal SaaS design",
+    "lightTitle": "Light Theme",
+    "lightDesc": "Crisp high-contrast daylight design"
+  },
+  "languageSection": {
+    "title": "Language & Localization",
+    "desc": "Select user interface language. Defaults to operating system display language.",
+    "systemDesc": "Automatic based on Windows locale",
+    "enDesc": "English (US / International)",
+    "frDesc": "Français (French)"
+  },
+  "profileSection": {
+    "title": "Active UPS Profile & Specifications",
+    "desc": "Calibrate hardware specifications to ensure precise runtime calculations and battery curves.",
+    "upsName": "UPS Device Identifier / Name",
+    "topology": "UPS Topology / Architecture",
+    "topologyOnline": "Online Double-Conversion",
+    "topologyLineInteractive": "Line-Interactive",
+    "topologyStandby": "Off-Line / Standby",
+    "ratedVa": "Rated Apparent Power (VA)",
+    "powerFactor": "Power Factor (PF)",
+    "batteryVoltage": "Battery Bank Nominal Voltage (V)",
+    "batteryCapacity": "Battery Capacity (Ah)",
+    "batteryChemistry": "Battery Cell Chemistry",
+    "chemistryVrla": "VRLA / AGM Sealed Lead-Acid",
+    "chemistryGEL": "GEL Electrolyte Lead-Acid",
+    "chemistryLiFePO4": "Lithium Iron Phosphate (LiFePO4)",
+    "chemistryLiIon": "Lithium-Ion NMC (Li-ion)"
+  },
+  "systemSection": {
+    "title": "System & Startup Integration",
+    "desc": "Configure how VoltWatch interacts with Windows background services and system tray.",
+    "autostartTitle": "Launch on Windows Startup",
+    "autostartDesc": "Starts VoltWatch in the background automatically upon user login.",
+    "autostartDevNotice": "Autostart disabled during npm run tauri dev to avoid dev build conflicts.",
+    "minimizeTrayTitle": "Close Button Minimizes to System Tray",
+    "minimizeTrayDesc": "Keeps UPS background monitoring active in the tray when the window is closed.",
+    "startMinimizedTitle": "Start Minimized to System Tray",
+    "startMinimizedDesc": "Opens the application silently in the notification tray without showing the main window on boot."
+  },
+  "pollingSection": {
+    "title": "Telemetry Polling Frequency",
+    "desc": "Rate at which Q1/QPIGS queries are dispatched to the serial port controller.",
+    "pollSeconds": "{{count}} Seconds",
+    "pollWarning": "High-frequency polling (<5s) may increase serial port traffic on low-baud RS-232 interfaces."
+  },
+  "bridgeSection": {
+    "title": "OS Native Battery Bridge",
+    "desc": "Exposes connected UPS as a virtual native battery to Windows OS.",
+    "optInNotice": "Complies with Agent Safety Invariant: Disabled by default. Only enabled upon explicit opt-in.",
+    "bridgeToggle": "Emulate Laptop Battery in Windows Taskbar"
+  },
+  "notificationsSection": {
+    "title": "Notifications & Hardware Alarms",
+    "desc": "Configure how hardware state transitions and warning bitmasks are delivered.",
+    "osNotifTitle": "Windows Action Center Notifications",
+    "osNotifDesc": "Displays native toast notifications when the app is minimized or out of focus.",
+    "inAppNotifTitle": "In-App Headless Toasts",
+    "inAppNotifDesc": "Displays custom dark-themed toast popups within the application."
+  },
+  "saveButton": "Save All Preferences"
+}
+

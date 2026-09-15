@@ -1,0 +1,81 @@
+{
+  "cards": {
+    "inputVoltage": "Tension d'entrée (Moy.)",
+    "freq": "Fréq",
+    "gridFail": "Panne secteur",
+    "lineNormal": "Secteur normal",
+    "outputLoad": "Charge en sortie (%)",
+    "activeLoad": "Charge active",
+    "batteryHealth": "État de la batterie (%)",
+    "capacity": "Capacité"
+  },
+  "discovery": {
+    "connectionError": "Erreur de connexion",
+    "diagnosticStatus": "État du diagnostic :",
+    "errorDesc": "VoltWatch a rencontré un problème de communication sur {{portName}}. Vérifiez l'alimentation de l'onduleur et le câble.",
+    "retryDiscovery": "Réessayer la détection",
+    "autoDiscoveryActive": "Auto-détection en cours",
+    "discoveringHardware": "Détection du matériel connecté...",
+    "scanningPortsDesc": "Analyse des ports de communication & interfaces USB HID...",
+    "readingTelemetry": "Lecture de la télémétrie",
+    "fetchingLive": "Récupération de la télémétrie en direct...",
+    "queryingStatus": "Interrogation de l'état de l'onduleur en temps réel depuis {{target}}...",
+    "establishingLink": "Établissement de la liaison",
+    "connectingTo": "Connexion à {{target}}...",
+    "openingTransport": "Ouverture du transport matériel et validation du protocole...",
+    "scanningPorts": "Analyse des ports",
+    "scanningHardwarePorts": "Analyse des ports matériels...",
+    "scanningComPorts": "Recherche de ports COM et appareils USB HID pour onduleur Voltronic...",
+    "noConnectedUps": "Aucun onduleur connecté détecté",
+    "noUpsDesc": "VoltWatch n'a détecté aucun onduleur Voltronic sur les ports série COM ou interfaces USB HID disponibles.",
+    "checklistTitle": "Guide de dépannage :",
+    "checkCable": "Vérifiez que le câble USB ou série RS-232 est solidement branché.",
+    "checkPower": "Assurez-vous que l'interrupteur marche/arrêt de l'onduleur est allumé.",
+    "checkLegacy": "Fermez les logiciels concurrents (ex: ViewPower, émulateurs de terminal).",
+    "rescanHardware": "Réanalyser les ports matériels"
+  },
+  "flags": {
+    "title": "Indicateurs d'état matériel",
+    "acUtilityGrid": "Réseau secteur CA",
+    "batteryLevel": "Niveau de batterie",
+    "bypassRelay": "Relais de dérivation (Bypass)",
+    "inverterDiagnostics": "Diagnostic de l'onduleur",
+    "failed": "EN PANNE",
+    "normal": "NORMAL",
+    "low": "FAIBLE",
+    "ok": "OK",
+    "active": "ACTIF",
+    "off": "INACTIF",
+    "fault": "DÉFAUT",
+    "healthy": "SAIN"
+  },
+  "architecture": {
+    "title": "Sécurité et architecture Clean-Room",
+    "desc": "VoltWatch communique directement via liaison série/USB sans serveur web embarqué, RMI ou middleware vulnérable. Tout échange est strictement vérifié et sécurisé pour préserver le micrologiciel.",
+    "portLabel": "Port matériel : {{port}} • Vitesse : 2400 8N1 • Protocole : Voltronic Q1"
+  },
+  "topology": {
+    "title": "Topologie des flux d'énergie",
+    "subtitle": "Schéma unifilaire électrique en temps réel",
+    "modePill": {
+      "fault": "Défaut onduleur",
+      "bypass": "Mode Dérivation (Bypass)",
+      "battery": "Mode Batterie (Panne CA)",
+      "line": "Mode En ligne (Secteur)"
+    },
+    "utilityGrid": "Entrée réseau CA",
+    "staticBypass": "Dérivation statique (Bypass)",
+    "rectifierCharger": "Redresseur / Chargeur",
+    "inverter": "Onduleur (CC -> CA)",
+    "batteryReserve": "Réserve de batterie",
+    "criticalLoad": "Charges critiques CA",
+    "nominal": "Nominale",
+    "runtime": "Autonomie",
+    "state": "État",
+    "offline": "Hors ligne",
+    "charging": "En charge",
+    "discharging": "En décharge",
+    "floatReady": "Maintien / Prêt"
+  }
+}
+

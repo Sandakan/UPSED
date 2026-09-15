@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon, AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon, AlertTriangle, Languages } from 'lucide-react';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
@@ -8,6 +9,7 @@ import {
   calculateActiveWatts,
   BatteryChemistry,
 } from '../lib/battery';
+import { getAppLanguageMode, setAppLanguage, AppLanguageMode } from '../lib/i18n';
 
 interface SettingsProps {
   pollInterval: number;
@@ -38,7 +40,9 @@ export const Settings: React.FC<SettingsProps> = ({
   themeMode,
   onThemeModeChange,
 }) => {
+  const { t } = useTranslation(['settings', 'common']);
   const [currentTheme, setCurrentTheme] = useState<ThemeMode>(themeMode);
+  const [currentLangMode, setCurrentLangMode] = useState<AppLanguageMode>(getAppLanguageMode());
   const [intervalVal, setIntervalVal] = useState(pollInterval);
   const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
   const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
@@ -127,12 +131,17 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
+  const handleLanguageChange = (mode: AppLanguageMode) => {
+    setCurrentLangMode(mode);
+    setAppLanguage(mode);
+  };
+
   return (
     <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
       {savedNotice && (
         <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-xs font-mono flex items-center space-x-2">
           <Check className="w-4 h-4 text-emerald-400" />
-          <span>Settings successfully applied!</span>
+          <span>{t('settings:savedSuccess', 'Settings successfully applied!')}</span>
         </div>
       )}
 
@@ -151,15 +160,15 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-100">
-                Appearance & Color Theme
+                {t('settings:themeSection.title', 'Appearance & Color Theme')}
               </h4>
               <p className="text-xs text-slate-400 mt-0.5">
-                Choose between dark, light, or automated OS preference syncing.
+                {t('settings:themeSection.desc', 'Choose between dark, light, or automated OS preference syncing.')}
               </p>
             </div>
           </div>
           <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/[0.08]">
-            {currentTheme === 'system' ? 'Syncing with OS' : `${currentTheme} mode`}
+            {currentTheme === 'system' ? t('settings:themeSection.syncingOs', 'Syncing with OS') : t('settings:themeSection.modeLabel', { mode: currentTheme, defaultValue: `${currentTheme} mode` })}
           </span>
         </div>
 
@@ -186,9 +195,9 @@ export const Settings: React.FC<SettingsProps> = ({
               )}
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-200">System Default</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:themeSection.systemTitle', 'System Default')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Matches Windows color scheme
+                {t('settings:themeSection.systemDesc', 'Matches Windows color scheme')}
               </p>
             </div>
           </button>
@@ -215,9 +224,9 @@ export const Settings: React.FC<SettingsProps> = ({
               )}
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-200">Dark Theme</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:themeSection.darkTitle', 'Dark Theme')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Obsidian & charcoal SaaS design
+                {t('settings:themeSection.darkDesc', 'Obsidian & charcoal SaaS design')}
               </p>
             </div>
           </button>
@@ -244,16 +253,124 @@ export const Settings: React.FC<SettingsProps> = ({
               )}
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-200">Light Theme</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:themeSection.lightTitle', 'Light Theme')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Crisp high-contrast daylight design
+                {t('settings:themeSection.lightDesc', 'Crisp high-contrast daylight design')}
               </p>
             </div>
           </button>
         </div>
       </div>
 
-      {/* ── 2. Active UPS Profile & Specifications ───────────── */}
+      {/* ── 2. Language & Localization ───────────────────────── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-4"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-slate-200">
+            <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+              <Languages className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-100">
+                {t('settings:languageSection.title', 'Language & Localization')}
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {t('settings:languageSection.desc', 'Select user interface language. Defaults to operating system display language.')}
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/[0.08]">
+            {currentLangMode === 'system' ? 'System' : currentLangMode.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {/* System Default Option */}
+          <button
+            type="button"
+            onClick={() => handleLanguageChange('system')}
+            className={`p-4 rounded-xl border text-left transition flex flex-col justify-between space-y-3 cursor-pointer ${
+              currentLangMode === 'system'
+                ? 'border-emerald-500 bg-emerald-950/20 shadow-sm'
+                : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="p-2 rounded-lg bg-white/[0.06] text-slate-300">
+                <Monitor className="w-4 h-4" />
+              </div>
+              {currentLangMode === 'system' && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:themeSection.systemTitle', 'System Default')}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t('settings:languageSection.systemDesc', 'Automatic based on Windows locale')}
+              </p>
+            </div>
+          </button>
+
+          {/* English Option */}
+          <button
+            type="button"
+            onClick={() => handleLanguageChange('en')}
+            className={`p-4 rounded-xl border text-left transition flex flex-col justify-between space-y-3 cursor-pointer ${
+              currentLangMode === 'en'
+                ? 'border-emerald-500 bg-emerald-950/20 shadow-sm'
+                : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="p-2 rounded-lg bg-white/[0.06] text-slate-300 font-bold text-xs">
+                EN
+              </div>
+              {currentLangMode === 'en' && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-200">English</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t('settings:languageSection.enDesc', 'English (US / International)')}
+              </p>
+            </div>
+          </button>
+
+          {/* Français Option */}
+          <button
+            type="button"
+            onClick={() => handleLanguageChange('fr')}
+            className={`p-4 rounded-xl border text-left transition flex flex-col justify-between space-y-3 cursor-pointer ${
+              currentLangMode === 'fr'
+                ? 'border-emerald-500 bg-emerald-950/20 shadow-sm'
+                : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="p-2 rounded-lg bg-white/[0.06] text-slate-300 font-bold text-xs">
+                FR
+              </div>
+              {currentLangMode === 'fr' && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-200">Français</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t('settings:languageSection.frDesc', 'Français (French)')}
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── 3. Active UPS Profile & Specifications ───────────── */}
       {metadata && (
         <div
           className="rounded-2xl p-5 shadow-sm border transition space-y-4"
@@ -269,10 +386,10 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
               <div>
                 <h4 className="text-sm font-semibold text-slate-100">
-                  Active UPS Profile & Specifications
+                  {t('settings:profileSection.title', 'Active UPS Profile & Specifications')}
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Calibrate rated power and battery banks to derive active watts and backup runtimes.
+                  {t('settings:profileSection.desc', 'Calibrate hardware specifications to ensure precise runtime calculations and battery curves.')}
                 </p>
               </div>
             </div>
@@ -284,7 +401,7 @@ export const Settings: React.FC<SettingsProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                UPS Display Name
+                {t('settings:profileSection.upsName', 'UPS Display Name')}
               </label>
               <input
                 type="text"
@@ -296,7 +413,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Rated Apparent Power (VA)
+                {t('settings:profileSection.ratedVa', 'Rated Apparent Power (VA)')}
               </label>
               <div className="flex items-center space-x-2">
                 <input
@@ -314,7 +431,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Power Factor (PF) & Active Power
+                {t('settings:profileSection.powerFactor', 'Power Factor (PF) & Active Power')}
               </label>
               <div className="flex items-center space-x-2">
                 <select
@@ -322,9 +439,9 @@ export const Settings: React.FC<SettingsProps> = ({
                   onChange={(e) => setPowerFactor(Number(e.target.value))}
                   className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-500/60 transition"
                 >
-                  <option value={0.6}>0.6 (Desktop / Line-Interactive)</option>
+                  <option value={0.6}>0.6 ({t('settings:profileSection.topologyLineInteractive', 'Desktop / Line-Interactive')})</option>
                   <option value={0.8}>0.8 (Business / Server Prosumer)</option>
-                  <option value={0.9}>0.9 (Online Double-Conversion)</option>
+                  <option value={0.9}>0.9 ({t('settings:profileSection.topologyOnline', 'Online Double-Conversion')})</option>
                   <option value={1.0}>1.0 (Enterprise Unity)</option>
                 </select>
                 <span className="text-xs font-mono text-emerald-400 whitespace-nowrap">
@@ -335,22 +452,22 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Battery Chemistry
+                {t('settings:profileSection.batteryChemistry', 'Battery Chemistry')}
               </label>
               <select
                 value={batteryChemistry}
                 onChange={(e) => setBatteryChemistry(e.target.value as BatteryChemistry)}
                 className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-500/60 transition"
               >
-                <option value="VRLA_SLA">Standard Lead-Acid (VRLA / AGM)</option>
-                <option value="GEL">Gel Cell Lead-Acid</option>
-                <option value="LIFEPO4">Lithium Iron Phosphate (LiFePO4)</option>
+                <option value="VRLA_SLA">{t('settings:profileSection.chemistryVrla', 'Standard Lead-Acid (VRLA / AGM)')}</option>
+                <option value="GEL">{t('settings:profileSection.chemistryGEL', 'Gel Cell Lead-Acid')}</option>
+                <option value="LIFEPO4">{t('settings:profileSection.chemistryLiFePO4', 'Lithium Iron Phosphate (LiFePO4)')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Nominal Battery Bank Voltage
+                {t('settings:profileSection.batteryVoltage', 'Nominal Battery Bank Voltage')}
               </label>
               <select
                 value={batteryVoltage}
@@ -370,7 +487,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                Battery Capacity (Ah)
+                {t('settings:profileSection.batteryCapacity', 'Battery Capacity (Ah)')}
               </label>
               <div className="flex items-center space-x-2">
                 <input
@@ -389,7 +506,7 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       )}
 
-      {/* ── 3. Telemetry Polling Interval ───────────────────── */}
+      {/* ── 4. Telemetry Polling Interval ───────────────────── */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition space-y-3"
         style={{
@@ -403,10 +520,10 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
           <div>
             <h4 className="text-sm font-semibold text-slate-100">
-              Telemetry Polling Interval
+              {t('settings:pollingSection.title', 'Telemetry Polling Interval')}
             </h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              Controls how frequently VoltWatch queries the hardware for live status (Q1). Takes effect immediately.
+              {t('settings:pollingSection.desc', 'Controls how frequently VoltWatch queries the hardware for live status (Q1). Takes effect immediately.')}
             </p>
           </div>
         </div>
@@ -426,13 +543,13 @@ export const Settings: React.FC<SettingsProps> = ({
                   : 'bg-white/[0.03] border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
               }`}
             >
-              {sec}s {sec === 10 ? '(Default)' : ''}
+              {t('settings:pollingSection.pollSeconds', { count: sec, defaultValue: `${sec}s` })} {sec === 10 ? '(Default)' : ''}
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── 4. OS Native Battery Bridge & Tray Monitor ──────── */}
+      {/* ── 5. OS Native Battery Bridge & Tray Monitor ──────── */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition space-y-3.5"
         style={{
@@ -447,10 +564,10 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-100">
-                OS Native Battery Bridge & Tray Monitor
+                {t('settings:bridgeSection.title', 'OS Native Battery Bridge & Tray Monitor')}
               </h4>
               <p className="text-xs text-slate-400 mt-0.5">
-                Exposes connected desktop UPS to the operating system as a native battery and taskbar icon.
+                {t('settings:bridgeSection.desc', 'Exposes connected desktop UPS to the operating system as a native battery and taskbar icon.')}
               </p>
             </div>
           </div>
@@ -461,9 +578,9 @@ export const Settings: React.FC<SettingsProps> = ({
 
         <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
           <div>
-            <p className="text-xs font-semibold text-slate-200">Emulate Native OS Battery</p>
+            <p className="text-xs font-semibold text-slate-200">{t('settings:bridgeSection.bridgeToggle', 'Emulate Native OS Battery')}</p>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Updates Windows tray fill gauge, Linux UPower (/dev/uhid), and macOS menu bar.
+              {t('settings:bridgeSection.optInNotice', 'Updates Windows tray fill gauge, Linux UPower (/dev/uhid), and macOS menu bar.')}
             </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -478,7 +595,7 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       </div>
 
-      {/* ── 5. System Startup & Window Behavior ─────────────── */}
+      {/* ── 6. System Startup & Window Behavior ─────────────── */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition space-y-3.5"
         style={{
@@ -493,10 +610,10 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-100">
-                System Startup & Window Behavior
+                {t('settings:systemSection.title', 'System Startup & Window Behavior')}
               </h4>
               <p className="text-xs text-slate-400 mt-0.5">
-                Configure background service behavior on computer boot and dismissal.
+                {t('settings:systemSection.desc', 'Configure background service behavior on computer boot and dismissal.')}
               </p>
             </div>
           </div>
@@ -510,10 +627,7 @@ export const Settings: React.FC<SettingsProps> = ({
               <div className="space-y-1">
                 <p className="font-semibold text-amber-300">Development Mode Active</p>
                 <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                  Automatic startup on system login is disabled in development mode to prevent registering temporary debug binaries (<code className="px-1 py-0.5 rounded bg-black/30 text-amber-100 font-mono text-[10px]">target\debug\voltwatch.exe</code>) into Windows Startup.
-                </p>
-                <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                  Please install or run the production release build (<code className="px-1 py-0.5 rounded bg-black/30 text-amber-100 font-mono text-[10px]">voltwatch_0.1.0_x64-setup.exe</code>) to enable background autostart safely without requiring Vite.
+                  {t('settings:systemSection.autostartDevNotice', 'Automatic startup on system login is disabled in development mode to prevent registering temporary debug binaries into Windows Startup.')}
                 </p>
                 {autostartVal && (
                   <button
@@ -534,11 +648,11 @@ export const Settings: React.FC<SettingsProps> = ({
           {/* Autostart Toggle */}
           <div className={`flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] ${isDev ? 'bg-white/[0.01] opacity-75' : 'bg-white/[0.02]'}`}>
             <div>
-              <p className="text-xs font-semibold text-slate-200">Start with System Login</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:systemSection.autostartTitle', 'Start with System Login')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {isDev
                   ? 'Disabled in Dev Mode. Available in production release build.'
-                  : 'Launch VoltWatch automatically in the background when you log in.'}
+                  : t('settings:systemSection.autostartDesc', 'Launch VoltWatch automatically in the background when you log in.')}
               </p>
             </div>
             <label className={`relative inline-flex items-center ${isDev ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
@@ -557,9 +671,9 @@ export const Settings: React.FC<SettingsProps> = ({
           {autostartVal && (
             <div className="flex items-center justify-between p-3.5 ml-4 rounded-xl border border-white/[0.07] bg-white/[0.02]">
               <div>
-                <p className="text-xs font-semibold text-slate-200">Start Minimized to System Tray</p>
+                <p className="text-xs font-semibold text-slate-200">{t('settings:systemSection.startMinimizedTitle', 'Start Minimized to System Tray')}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Starts quietly in the system tray at login without opening the application window.
+                  {t('settings:systemSection.startMinimizedDesc', 'Starts quietly in the system tray at login without opening the application window.')}
                 </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
@@ -577,9 +691,9 @@ export const Settings: React.FC<SettingsProps> = ({
           {/* Close to Minimize Toggle */}
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
             <div>
-              <p className="text-xs font-semibold text-slate-200">Close Window to Minimize to Tray</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:systemSection.minimizeTrayTitle', 'Close Window to Minimize to Tray')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Clicking close (×) minimizes to tray so telemetry, outages, and automations run 24/7.
+                {t('settings:systemSection.minimizeTrayDesc', 'Clicking close (×) minimizes to tray so telemetry, outages, and automations run 24/7.')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -595,7 +709,7 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       </div>
 
-      {/* ── 6. Notifications & Hardware Alarms ──────────────── */}
+      {/* ── 7. Notifications & Hardware Alarms ──────────────── */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition space-y-3.5"
         style={{
@@ -610,10 +724,10 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-100">
-                Notifications & Hardware Alarms
+                {t('settings:notificationsSection.title', 'Notifications & Hardware Alarms')}
               </h4>
               <p className="text-xs text-slate-400 mt-0.5">
-                Configure how critical UPS state transitions, blackouts, and warning flags are delivered.
+                {t('settings:notificationsSection.desc', 'Configure how critical UPS state transitions, blackouts, and warning flags are delivered.')}
               </p>
             </div>
           </div>
@@ -622,9 +736,9 @@ export const Settings: React.FC<SettingsProps> = ({
         <div className="space-y-2.5 pt-1">
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
             <div>
-              <p className="text-xs font-semibold text-slate-200">Native OS Desktop Notifications</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:notificationsSection.osNotifTitle', 'Native OS Desktop Notifications')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Send Windows Action Center banners with sound when VoltWatch is in tray or background.
+                {t('settings:notificationsSection.osNotifDesc', 'Send Windows Action Center banners with sound when VoltWatch is in tray or background.')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -640,9 +754,9 @@ export const Settings: React.FC<SettingsProps> = ({
 
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
             <div>
-              <p className="text-xs font-semibold text-slate-200">Custom In-App Toasts</p>
+              <p className="text-xs font-semibold text-slate-200">{t('settings:notificationsSection.inAppNotifTitle', 'Custom In-App Toasts')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Display floating alerts in the bottom-right corner during live telemetry monitoring.
+                {t('settings:notificationsSection.inAppNotifDesc', 'Display floating alerts in the bottom-right corner during live telemetry monitoring.')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -665,7 +779,7 @@ export const Settings: React.FC<SettingsProps> = ({
           icon={<Save className="w-4 h-4" />}
           size="lg"
         >
-          <span>Save Settings</span>
+          <span>{t('settings:saveButton', 'Save Settings')}</span>
         </PrimaryButton>
       </div>
 

@@ -1,0 +1,59 @@
+{
+  "title": "Historique & Enregistrements de télémétrie",
+  "subtitle": "Trames de télémétrie et instantanés temporels enregistrés dans la base SQLite locale",
+  "metricStream": "Flux de métriques",
+  "visualAnalytics": "Analytique visuelle",
+  "metricShort": {
+    "voltage": "Tension",
+    "frequency": "Fréquence",
+    "power": "Puissance",
+    "battery": "Batterie",
+    "temperature": "Température"
+  },
+  "tabs": {
+    "telemetry": "Journal de télémétrie",
+    "events": "Journal des événements",
+    "charts": "Tendances graphiques"
+  },
+  "searchPlaceholder": "Filtrer l'historique...",
+  "searchEventsPlaceholder": "Filtrer les événements...",
+  "metrics": {
+    "voltage": "Tension d'entrée & sortie (V)",
+    "frequency": "Fréquence d'entrée & sortie (Hz)",
+    "power": "Charge % & Puissance de sortie (W)",
+    "battery": "Tension de batterie (V)",
+    "temperature": "Température dissipateur (°C)"
+  },
+  "chartLegends": {
+    "gridV": "Entrée secteur (V)",
+    "outV": "Tension de sortie (V)",
+    "gridHz": "Fréq secteur (Hz)",
+    "outHz": "Fréq de sortie (Hz)",
+    "loadPct": "Charge (%)",
+    "outW": "Puissance (W)",
+    "batV": "Tension batterie (V)",
+    "tempC": "Temp onduleur (°C)"
+  },
+  "tableHeaders": {
+    "id": "ID",
+    "timestamp": "Horodatage",
+    "port": "Port",
+    "gridV": "Secteur V",
+    "outV": "Sortie V",
+    "gridHz": "Secteur Hz",
+    "outHz": "Sortie Hz",
+    "loadPct": "Charge %",
+    "outW": "Puissance (W)",
+    "batV": "Batterie V",
+    "tempC": "Temp °C",
+    "type": "Type",
+    "message": "Message"
+  },
+  "noRecords": "Aucun enregistrement de télémétrie ne correspond à la recherche.",
+  "noEvents": "Aucun événement enregistré au cours de la session.",
+  "pagination": {
+    "prev": "Précédent",
+    "next": "Suivant",
+    "showing": "Affichage de {{from}} à {{to}} sur {{total}} entrées"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "safetyGate": {
+    "title": "Porte de sécurité du micrologiciel",
+    "desc": "Pour éviter toute altération du micrologiciel ou coupure accidentelle de charge, les commandes sont strictement hiérarchisées par niveau de risque. Chaque palier se déverrouille séquentiellement.",
+    "unlockT2": "Déverrouiller le Niveau T2",
+    "unlockT3": "Déverrouiller le Niveau T3",
+    "unlockT4": "Déverrouiller le Niveau T4",
+    "relockT1": "Reverrouiller en T1",
+    "feedbackSuccess": "Succès : {{label}} a répondu '{{resp}}'",
+    "feedbackUpdated": "Niveau de sécurité mis à jour vers {{target}}",
+    "feedbackError": "Bloqué ou échoué : {{error}}",
+    "feedbackAdvanceError": "Échec du changement de palier : {{error}}",
+    "noDeviceError": "Erreur : Aucun appareil onduleur sélectionné"
+  },
+  "stageT2": {
+    "title": "Niveau T2 : Actions non destructives",
+    "risk": "Faible risque",
+    "desc": "Actions de diagnostic qui ne modifient pas la mémoire flash/EEPROM et ne coupent pas la charge alimentée.",
+    "buzzerTitle": "Bip sonore d'alarme",
+    "buzzerDesc": "Active ou désactive le signal sonore de l'onduleur.",
+    "buzzerBtn": "Basculer le vibreur (BUZZER)",
+    "test10sTitle": "Test batterie de 10s",
+    "test10sDesc": "Décharge la batterie pendant 10 secondes sous charge pour évaluer son état de santé.",
+    "test10sBtn": "Lancer le test 10s (T)",
+    "cancelTestTitle": "Annuler l'auto-test",
+    "cancelTestDesc": "Interrompt immédiatement tout test de décharge batterie en cours.",
+    "cancelTestBtn": "Annuler le test (CT)"
+  },
+  "stageT4": {
+    "title": "Niveau T4 : Contrôle d'alimentation directe",
+    "risk": "Haut risque",
+    "desc": "Commandes pouvant couper la sortie des prises ou provoquer l'arrêt matériel.",
+    "shutdownTitle": "Arrêt d'urgence",
+    "shutdownDesc": "Coupe la tension de sortie de l'onduleur après un délai de 0,3 min (~18 secondes).",
+    "shutdownWarn": "Êtes-vous sûr ? Les équipements branchés perdront immédiatement leur alimentation !",
+    "confirmBtn": "Confirmer l'arrêt",
+    "cancelBtn": "Annuler",
+    "initiateBtn": "Initier l'arrêt (S.3)",
+    "cancelShutdownTitle": "Annuler l'arrêt en attente",
+    "cancelShutdownDesc": "Annule immédiatement tout compte à rebours d'extinction programmé.",
+    "cancelShutdownBtn": "Annuler l'arrêt (CS)"
+  }
+}
+
