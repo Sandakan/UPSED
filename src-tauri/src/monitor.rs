@@ -1,4 +1,4 @@
-use crate::commands::{connect_device_internal, detect_status_events, AppState};
+use crate::commands::{connect_device_internal, detect_status_events, AppState, ProbeStatusEvent};
 use crate::db::TelemetryRecord;
 use crate::serial::scan_available_ports;
 use std::time::Duration;
@@ -12,22 +12,26 @@ pub async fn run_background_monitor(
     tracing::info!("Starting VoltWatch background UPS monitor task");
 
     // Allow initial application startup to settle before first probe
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
+    let mut is_initial = true;
     loop {
-        let interval_secs = (*interval_rx.borrow()).max(1);
+        if !is_initial {
+            let interval_secs = (*interval_rx.borrow()).max(1);
 
-        // Immediate responsive sleep: if interval changes, reset timer instantly
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(interval_secs)) => {},
-            changed = interval_rx.changed() => {
-                if changed.is_ok() {
-                    let new_sec = *interval_rx.borrow();
-                    tracing::info!("Background monitor: interval updated to {}s, restarting cycle", new_sec);
-                    continue;
+            // Immediate responsive sleep: if interval changes, reset timer instantly
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(interval_secs)) => {},
+                changed = interval_rx.changed() => {
+                    if changed.is_ok() {
+                        let new_sec = *interval_rx.borrow();
+                        tracing::info!("Background monitor: interval updated to {}s, restarting cycle", new_sec);
+                        continue;
+                    }
                 }
             }
         }
+        is_initial = false;
 
         // Execute one polling cycle on blocking worker thread
         let state_clone = state.clone();
@@ -44,40 +48,86 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
     // 1. Determine active port to poll
     let connected_devices = state.manager.list_devices();
     let port_to_poll = if let Some(first) = connected_devices.first() {
-        Some(first.port_name.clone())
+        Some((first.port_name.clone(), first.serial_number.clone()))
     } else {
         // Try last connected port from settings
         let last_port = state.db.get_setting("last_connected_port").unwrap_or(None);
         let last_device_id = state.db.get_setting("last_connected_device").unwrap_or(None);
 
         if let Some(port) = last_port {
-            if connect_device_internal(state, &port, None).is_ok() {
-                Some(port)
+            let _ = app.emit(
+                "ups-probe-status",
+                ProbeStatusEvent {
+                    phase: "connecting".into(),
+                    message: format!("Reconnecting to UPS on {}...", port),
+                    port_name: Some(port.clone()),
+                    device_name: None,
+                },
+            );
+            if let Ok(dev) = connect_device_internal(state, &port, None) {
+                Some((port, dev.serial_number))
             } else {
                 None
             }
         } else {
+            let _ = app.emit(
+                "ups-probe-status",
+                ProbeStatusEvent {
+                    phase: "scanning".into(),
+                    message: "Auto-discovering connected Voltronic UPS...".into(),
+                    port_name: None,
+                    device_name: None,
+                },
+            );
             // Auto-discover available ports using Stage T1 Read-Only commands
             let discovered = scan_available_ports();
             if let Some(dev) = discovered.iter().find(|d| {
                 last_device_id.as_ref().map_or(false, |saved| &d.unique_id == saved)
             }).or_else(|| discovered.first()) {
+                let _ = app.emit(
+                    "ups-probe-status",
+                    ProbeStatusEvent {
+                        phase: "connecting".into(),
+                        message: format!("Connecting to discovered UPS on {}...", dev.port_name),
+                        port_name: Some(dev.port_name.clone()),
+                        device_name: dev.serial_number.clone(),
+                    },
+                );
                 if connect_device_internal(state, &dev.port_name, None).is_ok() {
                     let _ = state.db.set_setting("last_connected_port", &dev.port_name);
                     let _ = state.db.set_setting("last_connected_device", &dev.unique_id);
-                    Some(dev.port_name.clone())
+                    Some((dev.port_name.clone(), dev.serial_number.clone()))
                 } else {
                     None
                 }
             } else {
+                let _ = app.emit(
+                    "ups-probe-status",
+                    ProbeStatusEvent {
+                        phase: "no_device".into(),
+                        message: "No connected UPS detected on serial or USB HID ports".into(),
+                        port_name: None,
+                        device_name: None,
+                    },
+                );
                 None
             }
         }
     };
 
-    let Some(port_name) = port_to_poll else {
+    let Some((port_name, serial_number)) = port_to_poll else {
         return;
     };
+
+    let _ = app.emit(
+        "ups-probe-status",
+        ProbeStatusEvent {
+            phase: "fetching".into(),
+            message: format!("Reading live telemetry from {}...", port_name),
+            port_name: Some(port_name.clone()),
+            device_name: serial_number.clone(),
+        },
+    );
 
     let prev_status = state.manager.get_last_status(&port_name);
     match state.manager.poll_device(&port_name) {
@@ -107,6 +157,16 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
             // Always emit live telemetry push event to frontend
             let _ = app.emit("ups-telemetry", &status);
 
+            let _ = app.emit(
+                "ups-probe-status",
+                ProbeStatusEvent {
+                    phase: "idle".into(),
+                    message: "Live telemetry active".into(),
+                    port_name: Some(port_name.clone()),
+                    device_name: serial_number,
+                },
+            );
+
             // Update OS battery bridge and system tray icon
             let mut bridge = state.bridge.lock().unwrap();
             bridge.update(&status);
@@ -118,6 +178,15 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
         }
         Err(err) => {
             tracing::warn!("Background poll failed for {}: {}", port_name, err);
+            let _ = app.emit(
+                "ups-probe-status",
+                ProbeStatusEvent {
+                    phase: "error".into(),
+                    message: format!("Communication error: {}", err),
+                    port_name: Some(port_name.clone()),
+                    device_name: serial_number,
+                },
+            );
         }
     }
 }

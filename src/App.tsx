@@ -15,7 +15,7 @@ import { VoltWatchToaster } from './components/VoltWatchToaster';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord } from './lib/types';
+import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord, ProbeStatusEvent } from './lib/types';
 import { useTheme } from './lib/theme';
 
 export function App() {
@@ -28,6 +28,7 @@ export function App() {
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
+  const [probeStatus, setProbeStatus] = useState<ProbeStatusEvent | null>(null);
 
   // 1. Scan serial and USB ports query
   const {
@@ -242,6 +243,32 @@ export function App() {
     };
   }, [osNotificationsEnabled, inAppToastsEnabled, queryClient]);
 
+  // Listen to real-time 'ups-probe-status' broadcast from backend
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<ProbeStatusEvent>('ups-probe-status', (tauriEvent) => {
+      setProbeStatus(tauriEvent.payload);
+      if (tauriEvent.payload.phase === 'fetching' || tauriEvent.payload.phase === 'idle') {
+        if (tauriEvent.payload.port_name && !selectedDevice) {
+          setSelectedDevice(tauriEvent.payload.port_name);
+        }
+      }
+    }).then((fn) => {
+      if (!isMounted) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [selectedDevice]);
+
   const criticalCount = events.filter((e) => !e.acknowledged && e.severity === 'critical').length;
   const warningCount = events.filter((e) => !e.acknowledged && e.severity === 'warning').length;
 
@@ -356,9 +383,14 @@ export function App() {
             <Dashboard
               status={status}
               history={history}
-              portName={selectedDevice}
+              portName={selectedDevice || activeDevice?.port_name || null}
               lastError={lastError}
               metadata={upsMetadata}
+              isScanning={isScanning}
+              isConnecting={connectMutation.isPending}
+              probeStatus={probeStatus}
+              targetDeviceName={activeDeviceLabel}
+              onRescan={() => scanPorts()}
             />
           )}
 

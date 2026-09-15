@@ -10,6 +10,14 @@ use crate::serial::{
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProbeStatusEvent {
+    pub phase: String,
+    pub message: String,
+    pub port_name: Option<String>,
+    pub device_name: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub gate: Arc<Mutex<CommandGate>>,
@@ -20,10 +28,32 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub async fn scan_ports() -> Result<Vec<DiscoveredDevice>, String> {
-    tokio::task::spawn_blocking(scan_available_ports)
+pub async fn scan_ports(app: tauri::AppHandle) -> Result<Vec<DiscoveredDevice>, String> {
+    let _ = app.emit(
+        "ups-probe-status",
+        ProbeStatusEvent {
+            phase: "scanning".into(),
+            message: "Scanning communication ports & USB HID interfaces...".into(),
+            port_name: None,
+            device_name: None,
+        },
+    );
+    let devices = tokio::task::spawn_blocking(scan_available_ports)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if devices.is_empty() {
+        let _ = app.emit(
+            "ups-probe-status",
+            ProbeStatusEvent {
+                phase: "no_device".into(),
+                message: "No compatible Voltronic UPS detected on available ports".into(),
+                port_name: None,
+                device_name: None,
+            },
+        );
+    }
+    Ok(devices)
 }
 
 pub fn connect_device_internal(
@@ -66,16 +96,39 @@ pub fn connect_device_internal(
 
 #[tauri::command]
 pub async fn connect_device(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: String,
     baud_rate: Option<u32>,
 ) -> Result<DiscoveredDevice, String> {
+    let _ = app.emit(
+        "ups-probe-status",
+        ProbeStatusEvent {
+            phase: "connecting".into(),
+            message: format!("Connecting to UPS on {}...", port_name),
+            port_name: Some(port_name.clone()),
+            device_name: None,
+        },
+    );
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        connect_device_internal(&state_clone, &port_name, baud_rate)
+    let port = port_name.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        connect_device_internal(&state_clone, &port, baud_rate)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    let _ = app.emit(
+        "ups-probe-status",
+        ProbeStatusEvent {
+            phase: "fetching".into(),
+            message: format!("Reading live telemetry from {}...", res.port_name),
+            port_name: Some(res.port_name.clone()),
+            device_name: res.serial_number.clone(),
+        },
+    );
+
+    Ok(res)
 }
 
 #[tauri::command]

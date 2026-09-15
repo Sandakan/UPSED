@@ -101,3 +101,10 @@ export type VoltronicCommand =
 
 export type ThemeMode = 'system' | 'dark' | 'light';
 
+export interface ProbeStatusEvent {
+  phase: 'scanning' | 'connecting' | 'fetching' | 'idle' | 'no_device' | 'error';
+  message: string;
+  port_name?: string | null;
+  device_name?: string | null;
+}
+

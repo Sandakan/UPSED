@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   Activity,
   CheckCircle,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { StatCardSparkline } from '../components/StatCardSparkline';
-import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
+import { Q1Status, TelemetryRecord, UpsMetadata, ProbeStatusEvent } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
 import { MetricGraphsHub } from '../components/MetricGraphsHub';
 import {
@@ -22,6 +24,11 @@ interface DashboardProps {
   portName: string | null;
   lastError?: string | null;
   metadata?: UpsMetadata | null;
+  isScanning?: boolean;
+  isConnecting?: boolean;
+  probeStatus?: ProbeStatusEvent | null;
+  targetDeviceName?: string | null;
+  onRescan?: () => void;
 }
 
 const DashboardComponent: React.FC<DashboardProps> = ({
@@ -30,30 +37,125 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   portName,
   lastError,
   metadata,
+  isScanning,
+  isConnecting,
+  probeStatus,
+  targetDeviceName,
+  onRescan,
 }) => {
   if (!portName || !status) {
-    return (
-      <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center">
-        {lastError ? (
-          <>
-            <AlertTriangle className="w-12 h-12 text-amber-500 mb-3" />
-            <h3 className="text-lg font-semibold text-slate-200">Connecting to UPS...</h3>
-            <div className="mt-3 p-3 max-w-md bg-slate-900 border border-amber-500/30 rounded-xl text-left text-xs font-mono text-amber-300">
-              <span className="text-slate-400 block mb-1 font-sans font-medium">Diagnostic status:</span>
-              {lastError}
+    const isBusy =
+      isScanning ||
+      isConnecting ||
+      probeStatus?.phase === 'scanning' ||
+      probeStatus?.phase === 'connecting' ||
+      probeStatus?.phase === 'fetching' ||
+      (portName && !status && !lastError);
+
+    if (lastError && !isBusy) {
+      return (
+        <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-4">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-100">Connection Error</h3>
+          <div className="mt-3 p-3 max-w-md bg-white/[0.03] border border-amber-500/30 rounded-xl text-left text-xs font-mono text-amber-300">
+            <span className="text-slate-400 block mb-1 font-sans font-medium">Diagnostic status:</span>
+            {lastError}
+          </div>
+          <p className="text-xs text-slate-400 max-w-sm mt-3">
+            VoltWatch encountered an issue communicating on {portName}. Check device power and cable connection.
+          </p>
+          {onRescan && (
+            <button
+              onClick={onRescan}
+              className="mt-5 px-4 py-2 text-xs font-medium rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 transition flex items-center space-x-2 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Discovery</span>
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (isBusy) {
+      // Dynamic phase labels and badges
+      let badgeText = 'Auto-Discovery Active';
+      let titleText = 'Discovering Connected Hardware...';
+      let subtitleText = probeStatus?.message || 'Scanning communication ports & USB HID interfaces...';
+
+      if (probeStatus?.phase === 'fetching' || (portName && isConnecting)) {
+        badgeText = 'Reading Telemetry';
+        titleText = 'Fetching Live Telemetry...';
+        subtitleText = probeStatus?.message || `Querying real-time inverter status from ${targetDeviceName || portName}...`;
+      } else if (probeStatus?.phase === 'connecting' || isConnecting || (portName && !status)) {
+        badgeText = 'Establishing Link';
+        titleText = `Connecting to ${targetDeviceName || metadata?.name || portName || 'UPS'}...`;
+        subtitleText = probeStatus?.message || 'Opening hardware transport and verifying protocol response...';
+      } else if (isScanning || probeStatus?.phase === 'scanning') {
+        badgeText = 'Scanning Ports';
+        titleText = 'Scanning Hardware Ports...';
+        subtitleText = probeStatus?.message || 'Scanning COM ports and USB HID devices for Voltronic UPS...';
+      }
+
+      return (
+        <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+          {/* Animated Spinner with Glowing Accent Ring */}
+          <div className="relative mb-5 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full border-2 border-emerald-500/20 animate-ping absolute"></div>
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center relative shadow-lg shadow-emerald-500/10">
+              <Loader2 className="w-7 h-7 text-emerald-400 animate-spin" />
             </div>
-            <p className="text-xs text-slate-400 max-w-sm mt-3">
-              VoltWatch identified the UPS on {portName}. Detailed logs are written to stdout and the log file.
-            </p>
-          </>
-        ) : (
-          <>
-            <Activity className="w-12 h-12 text-slate-600 mb-3 animate-pulse" />
-            <h3 className="text-lg font-semibold text-slate-300">No Active UPS Telemetry</h3>
-            <p className="text-sm text-slate-500 max-w-sm mt-1">
-              Select or scan for a connected Voltronic UPS from the sidebar to start live monitoring.
-            </p>
-          </>
+          </div>
+
+          {/* Animated Pulse Badge */}
+          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mb-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{badgeText}</span>
+          </div>
+
+          <h3 className="text-lg font-semibold text-slate-100">{titleText}</h3>
+          <p className="text-xs text-slate-400 max-w-md mt-1.5 leading-relaxed font-sans">
+            {subtitleText}
+          </p>
+        </div>
+      );
+    }
+
+    // No device detected / idle without device
+    return (
+      <div className="h-full flex-1 flex flex-col items-center justify-center p-8 text-center animate-fade-in">
+        <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08] text-slate-400 mb-4">
+          <Activity className="w-8 h-8 text-slate-400" />
+        </div>
+        <h3 className="text-lg font-semibold text-slate-200">No Connected UPS Detected</h3>
+        <p className="text-xs text-slate-400 max-w-md mt-1.5 leading-relaxed">
+          VoltWatch could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.
+        </p>
+        <div className="mt-4 p-3.5 max-w-md bg-white/[0.02] border border-white/[0.06] rounded-xl text-left text-xs space-y-1.5 text-slate-400">
+          <p className="font-semibold text-slate-300">Troubleshooting Checklist:</p>
+          <p className="flex items-center space-x-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span>Verify the USB or RS-232 serial cable is securely plugged in.</span>
+          </p>
+          <p className="flex items-center space-x-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span>Ensure the UPS power switch is turned ON.</span>
+          </p>
+          <p className="flex items-center space-x-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span>Close conflicting legacy tools (e.g. ViewPower, terminal emulators).</span>
+          </p>
+        </div>
+        {onRescan && (
+          <button
+            onClick={onRescan}
+            className="mt-5 px-4 py-2 text-xs font-medium rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 transition flex items-center space-x-2 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Rescan Hardware Ports</span>
+          </button>
         )}
       </div>
     );
