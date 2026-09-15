@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_window_state::{Builder as WindowStateBuilder, StateFlags};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,7 +37,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            WindowStateBuilder::default()
+                .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .build(),
+        )
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -86,11 +91,24 @@ pub fn run() {
                 poll_interval_tx: Arc::new(poll_interval_tx),
             };
 
-            // If started with --minimized, start with window hidden in tray
+            // Determine whether to show window or start minimized in tray
             let args: Vec<String> = std::env::args().collect();
-            if args.iter().any(|arg| arg == "--minimized") {
-                if let Some(window) = app.get_webview_window("main") {
+            let is_minimized_arg = args.iter().any(|arg| arg == "--minimized");
+            let start_minimized_pref = app_state
+                .db
+                .get_setting("start_minimized")
+                .ok()
+                .flatten()
+                .map(|v| v != "false")
+                .unwrap_or(true);
+
+            if let Some(window) = app.get_webview_window("main") {
+                if is_minimized_arg && start_minimized_pref {
                     let _ = window.hide();
+                } else {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
                 }
             }
 
@@ -150,7 +168,8 @@ pub fn run() {
             commands::get_start_minimized,
             commands::set_start_minimized,
             commands::get_theme,
-            commands::set_theme
+            commands::set_theme,
+            commands::is_dev_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoltWatch application");

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon } from 'lucide-react';
+import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon, AlertTriangle } from 'lucide-react';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
@@ -47,12 +47,14 @@ export const Settings: React.FC<SettingsProps> = ({
   const [startMinimizedVal, setStartMinimizedVal] = useState(true);
   const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [isDev, setIsDev] = useState<boolean>(import.meta.env.DEV);
 
   useEffect(() => {
     setCurrentTheme(themeMode);
   }, [themeMode]);
 
   useEffect(() => {
+    api.isDevMode().then(setIsDev).catch(() => setIsDev(import.meta.env.DEV));
     isAutostartEnabled().then(setAutostartVal).catch(console.error);
     api.getCloseToMinimize().then(setCloseToMinimizeVal).catch(console.error);
     api.getStartMinimized().then(setStartMinimizedVal).catch(console.error);
@@ -94,10 +96,12 @@ export const Settings: React.FC<SettingsProps> = ({
       await api.setCloseToMinimize(closeToMinimizeVal);
       await api.setStartMinimized(startMinimizedVal);
 
-      if (autostartVal) {
-        await enableAutostart();
-      } else {
-        await disableAutostart();
+      if (!isDev) {
+        if (autostartVal) {
+          await enableAutostart();
+        } else {
+          await disableAutostart();
+        }
       }
 
       if (metadata) {
@@ -499,18 +503,49 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
 
         <div className="space-y-2.5 pt-1">
+          {/* Dev Mode Autostart Warning Banner */}
+          {isDev && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start space-x-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <p className="font-semibold text-amber-300">Development Mode Active</p>
+                <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                  Automatic startup on system login is disabled in development mode to prevent registering temporary debug binaries (<code className="px-1 py-0.5 rounded bg-black/30 text-amber-100 font-mono text-[10px]">target\debug\voltwatch.exe</code>) into Windows Startup.
+                </p>
+                <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                  Please install or run the production release build (<code className="px-1 py-0.5 rounded bg-black/30 text-amber-100 font-mono text-[10px]">voltwatch_0.1.0_x64-setup.exe</code>) to enable background autostart safely without requiring Vite.
+                </p>
+                {autostartVal && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await disableAutostart();
+                      setAutostartVal(false);
+                    }}
+                    className="mt-1 px-2.5 py-1 text-[11px] font-medium bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-amber-200 transition cursor-pointer"
+                  >
+                    Clean Up Stale Autostart Entry
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Autostart Toggle */}
-          <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
+          <div className={`flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] ${isDev ? 'bg-white/[0.01] opacity-75' : 'bg-white/[0.02]'}`}>
             <div>
               <p className="text-xs font-semibold text-slate-200">Start with System Login</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Launch VoltWatch automatically in the background when you log in.
+                {isDev
+                  ? 'Disabled in Dev Mode. Available in production release build.'
+                  : 'Launch VoltWatch automatically in the background when you log in.'}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className={`relative inline-flex items-center ${isDev ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 checked={autostartVal}
+                disabled={isDev}
                 onChange={(e) => setAutostartVal(e.target.checked)}
                 className="sr-only peer"
               />

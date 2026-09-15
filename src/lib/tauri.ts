@@ -90,6 +90,8 @@ export const api = {
 
   setTheme: (theme: ThemeMode) =>
     invoke<void>('set_theme', { theme }),
+
+  isDevMode: () => invoke<boolean>('is_dev_mode'),
 };
 
 
