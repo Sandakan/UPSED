@@ -82,7 +82,7 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
             // Auto-discover available ports using Stage T1 Read-Only commands
             let discovered = scan_available_ports();
             if let Some(dev) = discovered.iter().find(|d| {
-                last_device_id.as_ref().map_or(false, |saved| &d.unique_id == saved)
+                last_device_id.as_ref() == Some(&d.unique_id)
             }).or_else(|| discovered.first()) {
                 let _ = app.emit(
                     "ups-probe-status",

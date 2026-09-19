@@ -1,6 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Battery, Clock, Shield, Save, Check, Zap, Bell, Monitor, Sun, Moon, AlertTriangle, Languages } from 'lucide-react';
+import {
+  Battery,
+  Clock,
+  Shield,
+  Save,
+  Check,
+  Zap,
+  Bell,
+  Monitor,
+  Sun,
+  Moon,
+  AlertTriangle,
+  Languages,
+  AlertCircle,
+  RotateCcw,
+  CheckCircle2,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
@@ -11,7 +28,12 @@ import {
 } from '../lib/battery';
 import { getAppLanguageMode, setAppLanguage, AppLanguageMode } from '../lib/i18n';
 
-interface SettingsProps {
+export interface SettingsHandle {
+  save: () => Promise<boolean>;
+  discard: () => void;
+}
+
+export interface SettingsProps {
   pollInterval: number;
   onPollIntervalChange: (val: number) => void;
   batteryBridgeActive: boolean;
@@ -24,126 +46,349 @@ interface SettingsProps {
   onInAppToastsChange: (val: boolean) => void;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({
-  pollInterval,
-  onPollIntervalChange,
-  batteryBridgeActive,
-  onBatteryBridgeChange,
-  metadata,
-  onUpdateMetadata,
-  osNotificationsEnabled,
-  onOsNotificationsChange,
-  inAppToastsEnabled,
-  onInAppToastsChange,
-  themeMode,
-  onThemeModeChange,
-}) => {
-  const { t } = useTranslation(['settings', 'common']);
-  const [currentTheme, setCurrentTheme] = useState<ThemeMode>(themeMode);
-  const [currentLangMode, setCurrentLangMode] = useState<AppLanguageMode>(getAppLanguageMode());
-  const [intervalVal, setIntervalVal] = useState(pollInterval);
-  const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
-  const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
-  const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
-  const [autostartVal, setAutostartVal] = useState(false);
-  const [startMinimizedVal, setStartMinimizedVal] = useState(true);
-  const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
-  const [savedNotice, setSavedNotice] = useState(false);
-  const [isDev, setIsDev] = useState<boolean>(import.meta.env.DEV);
+interface PersistedSettings {
+  theme: ThemeMode;
+  lang: AppLanguageMode;
+  interval: number;
+  bridge: boolean;
+  autostart: boolean;
+  startMinimized: boolean;
+  closeToMinimize: boolean;
+  osNotif: boolean;
+  inAppToast: boolean;
+  upsName: string;
+  ratedVa: number;
+  powerFactor: number;
+  batteryVoltage: number;
+  batteryCapacityAh: number;
+  batteryChemistry: BatteryChemistry;
+  topology: string;
+}
 
-  useEffect(() => {
-    setCurrentTheme(themeMode);
-  }, [themeMode]);
+export const Settings = forwardRef<SettingsHandle, SettingsProps>(
+  (
+    {
+      pollInterval,
+      onPollIntervalChange,
+      batteryBridgeActive,
+      onBatteryBridgeChange,
+      metadata,
+      onUpdateMetadata,
+      osNotificationsEnabled,
+      onOsNotificationsChange,
+      inAppToastsEnabled,
+      onInAppToastsChange,
+      themeMode,
+      onThemeModeChange,
+      onDirtyChange,
+    },
+    ref
+  ) => {
+    const { t } = useTranslation(['settings', 'common']);
+    const [currentTheme, setCurrentTheme] = useState<ThemeMode>(themeMode);
+    const [currentLangMode, setCurrentLangMode] = useState<AppLanguageMode>(getAppLanguageMode());
+    const [intervalVal, setIntervalVal] = useState(pollInterval);
+    const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
+    const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
+    const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
+    const [autostartVal, setAutostartVal] = useState(false);
+    const [startMinimizedVal, setStartMinimizedVal] = useState(true);
+    const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
+    const [savedNotice, setSavedNotice] = useState(false);
+    const [isDev, setIsDev] = useState<boolean>(import.meta.env.DEV);
+    const [isSaving, setIsSaving] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [persisted, setPersisted] = useState<PersistedSettings | null>(null);
 
-  useEffect(() => {
-    api.isDevMode().then(setIsDev).catch(() => setIsDev(import.meta.env.DEV));
-    isAutostartEnabled().then(setAutostartVal).catch(console.error);
-    api.getCloseToMinimize().then(setCloseToMinimizeVal).catch(console.error);
-    api.getStartMinimized().then(setStartMinimizedVal).catch(console.error);
-  }, []);
+    // UPS Profile state
+    const [upsName, setUpsName] = useState(metadata?.name || 'Connected UPS');
+    const [ratedVa, setRatedVa] = useState(metadata?.rated_va || 1000);
+    const [powerFactor, setPowerFactor] = useState(metadata?.power_factor || 0.8);
+    const [batteryVoltage, setBatteryVoltage] = useState(metadata?.battery_voltage || 24);
+    const [batteryCapacityAh, setBatteryCapacityAh] = useState(metadata?.battery_capacity_ah || 9.0);
+    const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>(
+      (metadata?.battery_chemistry as BatteryChemistry) || 'VRLA_SLA'
+    );
+    const [topology, setTopology] = useState(metadata?.topology || 'Online');
 
-  // UPS Profile state
-  const [upsName, setUpsName] = useState(metadata?.name || 'Connected UPS');
-  const [ratedVa, setRatedVa] = useState(metadata?.rated_va || 1000);
-  const [powerFactor, setPowerFactor] = useState(metadata?.power_factor || 0.8);
-  const [batteryVoltage, setBatteryVoltage] = useState(metadata?.battery_voltage || 24);
-  const [batteryCapacityAh, setBatteryCapacityAh] = useState(metadata?.battery_capacity_ah || 9.0);
-  const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>(
-    (metadata?.battery_chemistry as BatteryChemistry) || 'VRLA_SLA'
-  );
-  const [topology, setTopology] = useState(metadata?.topology || 'Online');
+    useEffect(() => {
+      setCurrentTheme(themeMode);
+    }, [themeMode]);
 
-  useEffect(() => {
-    if (metadata) {
-      setUpsName(metadata.name);
-      setRatedVa(metadata.rated_va);
-      setPowerFactor(metadata.power_factor || 0.8);
-      setBatteryVoltage(metadata.battery_voltage);
-      setBatteryCapacityAh(metadata.battery_capacity_ah);
-      setBatteryChemistry((metadata.battery_chemistry as BatteryChemistry) || 'VRLA_SLA');
-      setTopology(metadata.topology || 'Online');
-    }
-  }, [metadata]);
+    useEffect(() => {
+      let isMounted = true;
+      Promise.all([
+        api.isDevMode().catch(() => import.meta.env.DEV),
+        isAutostartEnabled().catch(() => false),
+        api.getCloseToMinimize().catch(() => true),
+        api.getStartMinimized().catch(() => true),
+      ]).then(([devMode, autostart, closeToMin, startMin]) => {
+        if (!isMounted) return;
+        setIsDev(devMode);
+        setAutostartVal(autostart);
+        setCloseToMinimizeVal(closeToMin);
+        setStartMinimizedVal(startMin);
 
-  const derivedWatts = calculateActiveWatts(ratedVa, powerFactor);
+        const initial: PersistedSettings = {
+          theme: themeMode,
+          lang: getAppLanguageMode(),
+          interval: pollInterval,
+          bridge: batteryBridgeActive,
+          autostart,
+          startMinimized: startMin,
+          closeToMinimize: closeToMin,
+          osNotif: osNotificationsEnabled,
+          inAppToast: inAppToastsEnabled,
+          upsName: metadata?.name || 'Connected UPS',
+          ratedVa: metadata?.rated_va || 1000,
+          powerFactor: metadata?.power_factor || 0.8,
+          batteryVoltage: metadata?.battery_voltage || 24,
+          batteryCapacityAh: metadata?.battery_capacity_ah || 9.0,
+          batteryChemistry: (metadata?.battery_chemistry as BatteryChemistry) || 'VRLA_SLA',
+          topology: metadata?.topology || 'Online',
+        };
+        setPersisted(initial);
+        setIsInitialLoading(false);
+      });
 
-  const handleSave = async () => {
-    onPollIntervalChange(intervalVal);
-    onBatteryBridgeChange(bridgeVal);
-    onOsNotificationsChange(osNotifVal);
-    onInAppToastsChange(inAppToastVal);
-    onThemeModeChange(currentTheme);
-    try {
-      await api.setBatteryBridgeStatus(bridgeVal);
-      await api.setCloseToMinimize(closeToMinimizeVal);
-      await api.setStartMinimized(startMinimizedVal);
+      return () => {
+        isMounted = false;
+      };
+    }, []);
 
-      if (!isDev) {
-        if (autostartVal) {
-          await enableAutostart();
-        } else {
-          await disableAutostart();
-        }
+    useEffect(() => {
+      if (metadata) {
+        setUpsName(metadata.name);
+        setRatedVa(metadata.rated_va);
+        setPowerFactor(metadata.power_factor || 0.8);
+        setBatteryVoltage(metadata.battery_voltage);
+        setBatteryCapacityAh(metadata.battery_capacity_ah);
+        setBatteryChemistry((metadata.battery_chemistry as BatteryChemistry) || 'VRLA_SLA');
+        setTopology(metadata.topology || 'Online');
+
+        setPersisted((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            upsName: metadata.name,
+            ratedVa: metadata.rated_va,
+            powerFactor: metadata.power_factor || 0.8,
+            batteryVoltage: metadata.battery_voltage,
+            batteryCapacityAh: metadata.battery_capacity_ah,
+            batteryChemistry: (metadata.battery_chemistry as BatteryChemistry) || 'VRLA_SLA',
+            topology: metadata.topology || 'Online',
+          };
+        });
       }
+    }, [metadata]);
+
+    const derivedWatts = calculateActiveWatts(ratedVa, powerFactor);
+
+    const hasUnsavedChanges = useMemo(() => {
+      if (isInitialLoading || !persisted) return false;
+      const isBasicDirty =
+        currentTheme !== persisted.theme ||
+        currentLangMode !== persisted.lang ||
+        intervalVal !== persisted.interval ||
+        bridgeVal !== persisted.bridge ||
+        autostartVal !== persisted.autostart ||
+        startMinimizedVal !== persisted.startMinimized ||
+        closeToMinimizeVal !== persisted.closeToMinimize ||
+        osNotifVal !== persisted.osNotif ||
+        inAppToastVal !== persisted.inAppToast;
+
+      if (isBasicDirty) return true;
 
       if (metadata) {
-        const updatedMeta: UpsMetadata = {
-          ...metadata,
-          name: upsName.trim() || 'Connected UPS',
-          rated_va: Math.max(50, Number(ratedVa)),
-          power_factor: Number(powerFactor),
-          rated_watts: derivedWatts,
-          battery_voltage: Number(batteryVoltage),
-          battery_capacity_ah: Number(batteryCapacityAh),
-          battery_chemistry: batteryChemistry,
-          topology,
-          updated_at: new Date().toISOString(),
-        };
-        await api.saveUpsMetadata(updatedMeta);
-        onUpdateMetadata?.(updatedMeta);
+        const isProfileDirty =
+          upsName.trim() !== persisted.upsName.trim() ||
+          Number(ratedVa) !== Number(persisted.ratedVa) ||
+          Number(powerFactor) !== Number(persisted.powerFactor) ||
+          Number(batteryVoltage) !== Number(persisted.batteryVoltage) ||
+          Number(batteryCapacityAh) !== Number(persisted.batteryCapacityAh) ||
+          batteryChemistry !== persisted.batteryChemistry ||
+          topology !== persisted.topology;
+        if (isProfileDirty) return true;
       }
-      setSavedNotice(true);
-      setTimeout(() => setSavedNotice(false), 3000);
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
-  const handleLanguageChange = (mode: AppLanguageMode) => {
-    setCurrentLangMode(mode);
-    setAppLanguage(mode);
-  };
+      return false;
+    }, [
+      isInitialLoading,
+      persisted,
+      currentTheme,
+      currentLangMode,
+      intervalVal,
+      bridgeVal,
+      autostartVal,
+      startMinimizedVal,
+      closeToMinimizeVal,
+      osNotifVal,
+      inAppToastVal,
+      metadata,
+      upsName,
+      ratedVa,
+      powerFactor,
+      batteryVoltage,
+      batteryCapacityAh,
+      batteryChemistry,
+      topology,
+    ]);
 
-  return (
-    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
-      {savedNotice && (
-        <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-xs font-mono flex items-center space-x-2">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{t('settings:savedSuccess', 'Settings successfully applied!')}</span>
-        </div>
-      )}
+    useEffect(() => {
+      onDirtyChange?.(hasUnsavedChanges);
+    }, [hasUnsavedChanges, onDirtyChange]);
+
+    const handleDiscard = useCallback(() => {
+      if (!persisted) return;
+      setCurrentTheme(persisted.theme);
+      onThemeModeChange(persisted.theme);
+      setCurrentLangMode(persisted.lang);
+      setAppLanguage(persisted.lang);
+      setIntervalVal(persisted.interval);
+      setBridgeVal(persisted.bridge);
+      setAutostartVal(persisted.autostart);
+      setStartMinimizedVal(persisted.startMinimized);
+      setCloseToMinimizeVal(persisted.closeToMinimize);
+      setOsNotifVal(persisted.osNotif);
+      setInAppToastVal(persisted.inAppToast);
+      setUpsName(persisted.upsName);
+      setRatedVa(persisted.ratedVa);
+      setPowerFactor(persisted.powerFactor);
+      setBatteryVoltage(persisted.batteryVoltage);
+      setBatteryCapacityAh(persisted.batteryCapacityAh);
+      setBatteryChemistry(persisted.batteryChemistry);
+      setTopology(persisted.topology);
+    }, [persisted, onThemeModeChange]);
+
+    const handleSave = useCallback(async (): Promise<boolean> => {
+      setIsSaving(true);
+      try {
+        onPollIntervalChange(intervalVal);
+        onBatteryBridgeChange(bridgeVal);
+        onOsNotificationsChange(osNotifVal);
+        onInAppToastsChange(inAppToastVal);
+        onThemeModeChange(currentTheme);
+
+        await api.setBatteryBridgeStatus(bridgeVal);
+        await api.setCloseToMinimize(closeToMinimizeVal);
+        await api.setStartMinimized(startMinimizedVal);
+        await api.setTheme(currentTheme);
+
+        if (!isDev) {
+          if (autostartVal) {
+            await enableAutostart();
+          } else {
+            await disableAutostart();
+          }
+        }
+
+        if (metadata) {
+          const updatedMeta: UpsMetadata = {
+            ...metadata,
+            name: upsName.trim() || 'Connected UPS',
+            rated_va: Math.max(50, Number(ratedVa)),
+            power_factor: Number(powerFactor),
+            rated_watts: derivedWatts,
+            battery_voltage: Number(batteryVoltage),
+            battery_capacity_ah: Number(batteryCapacityAh),
+            battery_chemistry: batteryChemistry,
+            topology,
+            updated_at: new Date().toISOString(),
+          };
+          await api.saveUpsMetadata(updatedMeta);
+          onUpdateMetadata?.(updatedMeta);
+        }
+
+        setPersisted({
+          theme: currentTheme,
+          lang: currentLangMode,
+          interval: intervalVal,
+          bridge: bridgeVal,
+          autostart: autostartVal,
+          startMinimized: startMinimizedVal,
+          closeToMinimize: closeToMinimizeVal,
+          osNotif: osNotifVal,
+          inAppToast: inAppToastVal,
+          upsName: upsName.trim() || 'Connected UPS',
+          ratedVa: Math.max(50, Number(ratedVa)),
+          powerFactor: Number(powerFactor),
+          batteryVoltage: Number(batteryVoltage),
+          batteryCapacityAh: Number(batteryCapacityAh),
+          batteryChemistry,
+          topology,
+        });
+
+        setSavedNotice(true);
+        setTimeout(() => setSavedNotice(false), 2500);
+
+        return true;
+      } catch (e: any) {
+        console.error('Failed to save settings:', e);
+        toast.custom(
+          JSON.stringify({
+            title: t('settings:toasts.saveErrorTitle', 'Save Failed'),
+            description: t('settings:toasts.saveError', 'Failed to save settings: {{error}}', {
+              error: e?.message || String(e),
+            }),
+            event: {
+              severity: 'critical',
+              event_type: 'SETTINGS_ERROR',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    }, [
+      intervalVal,
+      bridgeVal,
+      osNotifVal,
+      inAppToastVal,
+      currentTheme,
+      onPollIntervalChange,
+      onBatteryBridgeChange,
+      onOsNotificationsChange,
+      onInAppToastsChange,
+      onThemeModeChange,
+      closeToMinimizeVal,
+      startMinimizedVal,
+      isDev,
+      autostartVal,
+      metadata,
+      upsName,
+      ratedVa,
+      powerFactor,
+      derivedWatts,
+      batteryVoltage,
+      batteryCapacityAh,
+      batteryChemistry,
+      topology,
+      onUpdateMetadata,
+      currentLangMode,
+      t,
+    ]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        save: handleSave,
+        discard: handleDiscard,
+      }),
+      [handleSave, handleDiscard]
+    );
+
+    const handleLanguageChange = (mode: AppLanguageMode) => {
+      setCurrentLangMode(mode);
+      setAppLanguage(mode);
+    };
+
+    return (
+      <div className="relative p-3.5 sm:p-6 pb-4 sm:pb-6 space-y-4 sm:space-y-5 flex-1 h-full overflow-y-auto custom-scrollbar min-w-0">
 
       {/* ── 1. Appearance & Color Theme ─────────────────────── */}
       <div
@@ -772,15 +1017,119 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       </div>
 
-      {/* ── Save Settings Button ────────────────────────────── */}
-      <div className="flex justify-end pt-1">
-        <PrimaryButton
-          onClick={handleSave}
-          icon={<Save className="w-4 h-4" />}
-          size="lg"
+      {/* ── Save / Unsaved Action Bar (Docked when idle, Sticky when dirty) ── */}
+      <div
+        className={`transition-all duration-300 ease-out ${
+          hasUnsavedChanges
+            ? 'sticky bottom-3 z-30'
+            : 'relative z-10'
+        }`}
+      >
+        <div
+          className={`rounded-2xl p-3.5 sm:p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-300 ${
+            hasUnsavedChanges
+              ? 'shadow-2xl backdrop-blur-xl'
+              : 'shadow-sm'
+          }`}
+          style={
+            hasUnsavedChanges
+              ? {
+                  backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                  borderColor: 'rgba(245, 158, 11, 0.4)',
+                  boxShadow:
+                    '0 20px 35px -10px rgba(0, 0, 0, 0.7), 0 0 25px -5px rgba(245, 158, 11, 0.25)',
+                }
+              : {
+                  backgroundColor: 'var(--card-bg)',
+                  borderColor: savedNotice ? 'rgba(34, 197, 94, 0.4)' : 'var(--card-border)',
+                }
+          }
         >
-          <span>{t('settings:saveButton', 'Save Settings')}</span>
-        </PrimaryButton>
+          {/* Left status indicator */}
+          <div className="flex items-center space-x-3">
+            {hasUnsavedChanges ? (
+              <>
+                <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-semibold text-slate-100">
+                    {t('settings:unsavedBar.title', 'You have unsaved changes')}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    Pending
+                  </span>
+                </div>
+              </>
+            ) : savedNotice ? (
+              <>
+                <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 shrink-0">
+                  <Check className="w-4 h-4" />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-semibold text-emerald-400">
+                    {t('settings:unsavedBar.savedNotice', 'Preferences saved!')}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    Saved
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-400 shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-medium text-slate-400">
+                    {t('settings:unsavedBar.allSaved', 'All preferences up to date')}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right action buttons */}
+          <div className="flex items-center justify-end space-x-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleDiscard}
+              disabled={!hasUnsavedChanges || isSaving}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition ${
+                hasUnsavedChanges
+                  ? 'text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] cursor-pointer'
+                  : 'text-slate-600 bg-white/[0.02] border border-white/[0.04] cursor-not-allowed opacity-40'
+              }`}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{t('settings:unsavedBar.discard', 'Discard')}</span>
+            </button>
+
+            {hasUnsavedChanges ? (
+              <PrimaryButton
+                onClick={() => handleSave()}
+                isLoading={isSaving}
+                icon={<Save className="w-3.5 h-3.5" />}
+                size="md"
+              >
+                <span>
+                  {isSaving
+                    ? t('settings:unsavedBar.saving', 'Saving...')
+                    : t('settings:unsavedBar.save', 'Save Changes')}
+                </span>
+              </PrimaryButton>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-500 bg-white/[0.04] border border-white/[0.08] cursor-not-allowed flex items-center space-x-1.5 opacity-40"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{t('settings:unsavedBar.save', 'Save Changes')}</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Legal & Clean-Room Notice ───────────────────────── */}
@@ -804,6 +1153,8 @@ export const Settings: React.FC<SettingsProps> = ({
       </div>
     </div>
   );
-};
+});
+
+Settings.displayName = 'Settings';
 
 export default Settings;

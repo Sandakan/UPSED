@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import './App.css';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { UpsSetupModal } from './components/UpsSetupModal';
 import { DeviceConnectModal } from './components/DeviceConnectModal';
+import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 import { Dashboard } from './pages/Dashboard';
 import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Events } from './pages/Events';
-import { Settings } from './pages/Settings';
+import { Settings, SettingsHandle } from './pages/Settings';
 import { VoltWatchToaster } from './components/VoltWatchToaster';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
@@ -29,6 +30,11 @@ export function App() {
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
   const [probeStatus, setProbeStatus] = useState<ProbeStatusEvent | null>(null);
+  const [isSettingsDirty, setIsSettingsDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const [showLeaveConfirmModal, setShowLeaveConfirmModal] = useState(false);
+  const [isModalSaving, setIsModalSaving] = useState(false);
+  const settingsRef = useRef<SettingsHandle>(null);
 
   // 1. Scan serial and USB ports query
   const {
@@ -335,6 +341,51 @@ export function App() {
     setIsConnectModalOpen(true);
   }, []);
 
+  const handleTabChange = useCallback(
+    (nextTab: string) => {
+      if (currentTab === 'settings' && isSettingsDirty && nextTab !== 'settings') {
+        setPendingTab(nextTab);
+        setShowLeaveConfirmModal(true);
+        return;
+      }
+      setCurrentTab(nextTab);
+    },
+    [currentTab, isSettingsDirty]
+  );
+
+  const handleModalSaveAndLeave = async () => {
+    if (settingsRef.current) {
+      setIsModalSaving(true);
+      const ok = await settingsRef.current.save();
+      setIsModalSaving(false);
+      if (ok && pendingTab) {
+        setShowLeaveConfirmModal(false);
+        setCurrentTab(pendingTab);
+        setPendingTab(null);
+      }
+    } else if (pendingTab) {
+      setShowLeaveConfirmModal(false);
+      setCurrentTab(pendingTab);
+      setPendingTab(null);
+    }
+  };
+
+  const handleModalDiscardAndLeave = () => {
+    if (settingsRef.current) {
+      settingsRef.current.discard();
+    }
+    setShowLeaveConfirmModal(false);
+    if (pendingTab) {
+      setCurrentTab(pendingTab);
+      setPendingTab(null);
+    }
+  };
+
+  const handleModalClose = () => {
+    setShowLeaveConfirmModal(false);
+    setPendingTab(null);
+  };
+
   const lastError = statusError
     ? statusError instanceof Error
       ? statusError.message
@@ -348,7 +399,7 @@ export function App() {
       {/* Sidebar navigation */}
       <Sidebar
         currentTab={currentTab}
-        onTabChange={setCurrentTab}
+        onTabChange={handleTabChange}
         devices={devices}
         selectedDevice={selectedDevice}
         activeDeviceLabel={activeDeviceLabel}
@@ -374,7 +425,7 @@ export function App() {
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
           safetyStage={safetyStage}
-          onTabChange={setCurrentTab}
+          onTabChange={handleTabChange}
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
         />
 
@@ -425,6 +476,7 @@ export function App() {
 
           {currentTab === 'settings' && (
             <Settings
+              ref={settingsRef}
               pollInterval={pollInterval}
               onPollIntervalChange={handlePollIntervalChange}
               batteryBridgeActive={batteryBridgeActive}
@@ -437,6 +489,7 @@ export function App() {
               onInAppToastsChange={setInAppToastsEnabled}
               themeMode={themeMode}
               onThemeModeChange={setThemeMode}
+              onDirtyChange={setIsSettingsDirty}
             />
           )}
         </main>
@@ -444,6 +497,15 @@ export function App() {
 
       {/* Headless Bespoke Toast Notification Container */}
       <VoltWatchToaster />
+
+      {/* Unsaved Changes Navigation Guard Modal */}
+      <UnsavedChangesModal
+        isOpen={showLeaveConfirmModal}
+        onClose={handleModalClose}
+        onSaveAndLeave={handleModalSaveAndLeave}
+        onDiscardAndLeave={handleModalDiscardAndLeave}
+        isLoading={isModalSaving}
+      />
 
       {/* Device Connection / Scanning Modal */}
       <DeviceConnectModal

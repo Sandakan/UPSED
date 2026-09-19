@@ -68,6 +68,31 @@
     "inAppNotifTitle": "In-App Headless Toasts",
     "inAppNotifDesc": "Displays custom dark-themed toast popups within the application."
   },
-  "saveButton": "Save All Preferences"
+  "saveButton": "Save All Preferences",
+  "unsavedBar": {
+    "title": "You have unsaved changes",
+    "allSaved": "All preferences up to date",
+    "savedNotice": "Preferences saved!",
+    "save": "Save Changes",
+    "discard": "Discard",
+    "saving": "Saving..."
+  },
+  "navigationGuard": {
+    "title": "Unsaved Changes",
+    "subtitle": "Pending preference modifications",
+    "message": "You have unsaved preferences in Settings. Would you like to save them before leaving this page?",
+    "infoNote": "Discarding will restore all settings and hardware parameters to their last saved state.",
+    "saveAndLeave": "Save & Leave",
+    "discardAndLeave": "Discard & Leave",
+    "cancel": "Stay on Page"
+  },
+  "toasts": {
+    "saveSuccessTitle": "Settings Saved",
+    "saveSuccess": "Settings successfully saved and applied!",
+    "saveErrorTitle": "Save Failed",
+    "saveError": "Failed to save settings: {{error}}",
+    "discardTitle": "Changes Discarded",
+    "discardSuccess": "Settings restored to last saved state."
+  }
 }
 

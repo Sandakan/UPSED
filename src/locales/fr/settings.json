@@ -68,6 +68,31 @@
     "inAppNotifTitle": "Notifications visuelles intégrées (Toasts)",
     "inAppNotifDesc": "Affiche des alertes interactives au sein de l'application."
   },
-  "saveButton": "Enregistrer toutes les préférences"
+  "saveButton": "Enregistrer toutes les préférences",
+  "unsavedBar": {
+    "title": "Modifications non enregistrées",
+    "allSaved": "Toutes les préférences sont à jour",
+    "savedNotice": "Préférences enregistrées !",
+    "save": "Enregistrer les modifications",
+    "discard": "Abandonner",
+    "saving": "Enregistrement..."
+  },
+  "navigationGuard": {
+    "title": "Modifications non enregistrées",
+    "subtitle": "Modifications de préférences en attente",
+    "message": "Vous avez des préférences non enregistrées dans les paramètres. Souhaitez-vous les enregistrer avant de quitter cette page ?",
+    "infoNote": "L'abandon restaurera tous les paramètres et spécifications matérielles à leur dernier état enregistré.",
+    "saveAndLeave": "Enregistrer & Quitter",
+    "discardAndLeave": "Abandonner & Quitter",
+    "cancel": "Rester sur la page"
+  },
+  "toasts": {
+    "saveSuccessTitle": "Paramètres enregistrés",
+    "saveSuccess": "Paramètres enregistrés et appliqués avec succès !",
+    "saveErrorTitle": "Échec de l'enregistrement",
+    "saveError": "Impossible d'enregistrer les paramètres : {{error}}",
+    "discardTitle": "Modifications annulées",
+    "discardSuccess": "Paramètres restaurés à leur dernier état enregistré."
+  }
 }
 
