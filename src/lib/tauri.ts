@@ -47,6 +47,8 @@ export const api = {
   acknowledgeEvent: (eventId: number) =>
     invoke<void>('acknowledge_event', { eventId }),
 
+  acknowledgeAllEvents: () => invoke<number>('acknowledge_all_events'),
+
   getBatteryBridgeStatus: () => invoke<boolean>('get_battery_bridge_status'),
 
   setBatteryBridgeStatus: (enabled: boolean) =>

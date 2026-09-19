@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Info,
   Check,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
@@ -39,7 +40,27 @@ export const Events: React.FC<EventsProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [timeframe, setTimeframe] = useState<'all' | 'today' | 'week'>('all');
   const [isClearing, setIsClearing] = useState(false);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const unreadCount = useMemo(() => events.filter((e) => !e.acknowledged).length, [events]);
+
+  const severityCounts = useMemo(() => {
+    const counts = {
+      all: events.length,
+      critical: 0,
+      warning: 0,
+      success: 0,
+      info: 0,
+    };
+    for (const ev of events) {
+      if (ev.severity === 'critical') counts.critical++;
+      else if (ev.severity === 'warning') counts.warning++;
+      else if (ev.severity === 'success') counts.success++;
+      else if (ev.severity === 'info') counts.info++;
+    }
+    return counts;
+  }, [events]);
 
   // Filter & Search Logic
   const filteredEvents = useMemo(() => {
@@ -129,6 +150,19 @@ export const Events: React.FC<EventsProps> = ({
     }
   };
 
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0 || isMarkingAllRead) return;
+    try {
+      setIsMarkingAllRead(true);
+      await api.acknowledgeAllEvents();
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to mark all events as read:', err);
+    } finally {
+      setIsMarkingAllRead(false);
+    }
+  };
+
   const exportCsv = () => {
     const headers = 'ID,Timestamp,Port,Event_Type,Severity,Title,Description,Acknowledged\n';
     const rows = filteredEvents
@@ -196,16 +230,16 @@ export const Events: React.FC<EventsProps> = ({
         </div>
       </div>
 
-      {/* ── Toolbar: Filter Tabs & Actions (Reference Style) ── */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 min-w-0">
-        {/* Left: Filter Pills */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 xl:pb-0 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink-0">
+      {/* ── Two-Tier Toolbar ── */}
+      <div className="space-y-3 min-w-0">
+        {/* Tier 1: Severity Filter Pills with Live Counts */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-w-0">
           {[
-            { id: 'all', label: t('events:filterTabs.all', 'All Events') },
-            { id: 'critical', label: t('events:filterTabs.critical', 'Critical / Fault') },
-            { id: 'warning', label: t('events:filterTabs.warning', 'Warnings') },
-            { id: 'success', label: t('events:filterTabs.success', 'Recoveries') },
-            { id: 'info', label: t('events:filterTabs.info', 'Informational') },
+            { id: 'all', label: t('events:filterTabs.all', 'All Events'), count: severityCounts.all },
+            { id: 'critical', label: t('events:filterTabs.critical', 'Critical / Fault'), count: severityCounts.critical },
+            { id: 'warning', label: t('events:filterTabs.warning', 'Warnings'), count: severityCounts.warning },
+            { id: 'success', label: t('events:filterTabs.success', 'Recoveries'), count: severityCounts.success },
+            { id: 'info', label: t('events:filterTabs.info', 'Informational'), count: severityCounts.info },
           ].map((tab) => {
             const isActive = filterSeverity === tab.id;
             return (
@@ -215,79 +249,115 @@ export const Events: React.FC<EventsProps> = ({
                   setFilterSeverity(tab.id);
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap cursor-pointer ${
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap cursor-pointer shrink-0 ${
                   isActive
                     ? 'bg-[#22c55e] text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-white/[0.06]'
                 }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-semibold ${
+                    isActive
+                      ? 'bg-black/25 text-white'
+                      : 'bg-white/[0.06] text-slate-400'
+                  }`}
+                >
+                  {tab.count}
+                </span>
               </button>
             );
           })}
         </div>
 
-        {/* Right: Search, Timeframe, Export, Clear */}
-        <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap gap-y-2 min-w-0">
-          {/* Search Input */}
-          <div className="relative flex-1 sm:flex-initial min-w-[140px] sm:min-w-[180px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
-            <input
-              type="text"
-              value={searchQuery}
+        {/* Tier 2: Search, Timeframe & Action Buttons */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 min-w-0">
+          {/* Left: Search & Timeframe */}
+          <div className="flex items-center space-x-2 flex-1 min-w-0">
+            {/* Search Input */}
+            <div className="relative flex-1 max-w-sm sm:max-w-md min-w-[140px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder={t('events:searchPlaceholder', 'Search events, port, warnings, codes...')}
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
+              />
+            </div>
+
+            {/* Timeframe Dropdown */}
+            <select
+              value={timeframe}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
+                setTimeframe(e.target.value as any);
                 setCurrentPage(1);
               }}
-              placeholder={t('events:searchPlaceholder', 'Search events, port, warnings, codes...')}
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-green-500 transition"
-            />
+              className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer shrink-0"
+            >
+              <option value="all" className="bg-slate-900 text-slate-200">{t('events:timeframe.all', 'All Time')}</option>
+              <option value="today" className="bg-slate-900 text-slate-200">{t('events:timeframe.today', 'Last 24 Hours')}</option>
+              <option value="week" className="bg-slate-900 text-slate-200">{t('events:timeframe.week', 'Last 7 Days')}</option>
+            </select>
           </div>
 
-          {/* Timeframe Dropdown */}
-          <select
-            value={timeframe}
-            onChange={(e) => {
-              setTimeframe(e.target.value as any);
-              setCurrentPage(1);
-            }}
-            className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-green-500 cursor-pointer shrink-0"
-          >
-            <option value="all" className="bg-slate-900 text-slate-200">{t('events:timeframe.all', 'All Time')}</option>
-            <option value="today" className="bg-slate-900 text-slate-200">{t('events:timeframe.today', 'Last 24 Hours')}</option>
-            <option value="week" className="bg-slate-900 text-slate-200">{t('events:timeframe.week', 'Last 7 Days')}</option>
-          </select>
+          {/* Right: Actions Group */}
+          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0 justify-end">
+            {/* Refresh button */}
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition shrink-0 cursor-pointer"
+              title={t('common:buttons.refresh', 'Refresh')}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
 
-          {/* Refresh button */}
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition shrink-0 cursor-pointer"
-            title={t('common:buttons.refresh', 'Refresh')}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
+            {/* Mark All Read Button */}
+            <button
+              onClick={handleMarkAllRead}
+              disabled={unreadCount === 0 || isMarkingAllRead}
+              className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-medium transition shrink-0 cursor-pointer ${
+                unreadCount > 0
+                  ? 'border-emerald-700/50 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 shadow-sm'
+                  : 'border-white/[0.08] text-slate-500 opacity-40 cursor-not-allowed'
+              }`}
+              title={t('events:markAllRead', 'Mark All Read')}
+            >
+              <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${isMarkingAllRead ? 'animate-pulse' : 'text-emerald-400'}`} />
+              <span className="hidden md:inline">{t('events:markAllRead', 'Mark All Read')}</span>
+              {unreadCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
 
-          {/* Export CSV Button */}
-          <button
-            onClick={exportCsv}
-            disabled={filteredEvents.length === 0}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition shrink-0 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-400" />
-            <span className="hidden sm:inline">{t('common:buttons.exportCsv', 'Export CSV')}</span>
-            <span className="sm:hidden">CSV</span>
-          </button>
+            {/* Export CSV Button */}
+            <button
+              onClick={exportCsv}
+              disabled={filteredEvents.length === 0}
+              className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-white/[0.08] text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.04] disabled:opacity-40 transition shrink-0 cursor-pointer"
+              title={t('common:buttons.exportCsv', 'Export CSV')}
+            >
+              <Download className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="hidden md:inline">{t('common:buttons.exportCsv', 'Export CSV')}</span>
+            </button>
 
-          {/* Clear History Button */}
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            disabled={events.length === 0 || isClearing}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition shrink-0 cursor-pointer"
-            title={t('events:clearHistory', 'Clear History')}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+            {/* Clear History Button */}
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              disabled={events.length === 0 || isClearing}
+              className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-rose-900/40 text-xs font-medium text-rose-400 hover:bg-rose-950/40 disabled:opacity-40 transition shrink-0 cursor-pointer"
+              title={t('events:clearHistory', 'Clear History')}
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden lg:inline">{t('events:clearHistory', 'Clear History')}</span>
+            </button>
+          </div>
         </div>
       </div>
 

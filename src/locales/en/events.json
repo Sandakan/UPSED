@@ -14,6 +14,8 @@
     "week": "Last 7 Days"
   },
   "searchPlaceholder": "Search events, port, warnings, codes...",
+  "markAllRead": "Mark All Read",
+  "allMarkedRead": "All events marked as read",
   "clearHistory": "Clear History",
   "clearHistoryTitle": "Clear Event History",
   "clearHistoryConfirm": "Are you sure you want to clear all logged hardware events? This action cannot be undone.",

@@ -458,6 +458,19 @@ pub async fn acknowledge_event(state: State<'_, AppState>, event_id: i64) -> Res
 }
 
 #[tauri::command]
+pub async fn acknowledge_all_events(state: State<'_, AppState>) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .acknowledge_all_events()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn get_poll_interval(state: State<AppState>) -> u64 {
     *state.poll_interval_tx.subscribe().borrow()
 }

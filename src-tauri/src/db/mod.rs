@@ -287,6 +287,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn acknowledge_all_events(&self) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute("UPDATE events SET acknowledged = 1 WHERE acknowledged = 0", [])?;
+        Ok(rows)
+    }
+
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;

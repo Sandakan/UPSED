@@ -14,6 +14,8 @@
     "week": "7 derniers jours"
   },
   "searchPlaceholder": "Rechercher événements, port, alarmes, codes...",
+  "markAllRead": "Tout marquer comme lu",
+  "allMarkedRead": "Tous les événements sont marqués comme lus",
   "clearHistory": "Effacer l'historique",
   "clearHistoryTitle": "Effacer le journal des événements",
   "clearHistoryConfirm": "Êtes-vous sûr de vouloir supprimer tous les événements enregistrés ? Cette action est irréversible.",

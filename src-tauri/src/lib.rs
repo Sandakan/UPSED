@@ -164,6 +164,7 @@ pub fn run() {
             commands::fast_probe_device,
             commands::clear_events,
             commands::acknowledge_event,
+            commands::acknowledge_all_events,
             commands::get_poll_interval,
             commands::set_poll_interval,
             commands::get_close_to_minimize,
