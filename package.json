@@ -1,5 +1,5 @@
 {
-  "name": "voltwatch",
+  "name": "upsed",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "devtools": "react-devtools",
-    "app:preview": "start ./src-tauri/target/release/voltwatch.exe",
+    "app:preview": "start ./src-tauri/target/release/upsed.exe",
     "app:build": "tauri build"
   },
   "dependencies": {

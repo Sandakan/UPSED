@@ -47,6 +47,7 @@ export interface SettingsProps {
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  onOpenAbout?: () => void;
 }
 
 interface PersistedSettings {
@@ -84,6 +85,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       themeMode,
       onThemeModeChange,
       onDirtyChange,
+      onOpenAbout,
     },
     ref
   ) => {
@@ -768,7 +770,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               {t('settings:pollingSection.title', 'Telemetry Polling Interval')}
             </h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              {t('settings:pollingSection.desc', 'Controls how frequently VoltWatch queries the hardware for live status (Q1). Takes effect immediately.')}
+              {t('settings:pollingSection.desc', 'Controls how frequently UPSED queries the hardware for live status (Q1). Takes effect immediately.')}
             </p>
           </div>
         </div>
@@ -897,7 +899,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {isDev
                   ? 'Disabled in Dev Mode. Available in production release build.'
-                  : t('settings:systemSection.autostartDesc', 'Launch VoltWatch automatically in the background when you log in.')}
+                  : t('settings:systemSection.autostartDesc', 'Launch UPSED automatically in the background when you log in.')}
               </p>
             </div>
             <label className={`relative inline-flex items-center ${isDev ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
@@ -983,7 +985,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
             <div>
               <p className="text-xs font-semibold text-slate-200">{t('settings:notificationsSection.osNotifTitle', 'Native OS Desktop Notifications')}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {t('settings:notificationsSection.osNotifDesc', 'Send Windows Action Center banners with sound when VoltWatch is in tray or background.')}
+                {t('settings:notificationsSection.osNotifDesc', 'Send Windows Action Center banners with sound when UPSED is in tray or background.')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -1134,18 +1136,29 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
 
       {/* ── Legal & Clean-Room Notice ───────────────────────── */}
       <div
-        className="rounded-2xl p-5 text-xs text-slate-400 space-y-2 border"
+        className="rounded-2xl p-5 text-xs text-slate-400 space-y-3 border"
         style={{
           backgroundColor: 'var(--card-bg)',
           borderColor: 'var(--card-border)',
         }}
       >
-        <div className="flex items-center space-x-2 text-slate-300 font-semibold">
-          <Shield className="w-4 h-4 text-emerald-400" />
-          <span>Legal Framework & Clean-Room Interoperability</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-slate-300 font-semibold">
+            <Shield className="w-4 h-4 text-emerald-400" />
+            <span>Legal Framework & Clean-Room Interoperability</span>
+          </div>
+          {onOpenAbout && (
+            <button
+              type="button"
+              onClick={onOpenAbout}
+              className="px-3 py-1 text-xs font-medium rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>About UPSED</span>
+            </button>
+          )}
         </div>
         <p className="leading-relaxed text-[11px] text-slate-400">
-          VoltWatch is an independent, clean-room reimplementation designed exclusively for hardware
+          UPSED is an independent, clean-room reimplementation designed exclusively for hardware
           interoperability under the <strong>Digital Millennium Copyright Act (DMCA) §1201(f)</strong> and{' '}
           <strong>EU Directive 2009/24/EC Article 6</strong>. It contains no proprietary code, Java bytecode,
           or assets from Voltronic Power's ViewPower software.

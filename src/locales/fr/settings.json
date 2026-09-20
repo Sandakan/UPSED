@@ -39,9 +39,9 @@
   },
   "systemSection": {
     "title": "Intégration système & Démarrage",
-    "desc": "Configurez le comportement de VoltWatch avec les services d'arrière-plan Windows et la zone de notification.",
+    "desc": "Configurez le comportement de UPSED avec les services d'arrière-plan Windows et la zone de notification.",
     "autostartTitle": "Démarrer avec Windows",
-    "autostartDesc": "Lance automatiquement VoltWatch en arrière-plan à la connexion de l'utilisateur.",
+    "autostartDesc": "Lance automatiquement UPSED en arrière-plan à la connexion de l'utilisateur.",
     "autostartDevNotice": "Le démarrage auto est désactivé en mode dev (npm run tauri dev) pour éviter les conflits.",
     "minimizeTrayTitle": "Fermer réduit dans la zone de notification",
     "minimizeTrayDesc": "Maintient la surveillance de l'onduleur active dans la barre des tâches lors de la fermeture de la fenêtre.",

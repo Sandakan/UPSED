@@ -1,6 +1,6 @@
-use voltwatch_lib::db::{Database, TelemetryRecord};
-use voltwatch_lib::gate::{CommandGate, GateError};
-use voltwatch_lib::protocol::{UnlockStage, VoltronicCommand};
+use upsed_lib::db::{Database, TelemetryRecord};
+use upsed_lib::gate::{CommandGate, GateError};
+use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
 
 #[test]
 fn sec_001_cannot_skip_stages() {
@@ -18,7 +18,7 @@ fn sec_001_cannot_skip_stages() {
 #[test]
 fn sec_002_all_commands_strictly_typed_no_arbitrary_string_passthrough() {
     // Unlike ViewPower which had controlNew(port, arbitraryString, null),
-    // VoltWatch only accepts discrete, strongly typed enum commands.
+    // UPSED only accepts discrete, strongly typed enum commands.
     let cmd = VoltronicCommand::QueryProtocolId;
     assert!(cmd.is_read_only());
 
@@ -80,7 +80,7 @@ fn sec_004_sqlite_telemetry_isolation() {
 
 #[test]
 fn sec_005_ups_metadata_persistence() {
-    use voltwatch_lib::db::{Database, UpsMetadata};
+    use upsed_lib::db::{Database, UpsMetadata};
 
     let db = Database::init(":memory:").unwrap();
 
@@ -130,7 +130,7 @@ fn sec_005_ups_metadata_persistence() {
 
 #[test]
 fn sec_006_usb_uuid_roaming_and_settings() {
-    use voltwatch_lib::db::{Database, UpsMetadata};
+    use upsed_lib::db::{Database, UpsMetadata};
 
     let db = Database::init(":memory:").unwrap();
 
@@ -176,8 +176,8 @@ fn sec_006_usb_uuid_roaming_and_settings() {
 
 #[test]
 fn sec_007_hardware_event_transition_detection() {
-    use voltwatch_lib::commands::detect_status_events;
-    use voltwatch_lib::protocol::Q1Status;
+    use upsed_lib::commands::detect_status_events;
+    use upsed_lib::protocol::Q1Status;
 
     let base_status = Q1Status {
         grid_voltage_v: 230.0,

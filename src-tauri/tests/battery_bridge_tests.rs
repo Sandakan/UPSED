@@ -1,5 +1,5 @@
-use voltwatch_lib::battery_bridge::BatteryBridge;
-use voltwatch_lib::protocol::Q1Status;
+use upsed_lib::battery_bridge::BatteryBridge;
+use upsed_lib::protocol::Q1Status;
 
 #[test]
 fn bridge_001_disabled_by_default() {
@@ -47,7 +47,7 @@ fn bridge_003_when_disabled_no_os_interaction() {
 
 #[test]
 fn bridge_004_icon_generator_sanity() {
-    use voltwatch_lib::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba};
+    use upsed_lib::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba};
     let rgba = generate_battery_icon_rgba(96, false, false);
     assert_eq!(rgba.len(), 32 * 32 * 4);
 

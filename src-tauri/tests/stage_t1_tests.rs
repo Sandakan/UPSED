@@ -1,12 +1,12 @@
 mod mock_serial;
 use mock_serial::MockSerialPort;
-use voltwatch_lib::gate::{CommandGate, GateError};
-use voltwatch_lib::protocol::{
+use upsed_lib::gate::{CommandGate, GateError};
+use upsed_lib::protocol::{
     decode_response, encode_command, parse_device_id, parse_firmware_version, parse_protocol_id,
     ProtocolError, Q1Status, QpigsStatus, QpiriRatings, QpiwsWarnings, UnlockStage,
     VoltronicCommand,
 };
-use voltwatch_lib::serial::SerialTransport;
+use upsed_lib::serial::SerialTransport;
 
 #[test]
 fn t1_001_qpi_identifies_protocol() {
@@ -238,7 +238,7 @@ fn t1_008_qs_parses_voltronic_qs_status() {
 
 #[test]
 fn t1_009_generate_unique_id_uses_serial_as_primary() {
-    use voltwatch_lib::serial::scanner::generate_unique_id;
+    use upsed_lib::serial::scanner::generate_unique_id;
 
     // When valid QID serial is present, it must be the primary identifier
     let id = generate_unique_id(
@@ -251,7 +251,7 @@ fn t1_009_generate_unique_id_uses_serial_as_primary() {
 
 #[test]
 fn t1_010_generate_unique_id_uses_fallback_instance_and_fw() {
-    use voltwatch_lib::serial::scanner::generate_unique_id;
+    use upsed_lib::serial::scanner::generate_unique_id;
 
     // When QID is absent or empty, fallback must compose instance ID and firmware
     let id = generate_unique_id(

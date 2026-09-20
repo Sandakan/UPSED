@@ -13,8 +13,10 @@ import {
   Bell,
   Plug,
   Loader2,
+  Info,
 } from 'lucide-react';
 import { DiscoveredDevice, UnlockStage } from '../lib/types';
+import { UpsedLogo } from './UpsedLogo';
 
 interface SidebarProps {
   currentTab: string;
@@ -28,6 +30,7 @@ interface SidebarProps {
   safetyStage: UnlockStage;
   criticalCount: number;
   warningCount: number;
+  onOpenAbout?: () => void;
 }
 
 const NAV_GROUPS = [
@@ -70,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   safetyStage,
   criticalCount,
   warningCount,
+  onOpenAbout,
 }) => {
   const { t } = useTranslation(['nav', 'common']);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -123,10 +127,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-1.5 bg-gradient-to-tr from-emerald-600 to-green-500 rounded-lg shadow-lg shadow-emerald-950/40 shrink-0">
           <Shield className="w-4 h-4 text-white" />
         </div>
-        <div>
-          <h1 className="font-bold text-sm text-slate-100 tracking-tight leading-none">
-            VoltWatch™
-          </h1>
+        <div className="min-w-0 flex flex-col justify-center">
+          <UpsedLogo size="sm" className="text-slate-100" />
           <p className="text-[10px] text-slate-500 font-mono mt-0.5">UPS Native Core</p>
         </div>
       </div>
@@ -315,6 +317,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })()}
+
+        {/* About UPSED Modal Trigger */}
+        {onOpenAbout && (
+          <button
+            type="button"
+            onClick={onOpenAbout}
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]"
+          >
+            <Info className="w-4 h-4 shrink-0 text-slate-400" />
+            <span>About UPSED</span>
+          </button>
+        )}
       </div>
 
       {/* ── Safety Gate ─────────────────────────────────────── */}

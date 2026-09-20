@@ -27,12 +27,12 @@ pub fn run() {
                 .targets([
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::LogDir {
-                        file_name: Some("voltwatch".into()),
+                        file_name: Some("upsed".into()),
                     }),
                     Target::new(TargetKind::Webview),
                 ])
                 .level(log::LevelFilter::Debug)
-                .level_for("voltwatch_lib", log::LevelFilter::Trace)
+                .level_for("upsed_lib", log::LevelFilter::Trace)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
@@ -50,13 +50,30 @@ pub fn run() {
             let app_data_dir = app
                 .path()
                 .app_data_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("voltwatch"));
+                .unwrap_or_else(|_| std::env::temp_dir().join("upsed"));
 
             let _ = std::fs::create_dir_all(&app_data_dir);
-            let db_path = app_data_dir.join("voltwatch.db");
+            let db_path = app_data_dir.join("upsed.db");
+
+            // Automated Migration: if upsed.db does not exist or is empty, check legacy voltwatch.db
+            let mut candidate_paths = Vec::new();
+            candidate_paths.push(app_data_dir.join("voltwatch.db"));
+
+            if let Some(parent) = app_data_dir.parent() {
+                candidate_paths.push(parent.join("com.adsan.voltwatch").join("voltwatch.db"));
+                candidate_paths.push(parent.join("voltwatch").join("voltwatch.db"));
+            }
+
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                let appdata_path = std::path::PathBuf::from(appdata);
+                candidate_paths.push(appdata_path.join("com.adsan.voltwatch").join("voltwatch.db"));
+                candidate_paths.push(appdata_path.join("voltwatch").join("voltwatch.db"));
+            }
+
+            db::migrate_legacy_db_if_needed(&db_path, &candidate_paths);
 
             let db =
-                Database::init(db_path).expect("Failed to initialize VoltWatch SQLite database");
+                Database::init(db_path).expect("Failed to initialize UPSED SQLite database");
 
             let initial_interval = db
                 .get_setting("poll_interval_secs")
@@ -176,5 +193,5 @@ pub fn run() {
             commands::is_dev_mode
         ])
         .run(tauri::generate_context!())
-        .expect("error while running VoltWatch application");
+        .expect("error while running UPSED application");
 }

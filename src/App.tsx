@@ -12,7 +12,8 @@ import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Events } from './pages/Events';
 import { Settings, SettingsHandle } from './pages/Settings';
-import { VoltWatchToaster } from './components/VoltWatchToaster';
+import { UpsedToaster } from './components/UpsedToaster';
+import { AboutModal } from './components/AboutModal';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
@@ -34,6 +35,7 @@ export function App() {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [showLeaveConfirmModal, setShowLeaveConfirmModal] = useState(false);
   const [isModalSaving, setIsModalSaving] = useState(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const settingsRef = useRef<SettingsHandle>(null);
 
   // 1. Scan serial and USB ports query
@@ -119,7 +121,7 @@ export function App() {
     if (target && upsMetadata && target.unique_id === upsMetadata.unique_id) {
       if (target.usb_uuid && target.usb_uuid !== upsMetadata.usb_uuid) {
         console.info(
-          `[VoltWatch] Device ${target.unique_id} moved to new USB port (UUID: ${target.usb_uuid})`
+          `[UPSED] Device ${target.unique_id} moved to new USB port (UUID: ${target.usb_uuid})`
         );
         api
           .updateDeviceUsbUuid(
@@ -409,6 +411,7 @@ export function App() {
         safetyStage={safetyStage}
         criticalCount={criticalCount}
         warningCount={warningCount}
+        onOpenAbout={() => setIsAboutModalOpen(true)}
       />
 
       {/* Hovering Main Outlet */}
@@ -490,13 +493,20 @@ export function App() {
               themeMode={themeMode}
               onThemeModeChange={setThemeMode}
               onDirtyChange={setIsSettingsDirty}
+              onOpenAbout={() => setIsAboutModalOpen(true)}
             />
           )}
         </main>
       </div>
 
       {/* Headless Bespoke Toast Notification Container */}
-      <VoltWatchToaster />
+      <UpsedToaster />
+
+      {/* About UPSED Modal */}
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
+      />
 
       {/* Unsaved Changes Navigation Guard Modal */}
       <UnsavedChangesModal

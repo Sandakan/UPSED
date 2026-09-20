@@ -25,8 +25,10 @@ import frSettings from '../locales/fr/settings.json';
 import frModals from '../locales/fr/modals.json';
 import frNotifications from '../locales/fr/notifications.json';
 
-export const LOCALE_STORAGE_KEY = 'voltwatch-locale';
-export const SYSTEM_DETECTED_LANG_KEY = 'voltwatch-use-system-lang';
+export const LOCALE_STORAGE_KEY = 'upsed-locale';
+export const LEGACY_LOCALE_STORAGE_KEY = 'voltwatch-locale';
+export const SYSTEM_DETECTED_LANG_KEY = 'upsed-use-system-lang';
+export const LEGACY_SYSTEM_DETECTED_LANG_KEY = 'voltwatch-use-system-lang';
 
 export const resources = {
   en: {
@@ -63,9 +65,13 @@ export function getSystemLanguage(): 'en' | 'fr' {
   return 'en';
 }
 
-// Check initial stored setting
-const storedPref = typeof localStorage !== 'undefined' ? localStorage.getItem(LOCALE_STORAGE_KEY) : null;
-const useSystem = typeof localStorage !== 'undefined' ? localStorage.getItem(SYSTEM_DETECTED_LANG_KEY) === 'true' : false;
+// Check initial stored setting with legacy fallback
+const storedPref = typeof localStorage !== 'undefined'
+  ? localStorage.getItem(LOCALE_STORAGE_KEY) || localStorage.getItem(LEGACY_LOCALE_STORAGE_KEY)
+  : null;
+const useSystem = typeof localStorage !== 'undefined'
+  ? (localStorage.getItem(SYSTEM_DETECTED_LANG_KEY) ?? localStorage.getItem(LEGACY_SYSTEM_DETECTED_LANG_KEY)) === 'true'
+  : false;
 
 let initialLng = 'en';
 if (useSystem || !storedPref) {
@@ -141,9 +147,9 @@ export async function setAppLanguage(preference: AppLanguageMode) {
  */
 export function getAppLanguageMode(): AppLanguageMode {
   if (typeof localStorage !== 'undefined') {
-    const isSystem = localStorage.getItem(SYSTEM_DETECTED_LANG_KEY) === 'true';
+    const isSystem = (localStorage.getItem(SYSTEM_DETECTED_LANG_KEY) ?? localStorage.getItem(LEGACY_SYSTEM_DETECTED_LANG_KEY)) === 'true';
     if (isSystem) return 'system';
-    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY) || localStorage.getItem(LEGACY_LOCALE_STORAGE_KEY);
     if (saved === 'en' || saved === 'fr') return saved;
   }
   return 'system';

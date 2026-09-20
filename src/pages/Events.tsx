@@ -178,7 +178,7 @@ export const Events: React.FC<EventsProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `voltwatch-events-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `upsed-events-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
   };
 

@@ -1,6 +1,6 @@
-# VoltWatch — Architectural Internals & Design Guide
+# UPSED — Architectural Internals & Design Guide
 
-This document describes the architectural layers, data flows, thread models, and security boundaries within **VoltWatch**.
+This document describes the architectural layers, data flows, thread models, and security boundaries within **UPSED** (pronounced *"U-P-S'd"*, `/juː-piː-ɛst/`).
 
 ---
 
@@ -89,7 +89,7 @@ SerialTransport::send_command(&cmd_str) ──► UPS Hardware
 
 ## 🗄️ 3. Database Schema (SQLite)
 
-Located at `%APPDATA%\com.adsan.voltwatch\voltwatch.db` (initialized via `rusqlite` in `src-tauri/src/db/mod.rs` using `AppHandle::path().app_data_dir()`):
+Located at `%APPDATA%\com.adsandakannipunajith.upsed\upsed.db` (initialized via `rusqlite` in `src-tauri/src/db/mod.rs` using `AppHandle::path().app_data_dir()`):
 
 > [!NOTE]
 > **Dev Watcher Invariant:** The database file is intentionally relocated outside the `src-tauri/` project folder. Storing the active database within `src-tauri/` causes Tauri's dev watcher to detect file modification events on every telemetry polling cycle and trigger infinite recompilation loops.
@@ -148,5 +148,4 @@ CREATE TABLE IF NOT EXISTS settings (
 - Targets simultaneously:
   1. **Standard Output (`stdout`):** Colored terminal stream during development.
   2. **Webview Console:** IPC log events surfaced to browser DevTools.
-  3. **Local Rotating Log File:** Stored at `%LOCALAPPDATA%\com.adsan.voltwatch\logs\voltwatch.log` (1 MB max size, 2 rotated backups).
-
+  3. **Local Rotating Log File:** Stored at `%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log` (1 MB max size, 2 rotated backups).

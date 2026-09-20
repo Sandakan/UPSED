@@ -39,9 +39,9 @@
   },
   "systemSection": {
     "title": "System & Startup Integration",
-    "desc": "Configure how VoltWatch interacts with Windows background services and system tray.",
+    "desc": "Configure how UPSED interacts with Windows background services and system tray.",
     "autostartTitle": "Launch on Windows Startup",
-    "autostartDesc": "Starts VoltWatch in the background automatically upon user login.",
+    "autostartDesc": "Starts UPSED in the background automatically upon user login.",
     "autostartDevNotice": "Autostart disabled during npm run tauri dev to avoid dev build conflicts.",
     "minimizeTrayTitle": "Close Button Minimizes to System Tray",
     "minimizeTrayDesc": "Keeps UPS background monitoring active in the tray when the window is closed.",

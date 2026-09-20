@@ -1,5 +1,5 @@
-use voltwatch_lib::protocol::{decode_response, parse_protocol_id};
-use voltwatch_lib::serial::{is_candidate_ups_hid, scan_available_ports};
+use upsed_lib::protocol::{decode_response, parse_protocol_id};
+use upsed_lib::serial::{is_candidate_ups_hid, scan_available_ports};
 
 #[test]
 fn hid_001_candidate_ups_known_vids_recognized() {
@@ -64,8 +64,8 @@ fn hid_004_live_hardware_scan_discovers_ups() {
 #[test]
 #[ignore]
 fn hid_005_live_hardware_read_only_q1_telemetry() {
-    use voltwatch_lib::protocol::Q1Status;
-    use voltwatch_lib::serial::{HidTransport, SerialTransport};
+    use upsed_lib::protocol::Q1Status;
+    use upsed_lib::serial::{HidTransport, SerialTransport};
 
     let devices = scan_available_ports();
     assert!(!devices.is_empty(), "No devices found");

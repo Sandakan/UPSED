@@ -9,7 +9,7 @@ pub async fn run_background_monitor(
     state: AppState,
     mut interval_rx: tokio::sync::watch::Receiver<u64>,
 ) {
-    tracing::info!("Starting VoltWatch background UPS monitor task");
+    tracing::info!("Starting UPSED background UPS monitor task");
 
     // Allow initial application startup to settle before first probe
     tokio::time::sleep(Duration::from_millis(300)).await;

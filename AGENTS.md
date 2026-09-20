@@ -1,6 +1,6 @@
-# VoltWatch — Agent Guidelines & Invariants
+# UPSED — Agent Guidelines & Invariants
 
-This document establishes the universal rules, safety constraints, and architectural invariants that any AI agent or developer must adhere to when working within the **VoltWatch** repository.
+This document establishes the universal rules, safety constraints, and architectural invariants that any AI agent or developer must adhere to when working within the **UPSED** (pronounced *"U-P-S'd"*, `/juː-piː-ɛst/`) repository.
 
 ---
 
@@ -19,15 +19,15 @@ This document establishes the universal rules, safety constraints, and architect
 - **Notification Presentation Invariant:** When presenting hardware alarms and warning bitmasks (such as ViewPower `a0`–`a69` or state changes) for user notifications and toasts:
   - The warning/event text MUST serve as the **Title**.
   - A descriptive, user-friendly explanation of the condition and recommended action MUST serve as the **Description**.
-  - In-app toasts must use `react-hot-toast` in headless mode; OS Action Center notifications must be sent via `@tauri-apps/plugin-notification` when the window is out of focus, minimized, or in tray.
-- **Database Storage Path Invariant:** The embedded SQLite database (`voltwatch.db`) must never be placed inside `src-tauri/` or project source trees to prevent Tauri dev watcher hot-reload infinite loops. It must always reside in the platform-specific app data directory (`AppHandle::path().app_data_dir()`).
+  - In-app toasts must use `react-hot-toast` in headless mode (`UpsedToaster.tsx`); OS Action Center notifications must be sent via `@tauri-apps/plugin-notification` when the window is out of focus, minimized, or in tray.
+- **Database Storage Path Invariant:** The embedded SQLite database (`upsed.db`) must never be placed inside `src-tauri/` or project source trees to prevent Tauri dev watcher hot-reload infinite loops. It must always reside in the platform-specific app data directory (`AppHandle::path().app_data_dir()`).
 
 ---
 
 ## ⚖️ 2. Clean-Room Legal & Fair-Use Invariants
 
 - **Zero Proprietary Code:** Do not import, decompile, copy, or redistribute any Java bytecode, JSP files, XML configurations, or binary assets from Voltronic Power's ViewPower software.
-- **Interoperability Exemption:** VoltWatch is developed strictly under **17 U.S.C. § 1201(f)** (DMCA reverse engineering for interoperability) and **EU Directive 2009/24/EC Article 6**. The Voltronic serial protocol is an open industrial hardware communication interface.
+- **Interoperability Exemption:** UPSED is developed strictly under **17 U.S.C. § 1201(f)** (DMCA reverse engineering for interoperability) and **EU Directive 2009/24/EC Article 6**. The Voltronic serial protocol is an open industrial hardware communication interface.
 - **Independent Expression:** All documentation, UI components, data structures, and algorithms must be original, independent implementations.
 
 ---
@@ -57,8 +57,6 @@ This document establishes the universal rules, safety constraints, and architect
 
 ## 📁 5. Tech Stack Standards
 
-- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-notification`, `tauri-plugin-window-state`, `tauri-plugin-log` (stdout + local rotating log file).
+- **Backend:** Rust 2021 edition, Tauri v2, `tokio`, `serialport`, `hidapi` (USB HID), `rusqlite`, `thiserror`, `serde`, `tauri-plugin-notification`, `tauri-plugin-window-state`, `tauri-plugin-log` (stdout + local rotating log file `upsed.log`).
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Recharts, TanStack Query, `react-hot-toast` (headless).
 - **Code Style:** Idiomatic Rust (`cargo clippy --tests -- -D warnings`), strict TypeScript (no `any` where typed interfaces exist).
-
-

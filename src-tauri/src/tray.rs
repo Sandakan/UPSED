@@ -9,8 +9,8 @@ pub const TRAY_ID: &str = "battery-tray";
 
 /// Initializes the Windows / Desktop system tray icon.
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let open_item = MenuItem::with_id(app, "open", "Open VoltWatch", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit VoltWatch", true, None::<&str>)?;
+    let open_item = MenuItem::with_id(app, "open", "Open UPSED", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit UPSED", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
 
     let icon_bytes = generate_battery_icon_rgba(100, false, false);
@@ -18,7 +18,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("VoltWatch UPS Monitor")
+        .tooltip("UPSED UPS Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -82,7 +82,7 @@ pub fn update_tray_state(app: &AppHandle, is_enabled: bool, status: Option<&Q1St
             };
 
             let tooltip = format!(
-                "VoltWatch UPS: {}% ({:.1}V)\nMode: {} | Load: {}%",
+                "UPSED: {}% ({:.1}V)\nMode: {} | Load: {}%",
                 pct, status.battery_voltage_v, mode_str, status.output_load_pct
             );
             let _ = tray.set_tooltip(Some(tooltip));
@@ -91,7 +91,7 @@ pub fn update_tray_state(app: &AppHandle, is_enabled: bool, status: Option<&Q1St
             let img = Image::new_owned(icon_bytes, 32, 32);
             let _ = tray.set_icon(Some(img));
         } else {
-            let _ = tray.set_tooltip(Some("VoltWatch UPS: Waiting for telemetry..."));
+            let _ = tray.set_tooltip(Some("UPSED: Waiting for telemetry..."));
         }
     }
 }

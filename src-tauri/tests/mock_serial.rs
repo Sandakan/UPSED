@@ -1,5 +1,5 @@
-use voltwatch_lib::protocol::ProtocolError;
-use voltwatch_lib::serial::SerialTransport;
+use upsed_lib::protocol::ProtocolError;
+use upsed_lib::serial::SerialTransport;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

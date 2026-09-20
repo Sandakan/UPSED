@@ -142,7 +142,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
             {lastError}
           </div>
           <p className="text-xs text-slate-400 max-w-sm mt-3">
-            {t('dashboard:discovery.errorDesc', { portName, defaultValue: `VoltWatch encountered an issue communicating on ${portName}. Check device power and cable connection.` })}
+            {t('dashboard:discovery.errorDesc', { portName, defaultValue: `UPSED encountered an issue communicating on ${portName}. Check device power and cable connection.` })}
           </p>
           {onRescan && (
             <button
@@ -209,7 +209,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
         </div>
         <h3 className="text-lg font-semibold text-slate-200">{t('dashboard:discovery.noConnectedUps', 'No Connected UPS Detected')}</h3>
         <p className="text-xs text-slate-400 max-w-md mt-1.5 leading-relaxed">
-          {t('dashboard:discovery.noUpsDesc', 'VoltWatch could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.')}
+          {t('dashboard:discovery.noUpsDesc', 'UPSED could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.')}
         </p>
         <div className="mt-4 p-3.5 max-w-md bg-white/[0.02] border border-white/[0.06] rounded-xl text-left text-xs space-y-1.5 text-slate-400">
           <p className="font-semibold text-slate-300">{t('dashboard:discovery.checklistTitle', 'Troubleshooting Checklist:')}</p>
@@ -413,7 +413,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
               <span>{t('dashboard:architecture.title', 'Safety & Clean-Room Architecture')}</span>
             </h4>
             <p className="text-xs text-slate-400 leading-relaxed">
-              {t('dashboard:architecture.desc', 'VoltWatch operates directly over serial/USB with zero embedded web servers, RMI, or Struts2 middleware. All protocol communication is strictly validated and safety-gated to protect device firmware.')}
+              {t('dashboard:architecture.desc', 'UPSED operates directly over serial/USB with zero embedded web servers, RMI, or Struts2 middleware. All protocol communication is strictly validated and safety-gated to protect device firmware.')}
             </p>
           </div>
           <div className="text-[11px] font-mono text-slate-500 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 mt-3">

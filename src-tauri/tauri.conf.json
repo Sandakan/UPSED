@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "voltwatch",
+  "productName": "UPSED",
   "version": "0.1.0",
-  "identifier": "com.adsan.voltwatch",
+  "identifier": "com.adsandakannipunajith.upsed",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "voltwatch",
+        "title": "UPSED",
         "width": 1366,
         "height": 768,
         "visible": false

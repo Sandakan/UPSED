@@ -12,7 +12,7 @@
   "discovery": {
     "connectionError": "Connection Error",
     "diagnosticStatus": "Diagnostic status:",
-    "errorDesc": "VoltWatch encountered an issue communicating on {{portName}}. Check device power and cable connection.",
+    "errorDesc": "UPSED encountered an issue communicating on {{portName}}. Check device power and cable connection.",
     "retryDiscovery": "Retry Discovery",
     "autoDiscoveryActive": "Auto-Discovery Active",
     "discoveringHardware": "Discovering Connected Hardware...",
@@ -27,7 +27,7 @@
     "scanningHardwarePorts": "Scanning Hardware Ports...",
     "scanningComPorts": "Scanning COM ports and USB HID devices for Voltronic UPS...",
     "noConnectedUps": "No Connected UPS Detected",
-    "noUpsDesc": "VoltWatch could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.",
+    "noUpsDesc": "UPSED could not detect a connected Voltronic UPS on available serial COM ports or USB HID interfaces.",
     "checklistTitle": "Troubleshooting Checklist:",
     "checkCable": "Verify the USB or RS-232 serial cable is securely plugged in.",
     "checkPower": "Ensure the UPS power switch is turned ON.",
@@ -51,7 +51,7 @@
   },
   "architecture": {
     "title": "Safety & Clean-Room Architecture",
-    "desc": "VoltWatch operates directly over serial/USB with zero embedded web servers, RMI, or Struts2 middleware. All protocol communication is strictly validated and safety-gated to protect device firmware.",
+    "desc": "UPSED operates directly over serial/USB with zero embedded web servers, RMI, or Struts2 middleware. All protocol communication is strictly validated and safety-gated to protect device firmware.",
     "portLabel": "Hardware Port: {{port}} • Baud: 2400 8N1 • Protocol: Voltronic Q1"
   },
   "topology": {

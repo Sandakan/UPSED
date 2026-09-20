@@ -9,13 +9,13 @@ import i18n from './i18n';
 
 /**
  * Mapping table of warning labels and rich user-facing explanations.
- * Covers both ViewPower protocol warning codes (a0-a69) and VoltWatch hardware transition events.
+ * Covers both ViewPower protocol warning codes (a0-a69) and UPSED hardware transition events.
  */
 export const EVENT_DETAILS: Record<
   string,
   { title: string; defaultDescription: string }
 > = {
-  // VoltWatch State Transition Events
+  // UPSED State Transition Events
   UTILITY_FAIL: {
     title: 'AC Utility Power Failure',
     defaultDescription:
@@ -261,7 +261,7 @@ export async function handleIncomingUpsEvent(
 
       if (permitted) {
         sendNotification({
-          title: `VoltWatch: ${title}`,
+          title: `UPSED: ${title}`,
           body: `${description} (${event.port_name})`,
         });
       }

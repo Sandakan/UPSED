@@ -1,12 +1,12 @@
 [package]
-name = "voltwatch"
+name = "upsed"
 version = "0.1.0"
 description = "A modern, secure, cross-platform Voltronic UPS manager"
-authors = ["VoltWatch Contributors"]
+authors = ["UPSED Contributors"]
 edition = "2021"
 
 [lib]
-name = "voltwatch_lib"
+name = "upsed_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

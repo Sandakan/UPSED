@@ -1,8 +1,8 @@
 mod mock_serial;
 use mock_serial::MockSerialPort;
-use voltwatch_lib::gate::{CommandGate, GateError};
-use voltwatch_lib::protocol::{UnlockStage, VoltronicCommand};
-use voltwatch_lib::serial::SerialTransport;
+use upsed_lib::gate::{CommandGate, GateError};
+use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
+use upsed_lib::serial::SerialTransport;
 
 #[test]
 fn t4_001_shutdown_with_delay_encodes_and_executes_in_t4() {

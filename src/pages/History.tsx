@@ -57,7 +57,7 @@ export const History: React.FC<HistoryProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `voltwatch-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `upsed-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
     } else {
       const headers = 'ID,Timestamp,Port,Type,Message\n';
@@ -71,7 +71,7 @@ export const History: React.FC<HistoryProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `voltwatch-events-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `upsed-events-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
     }
   };

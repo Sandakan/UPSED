@@ -1,8 +1,8 @@
 mod mock_serial;
 use mock_serial::MockSerialPort;
-use voltwatch_lib::gate::{CommandGate, GateError};
-use voltwatch_lib::protocol::{UnlockStage, VoltronicCommand};
-use voltwatch_lib::serial::SerialTransport;
+use upsed_lib::gate::{CommandGate, GateError};
+use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
+use upsed_lib::serial::SerialTransport;
 
 #[test]
 fn t3_001_set_charge_current_encodes_correctly() {

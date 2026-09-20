@@ -1,5 +1,5 @@
 /**
- * VoltWatch Battery & Telemetry Math Engine
+ * UPSED Battery & Telemetry Math Engine
  *
  * Implements calibrated cell-level State-of-Charge (SoC) curves and
  * Peukert load-derated discharge runtime estimation aligned with

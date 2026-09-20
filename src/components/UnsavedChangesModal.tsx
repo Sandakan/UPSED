@@ -70,7 +70,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
             : 'scale-95 translate-y-2 opacity-0'
         }`}
       >
-        {/* Header with Icon and Close Button matching VoltWatch standards */}
+        {/* Header with Icon and Close Button matching UPSED standards */}
         <div className="p-5 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40">
           <div className="flex items-center space-x-3.5">
             <div className="p-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-400 shrink-0">

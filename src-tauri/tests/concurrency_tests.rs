@@ -1,9 +1,9 @@
 mod mock_serial;
 use mock_serial::MockSerialPort;
-use voltwatch_lib::gate::CommandGate;
-use voltwatch_lib::multi_port::MultiPortManager;
-use voltwatch_lib::protocol::{DeviceCapabilities, UnlockStage, VoltronicCommand};
-use voltwatch_lib::serial::DiscoveredDevice;
+use upsed_lib::gate::CommandGate;
+use upsed_lib::multi_port::MultiPortManager;
+use upsed_lib::protocol::{DeviceCapabilities, UnlockStage, VoltronicCommand};
+use upsed_lib::serial::DiscoveredDevice;
 
 #[test]
 fn multi_001_register_multiple_devices() {
