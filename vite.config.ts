@@ -1,13 +1,30 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-// @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
+
+// @ts-expect-error The JavaScript helper does not currently have a declaration file.
+import { generateLogoComponent } from "./scripts/generate-logo.js";
+
+function upsedLogoSync() {
+  return {
+    name: "upsed-logo-sync",
+    buildStart() {
+      generateLogoComponent();
+    },
+    handleHotUpdate({ file }: { file: string }) {
+      if (file.endsWith("upsed.svg") || file.endsWith("upsed-dark.svg")) {
+        generateLogoComponent();
+      }
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [
+    upsedLogoSync(),
     react(),
     tailwindcss(),
     {

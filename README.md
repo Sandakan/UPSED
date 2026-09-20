@@ -1,4 +1,12 @@
-# 🛡️ UPSED — Cross-Platform Voltronic UPS Manager
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/upsed-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="public/upsed-light.svg">
+    <img src="public/upsed-dark.svg" alt="UPSED Logo" width="360">
+  </picture>
+</p>
+
+# UPSED — Cross-Platform Voltronic UPS Manager
 
 > **Pronunciation:** */juː-piː-ɛst/* • **“U-P-S'd”** (you-pee-ess-d) — *Seamlessly protected and uninterrupted by an Uninterruptible Power Supply.*
 

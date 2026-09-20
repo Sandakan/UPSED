@@ -6,7 +6,6 @@ import {
   Wrench,
   History,
   Settings,
-  Shield,
   Search,
   ChevronDown,
   CheckCircle2,
@@ -123,14 +122,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       style={{ backgroundColor: 'var(--sidebar-bg)' }}
     >
       {/* ── Brand ───────────────────────────────────────────── */}
-      <div className="px-4 pt-5 pb-4 flex items-center space-x-2.5">
-        <div className="p-1.5 bg-gradient-to-tr from-emerald-600 to-green-500 rounded-lg shadow-lg shadow-emerald-950/40 shrink-0">
-          <Shield className="w-4 h-4 text-white" />
-        </div>
-        <div className="min-w-0 flex flex-col justify-center">
-          <UpsedLogo size="sm" className="text-slate-100" />
-          <p className="text-[10px] text-slate-500 font-mono mt-0.5">UPS Native Core</p>
-        </div>
+      <div className="px-4 pt-5 pb-4 flex items-center">
+        <UpsedLogo size="lg" className="text-slate-100" />
       </div>
 
       {/* ── UPS Device Dropdown ──────────────────────────────── */}
@@ -318,32 +311,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
           );
         })()}
 
-        {/* About UPSED Modal Trigger */}
+        {/* About Modal Trigger */}
         {onOpenAbout && (
           <button
             type="button"
             onClick={onOpenAbout}
-            className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]"
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-slate-300 hover:text-white hover:bg-white/[0.04]"
+            style={navItemStyle(false)}
           >
             <Info className="w-4 h-4 shrink-0 text-slate-400" />
-            <span>About UPSED</span>
+            <span>{t('nav:items.about', 'About')}</span>
           </button>
         )}
       </div>
 
       {/* ── Safety Gate ─────────────────────────────────────── */}
       <div
-        className="px-3 pb-5 pt-3"
+        className="px-3 py-2"
         style={{ borderTop: '1px solid var(--border-subtle)' }}
       >
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
             {t('nav:safetyGate.title', 'Safety Gate')}
           </span>
           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
         </div>
         <div
-          className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold text-center ${getStageBadgeStyle(safetyStage)}`}
+          className={`px-2 py-0.5 rounded-md border text-[10.5px] font-medium text-center ${getStageBadgeStyle(safetyStage)}`}
         >
           {getStageLabel(safetyStage)}
         </div>

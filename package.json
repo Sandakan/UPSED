@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "devtools": "react-devtools",
     "app:preview": "start ./src-tauri/target/release/upsed.exe",
-    "app:build": "tauri build"
+    "app:build": "tauri build",
+    "sync:logo": "node scripts/generate-logo.js"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.3.0",
