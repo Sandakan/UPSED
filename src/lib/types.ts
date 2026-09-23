@@ -108,3 +108,10 @@ export interface ProbeStatusEvent {
   device_name?: string | null;
 }
 
+export interface OutageInterval {
+  start: string;
+  end: string;
+  isActive?: boolean;
+}
+
+

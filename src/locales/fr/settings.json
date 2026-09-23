@@ -10,7 +10,9 @@
     "darkTitle": "Thème sombre",
     "darkDesc": "Design SaaS sombre en noir obsidienne & anthracite",
     "lightTitle": "Thème clair",
-    "lightDesc": "Design diurne lumineux à fort contraste"
+    "lightDesc": "Design diurne lumineux à fort contraste",
+    "outageHighlightsTitle": "Mettre en évidence les coupures de courant",
+    "outageHighlightsDesc": "Afficher des bandes d'arrière-plan rouges ombrées et des indicateurs pendant les pannes de secteur."
   },
   "languageSection": {
     "title": "Langue & Régionalisation",

@@ -7,12 +7,15 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  ReferenceArea,
 } from 'recharts';
+import { OutageInterval } from '../lib/types';
 
 export interface MetricDataPoint {
   time: string;
   value: number;
   value2?: number;
+  isOutage?: boolean;
 }
 
 interface MetricChartCardProps {
@@ -30,6 +33,8 @@ interface MetricChartCardProps {
   showStats?: boolean;
   gradientId: string;
   statusBadge?: React.ReactNode;
+  outageIntervals?: OutageInterval[];
+  showOutageHighlights?: boolean;
 }
 
 const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
@@ -47,7 +52,10 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   showStats = true,
   gradientId,
   statusBadge,
+  outageIntervals,
+  showOutageHighlights = true,
 }) => {
+
   const stats = useMemo(() => {
     if (!data.length) return null;
     const values = data.map((d) => d.value).filter((v) => !isNaN(v));
@@ -138,16 +146,60 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 axisLine={false}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--card-bg)',
-                  borderColor: 'var(--card-border)',
-                  borderRadius: '0.75rem',
-                  fontSize: '11px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                  color: 'var(--color-slate-100)',
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || !payload.length) return null;
+                  const isOutage = payload[0]?.payload?.isOutage;
+                  return (
+                    <div
+                      className="rounded-xl p-2.5 shadow-lg border text-xs"
+                      style={{
+                        backgroundColor: 'var(--card-bg, #161922)',
+                        borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : 'var(--card-border, rgba(255,255,255,0.1))',
+                        color: 'var(--color-slate-100, #f8fafc)',
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                        {isOutage && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
+                            Power Outage (Battery Mode)
+                          </span>
+                        )}
+                      </div>
+                      {payload.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                          <span style={{ color: item.color }}>{item.name}:</span>
+                          <span className="font-semibold text-slate-100">
+                            {item.value} {unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
                 }}
-                labelStyle={{ color: 'var(--color-slate-400)', marginBottom: '2px' }}
               />
+              {showOutageHighlights &&
+                outageIntervals &&
+                outageIntervals.map((interval, idx) => (
+                  <ReferenceArea
+                    key={`outage-${idx}`}
+                    x1={interval.start}
+                    x2={interval.end}
+                    fill="#ef4444"
+                    fillOpacity={0.16}
+                    stroke="#ef4444"
+                    strokeOpacity={0.35}
+                    strokeDasharray="3 3"
+                    ifOverflow="extendDomain"
+                    label={{
+                      value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
+                      position: 'insideTop',
+                      fill: '#f87171',
+                      fontSize: 9,
+                      fontWeight: 600,
+                    }}
+                  />
+                ))}
               <Area
                 type="monotone"
                 dataKey="value"
@@ -186,7 +238,9 @@ export const MetricChartCard = React.memo(MetricChartCardComponent, (prev, next)
     prev.color !== next.color ||
     prev.unit !== next.unit ||
     prev.showStats !== next.showStats ||
-    prev.gradientId !== next.gradientId
+    prev.gradientId !== next.gradientId ||
+    prev.showOutageHighlights !== next.showOutageHighlights ||
+    prev.outageIntervals !== next.outageIntervals
   ) {
     return false;
   }
@@ -197,5 +251,10 @@ export const MetricChartCard = React.memo(MetricChartCardComponent, (prev, next)
 
   const prevLast = prev.data[prev.data.length - 1];
   const nextLast = next.data[next.data.length - 1];
-  return prevLast.time === nextLast.time && prevLast.value === nextLast.value && prevLast.value2 === nextLast.value2;
+  return (
+    prevLast.time === nextLast.time &&
+    prevLast.value === nextLast.value &&
+    prevLast.value2 === nextLast.value2 &&
+    prevLast.isOutage === nextLast.isOutage
+  );
 });

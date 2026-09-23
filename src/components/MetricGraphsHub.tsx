@@ -21,8 +21,9 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
+  ReferenceArea,
 } from 'recharts';
-import { Q1Status, TelemetryRecord, UpsMetadata } from '../lib/types';
+import { Q1Status, TelemetryRecord, UpsMetadata, EventLogRecord } from '../lib/types';
 import { MetricChartCard } from './MetricChartCard';
 import {
   calculateActiveWatts,
@@ -30,11 +31,14 @@ import {
   calculateEstimatedRuntime,
   detectNominalVoltage,
 } from '../lib/battery';
+import { detectOutageDetails } from '../lib/outage';
 
 interface MetricGraphsHubProps {
   status: Q1Status;
   history: TelemetryRecord[];
   metadata?: UpsMetadata | null;
+  events?: EventLogRecord[];
+  showOutageHighlights?: boolean;
 }
 
 type ViewMode = 'grid' | 'categories';
@@ -46,6 +50,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   status,
   history,
   metadata,
+  events = [],
+  showOutageHighlights = true,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('categories');
   const [activeCategory, setActiveCategory] = useState<CategoryTab>('voltage');
@@ -80,9 +86,24 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       ? calculateActiveWatts(metadata.rated_va, metadata.power_factor || 0.8)
       : 600);
 
+  // Detect outage intervals and per-sample states
+  const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
+    const samples = visibleHistory.map((rec) => {
+      const timeStr = rec.timestamp.includes('T')
+        ? rec.timestamp.split('T')[1].slice(0, 8)
+        : rec.timestamp.slice(-8);
+      return {
+        time: timeStr,
+        grid_voltage: rec.grid_voltage,
+        rawTimestamp: rec.timestamp,
+      };
+    });
+    return detectOutageDetails(samples, events, status.utility_fail);
+  }, [visibleHistory, events, status.utility_fail]);
+
   // Map history records into clean data points for all 10 metrics
   const telemetryData = useMemo(() => {
-    return visibleHistory.map((rec) => {
+    return visibleHistory.map((rec, idx) => {
       const timeStr = rec.timestamp.includes('T')
         ? rec.timestamp.split('T')[1].slice(0, 8)
         : rec.timestamp.slice(-8);
@@ -119,9 +140,10 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
         battery_soc: batPct,
         temperature_c: rec.temperature_c,
         runtime_mins: runtimeMins,
+        isOutage: isOutageMap[idx] ?? false,
       };
     });
-  }, [visibleHistory, nominalBat, ratedW, metadata, status.grid_frequency_hz, status.output_frequency_hz]);
+  }, [visibleHistory, nominalBat, ratedW, metadata, status.grid_frequency_hz, status.output_frequency_hz, isOutageMap]);
 
   // Current calculated metrics
   const currentBatPct = calculateBatterySoC(
@@ -159,25 +181,27 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     frequencyCombined,
   } = useMemo(() => {
     return {
-      gridVData: telemetryData.map((d) => ({ time: d.time, value: d.grid_voltage })),
-      outVData: telemetryData.map((d) => ({ time: d.time, value: d.output_voltage })),
-      gridFData: telemetryData.map((d) => ({ time: d.time, value: d.grid_frequency })),
-      outFData: telemetryData.map((d) => ({ time: d.time, value: d.output_frequency })),
-      loadData: telemetryData.map((d) => ({ time: d.time, value: d.load_pct })),
-      wattsData: telemetryData.map((d) => ({ time: d.time, value: d.output_watts })),
-      batVData: telemetryData.map((d) => ({ time: d.time, value: d.battery_voltage })),
-      batSocData: telemetryData.map((d) => ({ time: d.time, value: d.battery_soc })),
-      tempData: telemetryData.map((d) => ({ time: d.time, value: d.temperature_c })),
-      runtimeData: telemetryData.map((d) => ({ time: d.time, value: d.runtime_mins })),
+      gridVData: telemetryData.map((d) => ({ time: d.time, value: d.grid_voltage, isOutage: d.isOutage })),
+      outVData: telemetryData.map((d) => ({ time: d.time, value: d.output_voltage, isOutage: d.isOutage })),
+      gridFData: telemetryData.map((d) => ({ time: d.time, value: d.grid_frequency, isOutage: d.isOutage })),
+      outFData: telemetryData.map((d) => ({ time: d.time, value: d.output_frequency, isOutage: d.isOutage })),
+      loadData: telemetryData.map((d) => ({ time: d.time, value: d.load_pct, isOutage: d.isOutage })),
+      wattsData: telemetryData.map((d) => ({ time: d.time, value: d.output_watts, isOutage: d.isOutage })),
+      batVData: telemetryData.map((d) => ({ time: d.time, value: d.battery_voltage, isOutage: d.isOutage })),
+      batSocData: telemetryData.map((d) => ({ time: d.time, value: d.battery_soc, isOutage: d.isOutage })),
+      tempData: telemetryData.map((d) => ({ time: d.time, value: d.temperature_c, isOutage: d.isOutage })),
+      runtimeData: telemetryData.map((d) => ({ time: d.time, value: d.runtime_mins, isOutage: d.isOutage })),
       voltageCombined: telemetryData.map((d) => ({
         time: d.time,
         value: d.grid_voltage,
         value2: d.output_voltage,
+        isOutage: d.isOutage,
       })),
       frequencyCombined: telemetryData.map((d) => ({
         time: d.time,
         value: d.grid_frequency,
         value2: d.output_frequency,
+        isOutage: d.isOutage,
       })),
     };
   }, [telemetryData]);
@@ -233,6 +257,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Grid V"
             gradientId="all-grid-v"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'out-v':
@@ -248,6 +274,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Output V"
             gradientId="all-out-v"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'grid-f':
@@ -263,6 +291,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Input Hz"
             gradientId="all-grid-f"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'out-f':
@@ -278,6 +308,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Output Hz"
             gradientId="all-out-f"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'load':
@@ -294,6 +326,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             domain={[0, 100]}
             gradientId="all-load"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'watts':
@@ -309,6 +343,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Watts"
             gradientId="all-watts"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'bat-v':
@@ -324,6 +360,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Battery V"
             gradientId="all-bat-v"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'bat-soc':
@@ -340,6 +378,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             domain={[0, 100]}
             gradientId="all-bat-soc"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'temp':
@@ -355,6 +395,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Temp °C"
             gradientId="all-temp"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       case 'runtime':
@@ -370,6 +412,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             name1="Runtime"
             gradientId="all-runtime"
             height={150}
+            outageIntervals={outageIntervals}
+            showOutageHighlights={showOutageHighlights}
           />
         );
       default:
@@ -523,14 +567,60 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="V" />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#334155',
-                        borderRadius: '0.75rem',
-                        fontSize: '12px',
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const isOutage = payload[0]?.payload?.isOutage;
+                        return (
+                          <div
+                            className="rounded-xl p-2.5 shadow-lg border text-xs"
+                            style={{
+                              backgroundColor: '#0f172a',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : '#334155',
+                              color: '#f8fafc',
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              {isOutage && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
+                                  Power Outage (Battery Mode)
+                                </span>
+                              )}
+                            </div>
+                            {payload.map((item, idx) => (
+                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                <span style={{ color: item.color }}>{item.name}:</span>
+                                <span className="font-semibold text-slate-100">
+                                  {item.value} V
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
                       }}
                     />
                     <Legend />
+                    {showOutageHighlights &&
+                      outageIntervals.map((interval, idx) => (
+                        <ReferenceArea
+                          key={`outage-v-${idx}`}
+                          x1={interval.start}
+                          x2={interval.end}
+                          fill="#ef4444"
+                          fillOpacity={0.16}
+                          stroke="#ef4444"
+                          strokeOpacity={0.35}
+                          strokeDasharray="3 3"
+                          ifOverflow="extendDomain"
+                          label={{
+                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
+                            position: 'insideTop',
+                            fill: '#f87171',
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        />
+                      ))}
                     <Area
                       type="monotone"
                       dataKey="value"
@@ -567,6 +657,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Grid Voltage"
                   gradientId="card-grid-v"
                   height={130}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
                 <MetricChartCard
                   title="Output Voltage"
@@ -578,6 +670,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Output Voltage"
                   gradientId="card-out-v"
                   height={130}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
               </div>
             </div>
@@ -616,14 +710,60 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="Hz" />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#334155',
-                        borderRadius: '0.75rem',
-                        fontSize: '12px',
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const isOutage = payload[0]?.payload?.isOutage;
+                        return (
+                          <div
+                            className="rounded-xl p-2.5 shadow-lg border text-xs"
+                            style={{
+                              backgroundColor: '#0f172a',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : '#334155',
+                              color: '#f8fafc',
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              {isOutage && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
+                                  Power Outage (Battery Mode)
+                                </span>
+                              )}
+                            </div>
+                            {payload.map((item, idx) => (
+                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                <span style={{ color: item.color }}>{item.name}:</span>
+                                <span className="font-semibold text-slate-100">
+                                  {item.value} Hz
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
                       }}
                     />
                     <Legend />
+                    {showOutageHighlights &&
+                      outageIntervals.map((interval, idx) => (
+                        <ReferenceArea
+                          key={`outage-f-${idx}`}
+                          x1={interval.start}
+                          x2={interval.end}
+                          fill="#ef4444"
+                          fillOpacity={0.16}
+                          stroke="#ef4444"
+                          strokeOpacity={0.35}
+                          strokeDasharray="3 3"
+                          ifOverflow="extendDomain"
+                          label={{
+                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
+                            position: 'insideTop',
+                            fill: '#f87171',
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        />
+                      ))}
                     <Area
                       type="monotone"
                       dataKey="value"
@@ -659,6 +799,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Grid Hz"
                   gradientId="card-grid-f"
                   height={130}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
                 <MetricChartCard
                   title="Output Frequency"
@@ -670,6 +812,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Output Hz"
                   gradientId="card-out-f"
                   height={130}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
               </div>
             </div>
@@ -705,6 +849,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   domain={[0, 100]}
                   gradientId="card-load"
                   height={220}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
                 <MetricChartCard
                   title="Active Output Power"
@@ -716,6 +862,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Active Watts"
                   gradientId="card-watts"
                   height={220}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
               </div>
             </div>
@@ -751,6 +899,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   domain={[0, 100]}
                   gradientId="card-bat-soc"
                   height={220}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
                 <MetricChartCard
                   title="Battery Bus Voltage"
@@ -762,6 +912,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   name1="Battery Voltage"
                   gradientId="card-bat-v"
                   height={220}
+                  outageIntervals={outageIntervals}
+                  showOutageHighlights={showOutageHighlights}
                 />
               </div>
             </div>
@@ -790,6 +942,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                 domain={[0, 70]}
                 gradientId="card-temp"
                 height={260}
+                outageIntervals={outageIntervals}
+                showOutageHighlights={showOutageHighlights}
               />
             </div>
           )}
@@ -816,6 +970,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                 name1="Runtime"
                 gradientId="card-runtime"
                 height={260}
+                outageIntervals={outageIntervals}
+                showOutageHighlights={showOutageHighlights}
               />
             </div>
           )}

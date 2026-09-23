@@ -46,6 +46,8 @@ export interface SettingsProps {
   onInAppToastsChange: (val: boolean) => void;
   themeMode: ThemeMode;
   onThemeModeChange: (mode: ThemeMode) => void;
+  showOutageHighlights?: boolean;
+  onShowOutageHighlightsChange?: (val: boolean) => void;
   onDirtyChange?: (isDirty: boolean) => void;
   onOpenAbout?: () => void;
 }
@@ -60,6 +62,7 @@ interface PersistedSettings {
   closeToMinimize: boolean;
   osNotif: boolean;
   inAppToast: boolean;
+  outageHighlights: boolean;
   upsName: string;
   ratedVa: number;
   powerFactor: number;
@@ -84,6 +87,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       onInAppToastsChange,
       themeMode,
       onThemeModeChange,
+      showOutageHighlights = true,
+      onShowOutageHighlightsChange,
       onDirtyChange,
       onOpenAbout,
     },
@@ -96,6 +101,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
     const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
     const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
+    const [outageHighlightsVal, setOutageHighlightsVal] = useState<boolean>(showOutageHighlights);
     const [autostartVal, setAutostartVal] = useState(false);
     const [startMinimizedVal, setStartMinimizedVal] = useState(true);
     const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
@@ -144,6 +150,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           closeToMinimize: closeToMin,
           osNotif: osNotificationsEnabled,
           inAppToast: inAppToastsEnabled,
+          outageHighlights: showOutageHighlights,
           upsName: metadata?.name || 'Connected UPS',
           ratedVa: metadata?.rated_va || 1000,
           powerFactor: metadata?.power_factor || 0.8,
@@ -200,7 +207,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         startMinimizedVal !== persisted.startMinimized ||
         closeToMinimizeVal !== persisted.closeToMinimize ||
         osNotifVal !== persisted.osNotif ||
-        inAppToastVal !== persisted.inAppToast;
+        inAppToastVal !== persisted.inAppToast ||
+        outageHighlightsVal !== persisted.outageHighlights;
 
       if (isBasicDirty) return true;
 
@@ -256,6 +264,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       setCloseToMinimizeVal(persisted.closeToMinimize);
       setOsNotifVal(persisted.osNotif);
       setInAppToastVal(persisted.inAppToast);
+      setOutageHighlightsVal(persisted.outageHighlights);
       setUpsName(persisted.upsName);
       setRatedVa(persisted.ratedVa);
       setPowerFactor(persisted.powerFactor);
@@ -272,6 +281,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         onBatteryBridgeChange(bridgeVal);
         onOsNotificationsChange(osNotifVal);
         onInAppToastsChange(inAppToastVal);
+        onShowOutageHighlightsChange?.(outageHighlightsVal);
         onThemeModeChange(currentTheme);
 
         await api.setBatteryBridgeStatus(bridgeVal);
@@ -314,6 +324,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           closeToMinimize: closeToMinimizeVal,
           osNotif: osNotifVal,
           inAppToast: inAppToastVal,
+          outageHighlights: outageHighlightsVal,
           upsName: upsName.trim() || 'Connected UPS',
           ratedVa: Math.max(50, Number(ratedVa)),
           powerFactor: Number(powerFactor),
@@ -351,11 +362,13 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       bridgeVal,
       osNotifVal,
       inAppToastVal,
+      outageHighlightsVal,
       currentTheme,
       onPollIntervalChange,
       onBatteryBridgeChange,
       onOsNotificationsChange,
       onInAppToastsChange,
+      onShowOutageHighlightsChange,
       onThemeModeChange,
       closeToMinimizeVal,
       startMinimizedVal,
@@ -506,6 +519,27 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               </p>
             </div>
           </button>
+        </div>
+
+        {/* Outage Highlights on Graphs Toggle */}
+        <div className="flex items-center justify-between p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
+          <div>
+            <p className="text-xs font-semibold text-slate-200">
+              {t('settings:themeSection.outageHighlightsTitle', 'Highlight Power Outages on Graphs')}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {t('settings:themeSection.outageHighlightsDesc', 'Display shaded red background bands and indicators during power cuts and utility blackout intervals.')}
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={outageHighlightsVal}
+              onChange={(e) => setOutageHighlightsVal(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-white/[0.1] border border-white/[0.08] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#22c55e]"></div>
+          </label>
         </div>
       </div>
 

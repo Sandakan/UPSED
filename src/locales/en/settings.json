@@ -10,7 +10,9 @@
     "darkTitle": "Dark Theme",
     "darkDesc": "Obsidian & charcoal SaaS design",
     "lightTitle": "Light Theme",
-    "lightDesc": "Crisp high-contrast daylight design"
+    "lightDesc": "Crisp high-contrast daylight design",
+    "outageHighlightsTitle": "Highlight Power Outages on Graphs",
+    "outageHighlightsDesc": "Display shaded red background bands and indicators during power cuts and utility blackout intervals."
   },
   "languageSection": {
     "title": "Language & Localization",

@@ -19,14 +19,17 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
+  ReferenceArea,
 } from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
+import { detectOutageDetails } from '../lib/outage';
 
 interface HistoryProps {
   telemetry: TelemetryRecord[];
   events: EventLogRecord[];
   onRefresh: () => void;
   isRefreshing: boolean;
+  showOutageHighlights?: boolean;
 }
 
 const PAGE_SIZE = 12;
@@ -36,6 +39,7 @@ export const History: React.FC<HistoryProps> = ({
   events,
   onRefresh,
   isRefreshing,
+  showOutageHighlights = true,
 }) => {
   const { t } = useTranslation(['history', 'common']);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'events' | 'charts'>('telemetry');
@@ -123,8 +127,17 @@ export const History: React.FC<HistoryProps> = ({
     return filteredEvents.slice(start, start + PAGE_SIZE);
   }, [filteredEvents, safePage]);
 
+  const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
+    const samples = telemetry.map((t) => ({
+      time: t.timestamp.includes('T') ? t.timestamp.split('T')[1].substring(0, 8) : t.timestamp.slice(-8),
+      grid_voltage: t.grid_voltage,
+      rawTimestamp: t.timestamp,
+    }));
+    return detectOutageDetails(samples, events, false);
+  }, [telemetry, events]);
+
   const chartData = useMemo(() => {
-    return telemetry.map((t) => ({
+    return telemetry.map((t, idx) => ({
       time: t.timestamp.includes('T') ? t.timestamp.split('T')[1].substring(0, 8) : t.timestamp.slice(-8),
       grid_voltage: t.grid_voltage,
       output_voltage: t.output_voltage,
@@ -134,8 +147,9 @@ export const History: React.FC<HistoryProps> = ({
       output_watts: t.output_watts ?? 0,
       battery_voltage: t.battery_voltage,
       temperature_c: t.temperature_c,
+      isOutage: isOutageMap[idx] ?? false,
     }));
-  }, [telemetry]);
+  }, [telemetry, isOutageMap]);
 
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
@@ -285,15 +299,60 @@ export const History: React.FC<HistoryProps> = ({
                     <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} tickLine={false} />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#161922',
-                        borderColor: 'rgba(255,255,255,0.1)',
-                        borderRadius: '0.75rem',
-                        fontSize: '12px',
-                        color: '#f8fafc',
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const isOutage = payload[0]?.payload?.isOutage;
+                        return (
+                          <div
+                            className="rounded-xl p-2.5 shadow-lg border text-xs"
+                            style={{
+                              backgroundColor: '#161922',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255,255,255,0.1)',
+                              color: '#f8fafc',
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              {isOutage && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
+                                  Power Outage (Battery Mode)
+                                </span>
+                              )}
+                            </div>
+                            {payload.map((item, idx) => (
+                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                <span style={{ color: item.color }}>{item.name}:</span>
+                                <span className="font-semibold text-slate-100">
+                                  {item.value} {item.unit}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                    {showOutageHighlights &&
+                      outageIntervals.map((interval, idx) => (
+                        <ReferenceArea
+                          key={`outage-hist-${idx}`}
+                          x1={interval.start}
+                          x2={interval.end}
+                          fill="#ef4444"
+                          fillOpacity={0.16}
+                          stroke="#ef4444"
+                          strokeOpacity={0.35}
+                          strokeDasharray="3 3"
+                          ifOverflow="extendDomain"
+                          label={{
+                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
+                            position: 'insideTop',
+                            fill: '#f87171',
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        />
+                      ))}
 
                     {chartMetric === 'voltage' && (
                       <>

@@ -30,6 +30,10 @@ export function App() {
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
+  const [showOutageHighlights, setShowOutageHighlights] = useState<boolean>(() => {
+    const saved = localStorage.getItem('upsed_show_outage_highlights');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [probeStatus, setProbeStatus] = useState<ProbeStatusEvent | null>(null);
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<string | null>(null);
@@ -37,6 +41,11 @@ export function App() {
   const [isModalSaving, setIsModalSaving] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const settingsRef = useRef<SettingsHandle>(null);
+
+  const handleShowOutageHighlightsChange = (val: boolean) => {
+    setShowOutageHighlights(val);
+    localStorage.setItem('upsed_show_outage_highlights', String(val));
+  };
 
   // 1. Scan serial and USB ports query
   const {
@@ -444,6 +453,8 @@ export function App() {
               isConnecting={connectMutation.isPending}
               probeStatus={probeStatus}
               targetDeviceName={activeDeviceLabel}
+              events={events}
+              showOutageHighlights={showOutageHighlights}
               onRescan={() => scanPorts()}
             />
           )}
@@ -474,6 +485,7 @@ export function App() {
               events={events}
               onRefresh={pollTelemetry}
               isRefreshing={isRefreshing}
+              showOutageHighlights={showOutageHighlights}
             />
           )}
 
@@ -492,6 +504,8 @@ export function App() {
               onInAppToastsChange={setInAppToastsEnabled}
               themeMode={themeMode}
               onThemeModeChange={setThemeMode}
+              showOutageHighlights={showOutageHighlights}
+              onShowOutageHighlightsChange={handleShowOutageHighlightsChange}
               onDirtyChange={setIsSettingsDirty}
               onOpenAbout={() => setIsAboutModalOpen(true)}
             />

@@ -8,7 +8,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { StatCardSparkline } from '../components/StatCardSparkline';
-import { Q1Status, TelemetryRecord, UpsMetadata, ProbeStatusEvent } from '../lib/types';
+import { Q1Status, TelemetryRecord, UpsMetadata, ProbeStatusEvent, EventLogRecord } from '../lib/types';
 import { PowerFlowDiagram } from '../components/PowerFlowDiagram';
 import { MetricGraphsHub } from '../components/MetricGraphsHub';
 import {
@@ -29,6 +29,8 @@ interface DashboardProps {
   isConnecting?: boolean;
   probeStatus?: ProbeStatusEvent | null;
   targetDeviceName?: string | null;
+  events?: EventLogRecord[];
+  showOutageHighlights?: boolean;
   onRescan?: () => void;
 }
 
@@ -42,6 +44,8 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   isConnecting,
   probeStatus,
   targetDeviceName,
+  events,
+  showOutageHighlights,
   onRescan,
 }) => {
   const { t } = useTranslation(['dashboard', 'common']);
@@ -344,7 +348,13 @@ const DashboardComponent: React.FC<DashboardProps> = ({
       <PowerFlowDiagram status={status} portName={portName} metadata={metadata} />
 
       {/* Real-Time Telemetry & Multi-Metric Graphs Hub */}
-      <MetricGraphsHub status={status} history={history} metadata={metadata} />
+      <MetricGraphsHub
+        status={status}
+        history={history}
+        metadata={metadata}
+        events={events}
+        showOutageHighlights={showOutageHighlights}
+      />
 
       {/* Warnings and Status Bit Flags */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
