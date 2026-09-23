@@ -61,7 +61,9 @@ export interface TimestampedSample {
 
 /**
  * Detects gaps between consecutive telemetry frames.
- * A gap is declared when delta t > max(3 * pollIntervalSecs, 30s).
+ * A gap is declared when delta t > max(3.5 * medianStepMs, 3 * pollIntervalSecs, 45s).
+ * This dynamically adapts to downsampled historical ranges (e.g. 7d, 30d) where normal
+ * points are minutes apart, preventing false gaps between every sample.
  */
 export function detectDataGaps<T extends TimestampedSample>(
   samples: T[],
@@ -69,7 +71,27 @@ export function detectDataGaps<T extends TimestampedSample>(
 ): DataGapInterval[] {
   if (!samples || samples.length < 2) return [];
 
-  const thresholdMs = Math.max(pollIntervalSecs * 3 * 1000, 30 * 1000);
+  // Calculate the typical (median) step between consecutive valid samples
+  const deltas: number[] = [];
+  const maxProbe = Math.min(samples.length, 120);
+  for (let i = 1; i < maxProbe; i++) {
+    const prevRaw = samples[i - 1].rawTimestamp || samples[i - 1].timestamp || samples[i - 1].time || '';
+    const currRaw = samples[i].rawTimestamp || samples[i].timestamp || samples[i].time || '';
+    const prevMs = toEpochMs(prevRaw);
+    const currMs = toEpochMs(currRaw);
+    if (prevMs !== null && currMs !== null && currMs > prevMs) {
+      deltas.push(currMs - prevMs);
+    }
+  }
+
+  if (deltas.length === 0) return [];
+
+  deltas.sort((a, b) => a - b);
+  const medianStepMs = deltas[Math.floor(deltas.length / 2)] || (pollIntervalSecs * 1000);
+
+  // A data gap is ONLY flagged if the time jump is significantly larger than the normal sample spacing!
+  // Must be >= 3.5x median step, >= 3x poll interval, and at least 45 seconds.
+  const thresholdMs = Math.max(medianStepMs * 3.5, pollIntervalSecs * 3 * 1000, 45 * 1000);
   const gaps: DataGapInterval[] = [];
 
   for (let i = 1; i < samples.length; i++) {
@@ -98,6 +120,10 @@ export function detectDataGaps<T extends TimestampedSample>(
         startIndex: i - 1,
         endIndex: i,
       });
+
+      // Safety limit: Never allow more than 40 gap intervals in a single chart series
+      // to prevent DOM/GPU exhaustion if timestamps are erratic
+      if (gaps.length >= 40) break;
     }
   }
 
@@ -129,7 +155,10 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
     'runtime_mins',
   ]
 ): T[] {
-  if (!data || data.length === 0 || !gaps || gaps.length === 0) return data;
+  // If no gaps or abnormal number of gaps, return original array immediately without allocation
+  if (!data || data.length === 0 || !gaps || gaps.length === 0 || gaps.length > 40) {
+    return data;
+  }
 
   const gapByIndex = new Map<number, DataGapInterval>();
   for (const gap of gaps) {
@@ -147,38 +176,21 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
       const nextPoint = data[i + 1];
 
       if (nextPoint) {
-        // Create a null anchor point immediately following the last valid point
-        const gapStartAnchor: any = {
+        // Create a single null anchor point bridging the gap between prevPoint and nextPoint
+        const gapAnchor: any = {
           ...prevPoint,
-          time: gap.start,
-          xKey: `${prevPoint.xKey || prevPoint.timestamp || i}__gap_start`,
+          time: '',
+          xKey: `${prevPoint.xKey || prevPoint.timestamp || i}__gap`,
           rawTimestamp: gap.rawStart,
           isGap: true,
+          suppressTick: true,
           gapDuration: gap.formattedDuration,
         };
         for (const k of numericKeys) {
-          if (k in gapStartAnchor) {
-            gapStartAnchor[k] = null;
-          }
+          gapAnchor[k] = null;
         }
 
-        // Create a null anchor point immediately preceding the next valid point
-        const gapEndAnchor: any = {
-          ...nextPoint,
-          time: gap.end,
-          xKey: `${nextPoint.xKey || nextPoint.timestamp || i + 1}__gap_end`,
-          rawTimestamp: gap.rawEnd,
-          isGap: true,
-          gapDuration: gap.formattedDuration,
-        };
-        for (const k of numericKeys) {
-          if (k in gapEndAnchor) {
-            gapEndAnchor[k] = null;
-          }
-        }
-
-        result.push(gapStartAnchor);
-        result.push(gapEndAnchor);
+        result.push(gapAnchor);
       }
     }
   }
@@ -188,7 +200,8 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
 
 /**
  * Derives visible data gap intervals from a rendered chart slice (e.g. visibleData after zoom).
- * Ensures that gap intervals strictly reference keys present in the current visible domain.
+ * Snaps the boundaries to the valid data points surrounding the gap so the shaded layer
+ * meets the line curves seamlessly without empty margins.
  */
 export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string; xKey?: string; rawTimestamp?: string; gapDuration?: string }>(
   data: T[]
@@ -205,19 +218,25 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
       }
     } else {
       if (inGapStartIdx !== null) {
-        const startItem = data[inGapStartIdx];
-        const endItem = data[i - 1];
+        // Snap the boundaries to the valid data points surrounding the gap
+        const boundaryStartIdx = inGapStartIdx > 0 ? inGapStartIdx - 1 : inGapStartIdx;
+        const boundaryEndIdx = i; // First resumed valid point
+
+        const startItem = data[boundaryStartIdx];
+        const endItem = data[boundaryEndIdx];
+        const gapInfoItem = data[inGapStartIdx];
+
         gaps.push({
           startMs: 0,
           endMs: 0,
           durationMs: 0,
-          formattedDuration: startItem.gapDuration || endItem.gapDuration || 'Offline',
+          formattedDuration: gapInfoItem.gapDuration || 'Offline',
           start: startItem.time || '',
           end: endItem.time || '',
           rawStart: startItem.xKey || startItem.rawTimestamp || '',
           rawEnd: endItem.xKey || endItem.rawTimestamp || '',
-          startIndex: inGapStartIdx,
-          endIndex: i - 1,
+          startIndex: boundaryStartIdx,
+          endIndex: boundaryEndIdx,
         });
         inGapStartIdx = null;
       }
@@ -225,19 +244,25 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
   }
 
   if (inGapStartIdx !== null) {
-    const startItem = data[inGapStartIdx];
-    const endItem = data[data.length - 1];
+    // Gap extends to the end of visible data
+    const boundaryStartIdx = inGapStartIdx > 0 ? inGapStartIdx - 1 : inGapStartIdx;
+    const boundaryEndIdx = data.length - 1;
+
+    const startItem = data[boundaryStartIdx];
+    const endItem = data[boundaryEndIdx];
+    const gapInfoItem = data[inGapStartIdx];
+
     gaps.push({
       startMs: 0,
       endMs: 0,
       durationMs: 0,
-      formattedDuration: startItem.gapDuration || endItem.gapDuration || 'Offline',
+      formattedDuration: gapInfoItem.gapDuration || 'Offline',
       start: startItem.time || '',
       end: endItem.time || '',
       rawStart: startItem.xKey || startItem.rawTimestamp || '',
       rawEnd: endItem.xKey || endItem.rawTimestamp || '',
-      startIndex: inGapStartIdx,
-      endIndex: data.length - 1,
+      startIndex: boundaryStartIdx,
+      endIndex: boundaryEndIdx,
     });
   }
 

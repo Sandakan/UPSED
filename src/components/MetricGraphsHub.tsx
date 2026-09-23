@@ -770,11 +770,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       fontSize={11}
                       minTickGap={25}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string' && val.includes('__')) {
-                          const raw = val.split('__')[0];
-                          if (raw.includes('T')) {
-                            const [, tPart] = raw.split('T');
-                            return tPart.slice(0, 8);
+                        if (typeof val === 'string') {
+                          if (val.includes('__gap')) return '';
+                          if (val.includes('__')) {
+                            const raw = val.split('__')[0];
+                            if (raw.includes('T')) {
+                              const [, tPart] = raw.split('T');
+                              return tPart.slice(0, 8);
+                            }
                           }
                         }
                         return val;
@@ -959,11 +962,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       fontSize={11}
                       minTickGap={25}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string' && val.includes('__')) {
-                          const raw = val.split('__')[0];
-                          if (raw.includes('T')) {
-                            const [, tPart] = raw.split('T');
-                            return tPart.slice(0, 8);
+                        if (typeof val === 'string') {
+                          if (val.includes('__gap')) return '';
+                          if (val.includes('__')) {
+                            const raw = val.split('__')[0];
+                            if (raw.includes('T')) {
+                              const [, tPart] = raw.split('T');
+                              return tPart.slice(0, 8);
+                            }
                           }
                         }
                         return val;

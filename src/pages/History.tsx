@@ -282,6 +282,21 @@ export const History: React.FC<HistoryProps> = ({
     return deriveVisibleDataGaps(visibleChartData);
   }, [visibleChartData]);
 
+  const tableGapThreshold = useMemo(() => {
+    if (activeTelemetry.length < 2) return 60 * 1000;
+    const deltas: number[] = [];
+    const maxProbe = Math.min(activeTelemetry.length, 60);
+    for (let i = 1; i < maxProbe; i++) {
+      const p = Date.parse(activeTelemetry[i - 1].timestamp);
+      const c = Date.parse(activeTelemetry[i].timestamp);
+      if (!isNaN(p) && !isNaN(c) && c > p) deltas.push(c - p);
+    }
+    if (deltas.length === 0) return 60 * 1000;
+    deltas.sort((a, b) => a - b);
+    const median = deltas[Math.floor(deltas.length / 2)];
+    return Math.max(median * 3.5, 60 * 1000);
+  }, [activeTelemetry]);
+
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
     const next = new Set(selectedIds);
@@ -504,11 +519,14 @@ export const History: React.FC<HistoryProps> = ({
                       fontSize={11}
                       tickLine={false}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string' && val.includes('__')) {
-                          const raw = val.split('__')[0];
-                          if (raw.includes('T')) {
-                            const [dPart, tPart] = raw.split('T');
-                            return isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+                        if (typeof val === 'string') {
+                          if (val.includes('__gap')) return '';
+                          if (val.includes('__')) {
+                            const raw = val.split('__')[0];
+                            if (raw.includes('T')) {
+                              const [dPart, tPart] = raw.split('T');
+                              return isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+                            }
                           }
                         }
                         return val;
@@ -661,7 +679,7 @@ export const History: React.FC<HistoryProps> = ({
                       if (i > 0) {
                         const prev = paginatedTelemetry[i - 1];
                         const delta = Math.abs(Date.parse(row.timestamp) - Date.parse(prev.timestamp));
-                        if (delta > 30 * 1000) {
+                        if (delta > tableGapThreshold) {
                           hasGapBefore = true;
                           gapDurationStr = formatGapDuration(delta);
                         }

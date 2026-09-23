@@ -13,14 +13,13 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
   const { x, y, width, height, labelText, topPadding = 24, bottomPadding = 12 } = props;
   if (typeof x !== 'number' || isNaN(x)) return null;
 
-  // Guarantee at least 24px width so brief or zoomed gaps remain easily visible
   const rawWidth = typeof width === 'number' && !isNaN(width) ? width : 0;
-  const renderWidth = Math.max(rawWidth, 24);
+  const renderWidth = Math.max(rawWidth, 16);
 
   // Stretch across the Y-axis padding to reach the true top ceiling and bottom floor
   const topY = Math.max(0, (y ?? 0) - topPadding);
   const fullHeight = (height ?? 0) + topPadding + bottomPadding;
-  const showLabel = Boolean(labelText && renderWidth >= 32);
+  const showLabel = Boolean(labelText && renderWidth >= 36);
 
   // Compact label if width is tight
   const displayLabel = renderWidth < 120
@@ -32,55 +31,26 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
 
   return (
     <g className="data-gap-highlight-band pointer-events-none">
-      <defs>
-        <pattern
-          id="dataGapDiagonalHatch"
-          width="8"
-          height="8"
-          patternUnits="userSpaceOnUse"
-          patternTransform="rotate(45)"
-        >
-          <line
-            x1="0"
-            y1="0"
-            x2="0"
-            y2="8"
-            stroke="#64748b"
-            strokeWidth="1.5"
-            strokeOpacity="0.4"
-          />
-        </pattern>
-      </defs>
-
-      {/* Dark semi-transparent background fill */}
+      {/* Semi-transparent slate background fill with reduced opacity */}
       <rect
         x={x}
         y={topY}
         width={renderWidth}
         height={fullHeight}
-        fill="#090d16"
-        fillOpacity={0.65}
+        fill="#1e293b"
+        fillOpacity={0.22}
       />
 
-      {/* Diagonal hatch pattern overlay */}
-      <rect
-        x={x}
-        y={topY}
-        width={renderWidth}
-        height={fullHeight}
-        fill="url(#dataGapDiagonalHatch)"
-      />
-
-      {/* Left and right dashed boundary markers */}
+      {/* Subtle dashed boundary lines with reduced opacity */}
       <line
         x1={x}
         y1={topY}
         x2={x}
         y2={topY + fullHeight}
         stroke="#64748b"
-        strokeOpacity={0.6}
+        strokeOpacity={0.85}
         strokeDasharray="4 3"
-        strokeWidth={1.5}
+        strokeWidth={1}
       />
       <line
         x1={x + renderWidth}
@@ -88,9 +58,9 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
         x2={x + renderWidth}
         y2={topY + fullHeight}
         stroke="#64748b"
-        strokeOpacity={0.6}
+        strokeOpacity={0.85}
         strokeDasharray="4 3"
-        strokeWidth={1.5}
+        strokeWidth={1}
       />
 
       {/* Duration Badge Pill */}
@@ -108,7 +78,6 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
             strokeOpacity={0.8}
             strokeWidth={1}
           />
-          {/* Pause / Gap glyph */}
           <circle cx={badgeX + 10} cy={topY + 15} r={3} fill="#94a3b8" opacity={0.8} />
           <text
             x={badgeX + 18 + (badgeWidth - 22) / 2}

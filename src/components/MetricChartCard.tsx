@@ -197,11 +197,14 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 tickLine={false}
                 minTickGap={35}
                 tickFormatter={(val) => {
-                  if (typeof val === 'string' && val.includes('__')) {
-                    const raw = val.split('__')[0];
-                    if (raw.includes('T')) {
-                      const [, tPart] = raw.split('T');
-                      return tPart.slice(0, 8);
+                  if (typeof val === 'string') {
+                    if (val.includes('__gap')) return '';
+                    if (val.includes('__')) {
+                      const raw = val.split('__')[0];
+                      if (raw.includes('T')) {
+                        const [, tPart] = raw.split('T');
+                        return tPart.slice(0, 8);
+                      }
                     }
                   }
                   return val;
