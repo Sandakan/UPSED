@@ -10,9 +10,11 @@ import {
 } from 'recharts';
 import { OutageInterval } from '../lib/types';
 import { deriveVisibleOutageIntervals } from '../lib/outage';
+import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps } from '../lib/dataGaps';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from './ChartZoomBadge';
 import { OutageReferenceArea } from './OutageReferenceArea';
+import { DataGapReferenceArea } from './DataGapReferenceArea';
 
 export interface MetricDataPoint {
   time: string;
@@ -61,6 +63,14 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   showOutageHighlights = true,
   yAxisPadding = { top: 14, bottom: 8 },
 }) => {
+  const cardGaps = useMemo(() => {
+    return detectDataGaps(data);
+  }, [data]);
+
+  const cardDataWithGaps = useMemo(() => {
+    return injectGapAnchorPoints(data, cardGaps);
+  }, [data, cardGaps]);
+
   const {
     containerRef,
     visibleData,
@@ -71,7 +81,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
     zoomOut,
     canZoomIn,
     isDragging,
-  } = useChartZoom({ data, minPoints: 6 });
+  } = useChartZoom({ data: cardDataWithGaps, minPoints: 6 });
 
   const xDataKey = visibleData[0]?.xKey ? 'xKey' : 'time';
 
@@ -79,6 +89,10 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
     if (!showOutageHighlights) return [];
     return deriveVisibleOutageIntervals(visibleData);
   }, [visibleData, showOutageHighlights]);
+
+  const visibleCardGaps = useMemo(() => {
+    return deriveVisibleDataGaps(visibleData);
+  }, [visibleData]);
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -208,13 +222,14 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                   if (!active || !payload || !payload.length) return null;
                   const itemPayload = payload[0]?.payload;
                   const isOutage = itemPayload?.isOutage;
+                  const isGap = itemPayload?.isGap;
                   const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                   return (
                     <div
                       className="rounded-xl p-2.5 shadow-lg border text-xs"
                       style={{
                         backgroundColor: 'var(--card-bg, #161922)',
-                        borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : 'var(--card-border, rgba(255,255,255,0.1))',
+                        borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : isGap ? 'rgba(100, 116, 139, 0.5)' : 'var(--card-border, rgba(255,255,255,0.1))',
                         color: 'var(--color-slate-100, #f8fafc)',
                       }}
                     >
@@ -225,19 +240,39 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                             Power Outage (Battery Mode)
                           </span>
                         )}
-                      </div>
-                      {payload.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                          <span style={{ color: item.color }}>{item.name}:</span>
-                          <span className="font-semibold text-slate-100">
-                            {item.value} {unit}
+                        {isGap && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-800/90 text-slate-300 border border-slate-700/80">
+                            No Data Recorded
                           </span>
+                        )}
+                      </div>
+                      {isGap ? (
+                        <div className="text-[11px] font-mono text-slate-400 py-0.5">
+                          Monitoring Inactive ({itemPayload?.gapDuration || 'Data Gap'})
                         </div>
-                      ))}
+                      ) : (
+                        payload.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                            <span style={{ color: item.color }}>{item.name}:</span>
+                            <span className="font-semibold text-slate-100">
+                              {item.value} {unit}
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   );
                 }}
               />
+              {visibleCardGaps.map((gap, idx) => (
+                <DataGapReferenceArea
+                  key={`gap-${idx}`}
+                  gap={gap}
+                  xDataKey={xDataKey}
+                  topPadding={yAxisPadding?.top ?? 14}
+                  bottomPadding={yAxisPadding?.bottom ?? 8}
+                />
+              ))}
               {showOutageHighlights &&
                 cardOutageIntervals.map((interval, idx) => (
                   <OutageReferenceArea
@@ -249,6 +284,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                   />
                 ))}
               <Area
+                connectNulls={false}
                 type="monotone"
                 dataKey="value"
                 name={name1}
@@ -260,6 +296,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
               />
               {name2 && (
                 <Area
+                  connectNulls={false}
                   type="monotone"
                   dataKey="value2"
                   name={name2}

@@ -32,11 +32,13 @@ import {
   detectNominalVoltage,
 } from '../lib/battery';
 import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
+import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps } from '../lib/dataGaps';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from './DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from './ChartZoomBadge';
 import { OutageReferenceArea } from './OutageReferenceArea';
+import { DataGapReferenceArea } from './DataGapReferenceArea';
 
 interface MetricGraphsHubProps {
   status: Q1Status;
@@ -286,6 +288,18 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     };
   }, [telemetryData]);
 
+  const graphGaps = useMemo(() => {
+    return detectDataGaps(visibleHistory);
+  }, [visibleHistory]);
+
+  const voltageCombinedWithGaps = useMemo(() => {
+    return injectGapAnchorPoints(voltageCombined, graphGaps);
+  }, [voltageCombined, graphGaps]);
+
+  const frequencyCombinedWithGaps = useMemo(() => {
+    return injectGapAnchorPoints(frequencyCombined, graphGaps);
+  }, [frequencyCombined, graphGaps]);
+
   const {
     containerRef: voltageZoomRef,
     visibleData: visibleVoltageCombined,
@@ -296,7 +310,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     zoomOut: zoomVoltageOut,
     canZoomIn: canVoltageZoomIn,
     isDragging: isVoltageDragging,
-  } = useChartZoom({ data: voltageCombined, minPoints: 8 });
+  } = useChartZoom({ data: voltageCombinedWithGaps, minPoints: 8 });
 
   const {
     containerRef: freqZoomRef,
@@ -308,7 +322,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     zoomOut: zoomFreqOut,
     canZoomIn: canFreqZoomIn,
     isDragging: isFreqDragging,
-  } = useChartZoom({ data: frequencyCombined, minPoints: 8 });
+  } = useChartZoom({ data: frequencyCombinedWithGaps, minPoints: 8 });
 
   const visibleVoltageOutageIntervals = useMemo(() => {
     if (!showOutageHighlights) return [];
@@ -319,6 +333,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     if (!showOutageHighlights) return [];
     return deriveVisibleOutageIntervals(visibleFreqCombined);
   }, [visibleFreqCombined, showOutageHighlights]);
+
+  const visibleVoltageGaps = useMemo(() => {
+    return deriveVisibleDataGaps(visibleVoltageCombined);
+  }, [visibleVoltageCombined]);
+
+  const visibleFreqGaps = useMemo(() => {
+    return deriveVisibleDataGaps(visibleFreqCombined);
+  }, [visibleFreqCombined]);
 
   const gridColsClass = useMemo(() => {
     switch (gridCols) {
@@ -768,14 +790,16 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
-                        const isOutage = payload[0]?.payload?.isOutage;
-                        const displayTime = payload[0]?.payload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                        const itemPayload = payload[0]?.payload;
+                        const isOutage = itemPayload?.isOutage;
+                        const isGap = itemPayload?.isGap;
+                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
                             style={{
                               backgroundColor: '#0f172a',
-                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : '#334155',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : isGap ? 'rgba(100, 116, 139, 0.5)' : '#334155',
                               color: '#f8fafc',
                             }}
                           >
@@ -786,20 +810,38 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                                   Power Outage (Battery Mode)
                                 </span>
                               )}
-                            </div>
-                            {payload.map((item, idx) => (
-                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                                <span style={{ color: item.color }}>{item.name}:</span>
-                                <span className="font-semibold text-slate-100">
-                                  {item.value} V
+                              {isGap && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-800/90 text-slate-300 border border-slate-700/80">
+                                  No Data Recorded
                                 </span>
+                              )}
+                            </div>
+                            {isGap ? (
+                              <div className="text-[11px] font-mono text-slate-400 py-0.5">
+                                Monitoring Inactive ({itemPayload?.gapDuration || 'Data Gap'})
                               </div>
-                            ))}
+                            ) : (
+                              payload.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                  <span style={{ color: item.color }}>{item.name}:</span>
+                                  <span className="font-semibold text-slate-100">
+                                    {item.value} V
+                                  </span>
+                                </div>
+                              ))
+                            )}
                           </div>
                         );
                       }}
                     />
                     <Legend />
+                    {visibleVoltageGaps.map((gap, idx) => (
+                      <DataGapReferenceArea
+                        key={`gap-v-${idx}`}
+                        gap={gap}
+                        xDataKey="xKey"
+                      />
+                    ))}
                     {showOutageHighlights &&
                       visibleVoltageOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
@@ -809,6 +851,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         />
                       ))}
                     <Area
+                      connectNulls={false}
                       type="monotone"
                       dataKey="value"
                       name="Input Grid Voltage"
@@ -819,6 +862,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       isAnimationActive={false}
                     />
                     <Area
+                      connectNulls={false}
                       type="monotone"
                       dataKey="value2"
                       name="Output Voltage"
@@ -935,14 +979,16 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
-                        const isOutage = payload[0]?.payload?.isOutage;
-                        const displayTime = payload[0]?.payload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                        const itemPayload = payload[0]?.payload;
+                        const isOutage = itemPayload?.isOutage;
+                        const isGap = itemPayload?.isGap;
+                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
                             style={{
                               backgroundColor: '#0f172a',
-                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : '#334155',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : isGap ? 'rgba(100, 116, 139, 0.5)' : '#334155',
                               color: '#f8fafc',
                             }}
                           >
@@ -953,20 +999,38 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                                   Power Outage (Battery Mode)
                                 </span>
                               )}
-                            </div>
-                            {payload.map((item, idx) => (
-                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                                <span style={{ color: item.color }}>{item.name}:</span>
-                                <span className="font-semibold text-slate-100">
-                                  {item.value} Hz
+                              {isGap && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-800/90 text-slate-300 border border-slate-700/80">
+                                  No Data Recorded
                                 </span>
+                              )}
+                            </div>
+                            {isGap ? (
+                              <div className="text-[11px] font-mono text-slate-400 py-0.5">
+                                Monitoring Inactive ({itemPayload?.gapDuration || 'Data Gap'})
                               </div>
-                            ))}
+                            ) : (
+                              payload.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                  <span style={{ color: item.color }}>{item.name}:</span>
+                                  <span className="font-semibold text-slate-100">
+                                    {item.value} Hz
+                                  </span>
+                                </div>
+                              ))
+                            )}
                           </div>
                         );
                       }}
                     />
                     <Legend />
+                    {visibleFreqGaps.map((gap, idx) => (
+                      <DataGapReferenceArea
+                        key={`gap-f-${idx}`}
+                        gap={gap}
+                        xDataKey="xKey"
+                      />
+                    ))}
                     {showOutageHighlights &&
                       visibleFreqOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
@@ -976,6 +1040,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         />
                       ))}
                     <Area
+                      connectNulls={false}
                       type="monotone"
                       dataKey="value"
                       name="Input Grid Frequency"
@@ -986,6 +1051,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       isAnimationActive={false}
                     />
                     <Area
+                      connectNulls={false}
                       type="monotone"
                       dataKey="value2"
                       name="Output Frequency"

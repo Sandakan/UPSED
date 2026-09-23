@@ -23,11 +23,13 @@ import {
 } from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
 import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
+import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps, formatGapDuration } from '../lib/dataGaps';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from '../components/DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from '../components/ChartZoomBadge';
 import { OutageReferenceArea } from '../components/OutageReferenceArea';
+import { DataGapReferenceArea } from '../components/DataGapReferenceArea';
 
 export type HistoryDuration = '1h' | '6h' | '24h' | '7d' | '30d' | 'all' | 'custom';
 
@@ -251,6 +253,14 @@ export const History: React.FC<HistoryProps> = ({
     });
   }, [activeTelemetry, isOutageMap, isMultiDay]);
 
+  const historyGaps = useMemo(() => {
+    return detectDataGaps(activeTelemetry);
+  }, [activeTelemetry]);
+
+  const chartDataWithGaps = useMemo(() => {
+    return injectGapAnchorPoints(chartData, historyGaps);
+  }, [chartData, historyGaps]);
+
   const {
     containerRef: historyZoomRef,
     visibleData: visibleChartData,
@@ -261,12 +271,16 @@ export const History: React.FC<HistoryProps> = ({
     zoomOut: zoomHistoryOut,
     canZoomIn: canHistoryZoomIn,
     isDragging: isHistoryDragging,
-  } = useChartZoom({ data: chartData, minPoints: 8 });
+  } = useChartZoom({ data: chartDataWithGaps, minPoints: 8 });
 
   const visibleOutageIntervals = useMemo(() => {
     if (!showOutageHighlights) return [];
     return deriveVisibleOutageIntervals(visibleChartData);
   }, [visibleChartData, showOutageHighlights]);
+
+  const visibleDataGaps = useMemo(() => {
+    return deriveVisibleDataGaps(visibleChartData);
+  }, [visibleChartData]);
 
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
@@ -512,13 +526,14 @@ export const History: React.FC<HistoryProps> = ({
                         if (!active || !payload || !payload.length) return null;
                         const itemPayload = payload[0]?.payload;
                         const isOutage = itemPayload?.isOutage;
+                        const isGap = itemPayload?.isGap;
                         const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
                             style={{
                               backgroundColor: '#161922',
-                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255,255,255,0.1)',
+                              borderColor: isOutage ? 'rgba(239, 68, 68, 0.4)' : isGap ? 'rgba(100, 116, 139, 0.5)' : 'rgba(255,255,255,0.1)',
                               color: '#f8fafc',
                             }}
                           >
@@ -529,20 +544,38 @@ export const History: React.FC<HistoryProps> = ({
                                   Power Outage (Battery Mode)
                                 </span>
                               )}
-                            </div>
-                            {payload.map((item, idx) => (
-                              <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                                <span style={{ color: item.color }}>{item.name}:</span>
-                                <span className="font-semibold text-slate-100">
-                                  {item.value} {item.unit}
+                              {isGap && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-800/90 text-slate-300 border border-slate-700/80">
+                                  No Data Recorded
                                 </span>
+                              )}
+                            </div>
+                            {isGap ? (
+                              <div className="text-[11px] font-mono text-slate-400 py-0.5">
+                                Monitoring Inactive ({itemPayload?.gapDuration || 'Data Gap'})
                               </div>
-                            ))}
+                            ) : (
+                              payload.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                  <span style={{ color: item.color }}>{item.name}:</span>
+                                  <span className="font-semibold text-slate-100">
+                                    {item.value} {item.unit}
+                                  </span>
+                                </div>
+                              ))
+                            )}
                           </div>
                         );
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                    {visibleDataGaps.map((gap, idx) => (
+                      <DataGapReferenceArea
+                        key={`gap-hist-${idx}`}
+                        gap={gap}
+                        xDataKey="xKey"
+                      />
+                    ))}
                     {showOutageHighlights &&
                       visibleOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
@@ -554,31 +587,31 @@ export const History: React.FC<HistoryProps> = ({
 
                     {chartMetric === 'voltage' && (
                       <>
-                        <Area type="monotone" dataKey="grid_voltage" name={t('history:chartLegends.gridV', 'Grid Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
-                        <Area type="monotone" dataKey="output_voltage" name={t('history:chartLegends.outV', 'Output Voltage (V)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="V" />
+                        <Area connectNulls={false} type="monotone" dataKey="grid_voltage" name={t('history:chartLegends.gridV', 'Grid Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                        <Area connectNulls={false} type="monotone" dataKey="output_voltage" name={t('history:chartLegends.outV', 'Output Voltage (V)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="V" />
                       </>
                     )}
 
                     {chartMetric === 'frequency' && (
                       <>
-                        <Area type="monotone" dataKey="grid_frequency" name={t('history:chartLegends.gridHz', 'Grid Freq (Hz)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
-                        <Area type="monotone" dataKey="output_frequency" name={t('history:chartLegends.outHz', 'Output Freq (Hz)')} stroke="#818cf8" strokeWidth={2} fill="url(#histGrad2)" unit="Hz" />
+                        <Area connectNulls={false} type="monotone" dataKey="grid_frequency" name={t('history:chartLegends.gridHz', 'Grid Freq (Hz)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="Hz" />
+                        <Area connectNulls={false} type="monotone" dataKey="output_frequency" name={t('history:chartLegends.outHz', 'Output Freq (Hz)')} stroke="#818cf8" strokeWidth={2} fill="url(#histGrad2)" unit="Hz" />
                       </>
                     )}
 
                     {chartMetric === 'power' && (
                       <>
-                        <Area type="monotone" dataKey="load_pct" name={t('history:chartLegends.loadPct', 'Load (%)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
-                        <Area type="monotone" dataKey="output_watts" name={t('history:chartLegends.outW', 'Active Watts (W)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
+                        <Area connectNulls={false} type="monotone" dataKey="load_pct" name={t('history:chartLegends.loadPct', 'Load (%)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="%" />
+                        <Area connectNulls={false} type="monotone" dataKey="output_watts" name={t('history:chartLegends.outW', 'Active Watts (W)')} stroke="#3b82f6" strokeWidth={2} fill="url(#histGrad2)" unit="W" />
                       </>
                     )}
 
                     {chartMetric === 'battery' && (
-                      <Area type="monotone" dataKey="battery_voltage" name={t('history:chartLegends.batV', 'Battery Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
+                      <Area connectNulls={false} type="monotone" dataKey="battery_voltage" name={t('history:chartLegends.batV', 'Battery Voltage (V)')} stroke="#22c55e" strokeWidth={2} fill="url(#histGrad1)" unit="V" />
                     )}
 
                     {chartMetric === 'temperature' && (
-                      <Area type="monotone" dataKey="temperature_c" name={t('history:chartLegends.tempC', 'Temperature (°C)')} stroke="#f97316" strokeWidth={2} fill="url(#histGrad1)" unit="°C" />
+                      <Area connectNulls={false} type="monotone" dataKey="temperature_c" name={t('history:chartLegends.tempC', 'Temperature (°C)')} stroke="#f97316" strokeWidth={2} fill="url(#histGrad1)" unit="°C" />
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
@@ -623,34 +656,59 @@ export const History: React.FC<HistoryProps> = ({
                   ) : (
                     paginatedTelemetry.map((row, i) => {
                       const isChecked = row.id ? selectedIds.has(row.id) : false;
+                      let hasGapBefore = false;
+                      let gapDurationStr = '';
+                      if (i > 0) {
+                        const prev = paginatedTelemetry[i - 1];
+                        const delta = Math.abs(Date.parse(row.timestamp) - Date.parse(prev.timestamp));
+                        if (delta > 30 * 1000) {
+                          hasGapBefore = true;
+                          gapDurationStr = formatGapDuration(delta);
+                        }
+                      }
+
                       return (
-                        <tr key={row.id || i} className="hover:bg-white/[0.02] transition">
-                          <td className="py-3 px-4">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleSelectOne(row.id)}
-                              className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-                            />
-                          </td>
-                          <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
-                            {row.timestamp.replace('T', ' ').substring(0, 19)}
-                          </td>
-                          <td
-                            className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
-                            title={row.port_name}
-                          >
-                            {row.port_name}
-                          </td>
-                          <td className="py-3 px-4">{row.grid_voltage.toFixed(1)}</td>
-                          <td className="py-3 px-4">{(row.grid_frequency ?? 50.0).toFixed(1)}</td>
-                          <td className="py-3 px-4">{row.output_voltage.toFixed(1)}</td>
+                        <React.Fragment key={row.id || i}>
+                          {hasGapBefore && (
+                            <tr className="bg-slate-900/90 border-y border-slate-800/80">
+                              <td colSpan={11} className="py-2 px-4 text-center">
+                                <div className="inline-flex items-center space-x-2 text-[11px] font-mono text-slate-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                  <span className="font-semibold text-slate-300">Monitoring Inactive / Data Gap</span>
+                                  <span className="text-slate-600">•</span>
+                                  <span className="text-slate-400 font-medium">{gapDurationStr} unrecorded</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="hover:bg-white/[0.02] transition">
+                            <td className="py-3 px-4">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleSelectOne(row.id)}
+                                className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                              {row.timestamp.replace('T', ' ').substring(0, 19)}
+                            </td>
+                            <td
+                              className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
+                              title={row.port_name}
+                            >
+                              {row.port_name}
+                            </td>
+                            <td className="py-3 px-4">{row.grid_voltage.toFixed(1)}</td>
+                            <td className="py-3 px-4">{(row.grid_frequency ?? 50.0).toFixed(1)}</td>
+                            <td className="py-3 px-4">{row.output_voltage.toFixed(1)}</td>
                           <td className="py-3 px-4">{(row.output_frequency ?? 50.0).toFixed(1)}</td>
                           <td className="py-3 px-4 font-semibold text-slate-100">{row.load_pct}%</td>
                           <td className="py-3 px-4">{row.output_watts ?? 0}W</td>
                           <td className="py-3 px-4 text-emerald-400">{row.battery_voltage.toFixed(1)}</td>
                           <td className="py-3 px-4">{row.temperature_c}</td>
                         </tr>
+                      </React.Fragment>
                       );
                     })
                   )}
