@@ -169,6 +169,10 @@ impl Database {
             "ALTER TABLE events ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_port_time ON telemetry(port_name, timestamp)",
+            [],
+        );
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -228,6 +232,91 @@ impl Database {
             results.push(r?);
         }
         results.reverse(); // chronological order
+        Ok(results)
+    }
+
+    pub fn query_telemetry_range(
+        &self,
+        port_name: &str,
+        start_time: &str,
+        end_time: &str,
+        max_points: Option<u32>,
+    ) -> Result<Vec<TelemetryRecord>> {
+        let conn = self.conn.lock().unwrap();
+
+        let count: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM telemetry WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3",
+            params![port_name, start_time, end_time],
+            |row| row.get(0),
+        )?;
+
+        let max_p = max_points.unwrap_or(1500).max(100);
+        let step = if count > max_p {
+            (count as f64 / max_p as f64).ceil() as u32
+        } else {
+            1
+        };
+
+        let mut results = Vec::new();
+
+        if step > 1 {
+            let sql = format!(
+                "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
+                 FROM (
+                     SELECT *, ROW_NUMBER() OVER (ORDER BY id ASC) as rn
+                     FROM telemetry
+                     WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3
+                 )
+                 WHERE (rn - 1) % {} = 0
+                 ORDER BY id ASC",
+                step
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![port_name, start_time, end_time], |row| {
+                Ok(TelemetryRecord {
+                    id: Some(row.get(0)?),
+                    timestamp: row.get(1)?,
+                    port_name: row.get(2)?,
+                    grid_voltage: row.get(3)?,
+                    output_voltage: row.get(4)?,
+                    grid_frequency: row.get(5)?,
+                    output_frequency: row.get(6)?,
+                    load_pct: row.get(7)?,
+                    output_watts: row.get(8)?,
+                    battery_voltage: row.get(9)?,
+                    temperature_c: row.get(10)?,
+                })
+            })?;
+            for r in rows {
+                results.push(r?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
+                 FROM telemetry
+                 WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3
+                 ORDER BY id ASC",
+            )?;
+            let rows = stmt.query_map(params![port_name, start_time, end_time], |row| {
+                Ok(TelemetryRecord {
+                    id: Some(row.get(0)?),
+                    timestamp: row.get(1)?,
+                    port_name: row.get(2)?,
+                    grid_voltage: row.get(3)?,
+                    output_voltage: row.get(4)?,
+                    grid_frequency: row.get(5)?,
+                    output_frequency: row.get(6)?,
+                    load_pct: row.get(7)?,
+                    output_watts: row.get(8)?,
+                    battery_voltage: row.get(9)?,
+                    temperature_c: row.get(10)?,
+                })
+            })?;
+            for r in rows {
+                results.push(r?);
+            }
+        }
+
         Ok(results)
     }
 

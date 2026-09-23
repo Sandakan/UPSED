@@ -169,6 +169,7 @@ pub fn run() {
             commands::get_safety_stage,
             commands::unlock_safety_stage,
             commands::get_recent_telemetry,
+            commands::get_telemetry_range,
             commands::get_recent_events,
             commands::get_battery_bridge_status,
             commands::set_battery_bridge_status,

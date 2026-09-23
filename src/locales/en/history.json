@@ -51,6 +51,31 @@
   },
   "noRecords": "No telemetry records found matching query.",
   "noEvents": "No events recorded in historical session.",
+  "timeRange": "Time Range",
+  "durations": {
+    "live": "Live",
+    "1h": "1h",
+    "6h": "6h",
+    "24h": "24h",
+    "7d": "7d",
+    "30d": "30d",
+    "all": "All",
+    "custom": "Custom...",
+    "loading": "Loading records..."
+  },
+  "customPicker": {
+    "title": "Select Time Duration",
+    "relativeTab": "Relative Duration",
+    "absoluteTab": "Date & Time Range",
+    "days": "Days",
+    "hours": "Hours",
+    "quickPresets": "Quick Presets",
+    "startDateTime": "Start Date & Time",
+    "endDateTime": "End Date & Time",
+    "apply": "Apply Range",
+    "cancel": "Cancel",
+    "rangeSummary": "Selected window: {{start}} to {{end}}"
+  },
   "pagination": {
     "prev": "Previous",
     "next": "Next",

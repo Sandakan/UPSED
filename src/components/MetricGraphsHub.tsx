@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Zap,
   Activity,
@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -32,6 +33,8 @@ import {
   detectNominalVoltage,
 } from '../lib/battery';
 import { detectOutageDetails } from '../lib/outage';
+import { api } from '../lib/tauri';
+import { DurationPickerModal, CustomDurationRange } from './DurationPickerModal';
 
 interface MetricGraphsHubProps {
   status: Q1Status;
@@ -39,6 +42,7 @@ interface MetricGraphsHubProps {
   metadata?: UpsMetadata | null;
   events?: EventLogRecord[];
   showOutageHighlights?: boolean;
+  portName?: string | null;
 }
 
 type ViewMode = 'grid' | 'categories';
@@ -52,6 +56,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   metadata,
   events = [],
   showOutageHighlights = true,
+  portName,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('categories');
   const [activeCategory, setActiveCategory] = useState<CategoryTab>('voltage');
@@ -61,6 +66,52 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   const [gridCols, setGridCols] = useState<GridColsMode>('auto');
   const [gridFilter, setGridFilter] = useState<GridFilterMode>('all');
 
+  const [selectedDuration, setSelectedDuration] = useState<'live' | '1h' | '6h' | '24h' | 'custom'>('live');
+  const [customRange, setCustomRange] = useState<CustomDurationRange | null>(null);
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
+  const [rangeHistory, setRangeHistory] = useState<TelemetryRecord[]>([]);
+  const [isLoadingRange, setIsLoadingRange] = useState<boolean>(false);
+
+  const fetchRangeData = useCallback(async () => {
+    if (!portName || selectedDuration === 'live') return;
+    setIsLoadingRange(true);
+    try {
+      let startIso: string;
+      let endIso: string;
+      const now = new Date();
+
+      if (selectedDuration === '1h') {
+        startIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+        endIso = now.toISOString();
+      } else if (selectedDuration === '6h') {
+        startIso = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
+        endIso = now.toISOString();
+      } else if (selectedDuration === '24h') {
+        startIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+        endIso = now.toISOString();
+      } else if (selectedDuration === 'custom' && customRange) {
+        startIso = customRange.startIso;
+        endIso = customRange.endIso;
+      } else {
+        setIsLoadingRange(false);
+        return;
+      }
+
+      const records = await api.getTelemetryRange(portName, startIso, endIso, 1500);
+      setRangeHistory(records);
+    } catch (err) {
+      console.error('Failed to query telemetry range for graphs:', err);
+    } finally {
+      setIsLoadingRange(false);
+    }
+  }, [portName, selectedDuration, customRange]);
+
+  useEffect(() => {
+    if (selectedDuration !== 'live') {
+      fetchRangeData();
+    }
+  }, [selectedDuration, customRange, portName, fetchRangeData]);
+
   const togglePause = () => {
     if (!isPaused) {
       setFrozenHistory([...history]);
@@ -68,12 +119,24 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     setIsPaused(!isPaused);
   };
 
-  const activeHistory = isPaused ? frozenHistory : history;
+  const activeHistory = selectedDuration === 'live'
+    ? (isPaused ? frozenHistory : history)
+    : rangeHistory;
 
   // Sliced data points based on limit
   const visibleHistory = useMemo(() => {
-    return activeHistory.slice(-windowLimit);
-  }, [activeHistory, windowLimit]);
+    return selectedDuration === 'live'
+      ? activeHistory.slice(-windowLimit)
+      : activeHistory;
+  }, [selectedDuration, activeHistory, windowLimit]);
+
+  // Check if visible history spans more than 24 hours to format time axis labels cleanly
+  const isMultiDay = useMemo(() => {
+    if (visibleHistory.length < 2) return false;
+    const first = new Date(visibleHistory[0].timestamp).getTime();
+    const last = new Date(visibleHistory[visibleHistory.length - 1].timestamp).getTime();
+    return Math.abs(last - first) > 24 * 60 * 60 * 1000;
+  }, [visibleHistory]);
 
   // Nominal battery and rated watts calculation
   const nominalBat = metadata?.battery_voltage
@@ -89,9 +152,13 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   // Detect outage intervals and per-sample states
   const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
     const samples = visibleHistory.map((rec) => {
-      const timeStr = rec.timestamp.includes('T')
-        ? rec.timestamp.split('T')[1].slice(0, 8)
-        : rec.timestamp.slice(-8);
+      let timeStr: string;
+      if (rec.timestamp.includes('T')) {
+        const [dPart, tPart] = rec.timestamp.split('T');
+        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+      } else {
+        timeStr = rec.timestamp.slice(-8);
+      }
       return {
         time: timeStr,
         grid_voltage: rec.grid_voltage,
@@ -99,14 +166,18 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       };
     });
     return detectOutageDetails(samples, events, status.utility_fail);
-  }, [visibleHistory, events, status.utility_fail]);
+  }, [visibleHistory, events, status.utility_fail, isMultiDay]);
 
   // Map history records into clean data points for all 10 metrics
   const telemetryData = useMemo(() => {
     return visibleHistory.map((rec, idx) => {
-      const timeStr = rec.timestamp.includes('T')
-        ? rec.timestamp.split('T')[1].slice(0, 8)
-        : rec.timestamp.slice(-8);
+      let timeStr: string;
+      if (rec.timestamp.includes('T')) {
+        const [dPart, tPart] = rec.timestamp.split('T');
+        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+      } else {
+        timeStr = rec.timestamp.slice(-8);
+      }
 
       const batPct = calculateBatterySoC(
         rec.battery_voltage,
@@ -440,36 +511,85 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Points limit selector */}
+          {/* Duration Selector */}
           <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-0.5">
-            {[20, 50, 100].map((lim) => (
+            <button
+              onClick={() => setSelectedDuration('live')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                selectedDuration === 'live'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Live
+            </button>
+            {(['1h', '6h', '24h'] as const).map((dur) => (
               <button
-                key={lim}
-                onClick={() => setWindowLimit(lim)}
-                className={`px-2.5 py-1 rounded-lg font-mono font-medium transition ${
-                  windowLimit === lim
-                    ? 'bg-slate-800 text-cyan-400 shadow'
+                key={dur}
+                onClick={() => setSelectedDuration(dur)}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                  selectedDuration === dur
+                    ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {lim} pts
+                {dur}
               </button>
             ))}
+            <button
+              onClick={() => setIsCustomModalOpen(true)}
+              className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                selectedDuration === 'custom'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {selectedDuration === 'custom' && customRange ? customRange.label : 'Custom...'}
+            </button>
           </div>
 
-          {/* Pause / Resume Button */}
-          <button
-            onClick={togglePause}
-            className={`px-2.5 py-1 rounded-xl border font-medium flex items-center space-x-1.5 transition ${
-              isPaused
-                ? 'bg-amber-950/40 border-amber-700/60 text-amber-300 hover:bg-amber-950/60'
-                : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:bg-slate-800'
-            }`}
-            title={isPaused ? 'Resume live graph stream' : 'Pause live stream to inspect data'}
-          >
-            {isPaused ? <Play className="w-3.5 h-3.5 text-amber-400" /> : <Pause className="w-3.5 h-3.5" />}
-            <span>{isPaused ? 'Paused' : 'Live'}</span>
-          </button>
+          {/* If Live: show Points limit selector and Pause button */}
+          {selectedDuration === 'live' ? (
+            <>
+              <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-0.5">
+                {[20, 50, 100].map((lim) => (
+                  <button
+                    key={lim}
+                    onClick={() => setWindowLimit(lim)}
+                    className={`px-2.5 py-1 rounded-lg font-mono font-medium transition ${
+                      windowLimit === lim
+                        ? 'bg-slate-800 text-cyan-400 shadow'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {lim} pts
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={togglePause}
+                className={`px-2.5 py-1 rounded-xl border font-medium flex items-center space-x-1.5 transition ${
+                  isPaused
+                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-300 hover:bg-amber-950/60'
+                    : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:bg-slate-800'
+                }`}
+                title={isPaused ? 'Resume live graph stream' : 'Pause live stream to inspect data'}
+              >
+                {isPaused ? <Play className="w-3.5 h-3.5 text-amber-400" /> : <Pause className="w-3.5 h-3.5" />}
+                <span>{isPaused ? 'Paused' : 'Live'}</span>
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={fetchRangeData}
+              disabled={isLoadingRange}
+              className="p-1.5 rounded-xl border bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+              title="Refresh time range"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRange ? 'animate-spin text-cyan-400' : ''}`} />
+            </button>
+          )}
 
           {/* Mode Switcher: Category View vs All Grid */}
           <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-0.5">
@@ -1044,6 +1164,17 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
           </div>
         </div>
       )}
+
+      {/* Custom Duration Range Picker Modal */}
+      <DurationPickerModal
+        isOpen={isCustomModalOpen}
+        onClose={() => setIsCustomModalOpen(false)}
+        onApply={(range) => {
+          setCustomRange(range);
+          setSelectedDuration('custom');
+          setIsCustomModalOpen(false);
+        }}
+      />
     </div>
   );
 };

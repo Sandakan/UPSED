@@ -299,6 +299,25 @@ pub async fn get_recent_telemetry(
 }
 
 #[tauri::command]
+pub async fn get_telemetry_range(
+    state: State<'_, AppState>,
+    port_name: String,
+    start_time: String,
+    end_time: String,
+    max_points: Option<u32>,
+) -> Result<Vec<TelemetryRecord>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .query_telemetry_range(&port_name, &start_time, &end_time, max_points)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_recent_events(
     state: State<'_, AppState>,
     limit: Option<u32>,

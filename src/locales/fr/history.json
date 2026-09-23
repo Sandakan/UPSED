@@ -51,6 +51,31 @@
   },
   "noRecords": "Aucun enregistrement de télémétrie ne correspond à la recherche.",
   "noEvents": "Aucun événement enregistré au cours de la session.",
+  "timeRange": "Période",
+  "durations": {
+    "live": "En direct",
+    "1h": "1h",
+    "6h": "6h",
+    "24h": "24h",
+    "7d": "7j",
+    "30d": "30j",
+    "all": "Tout",
+    "custom": "Personnalisé...",
+    "loading": "Chargement..."
+  },
+  "customPicker": {
+    "title": "Sélectionner la période",
+    "relativeTab": "Durée relative",
+    "absoluteTab": "Plage de dates",
+    "days": "Jours",
+    "hours": "Heures",
+    "quickPresets": "Préréglages rapides",
+    "startDateTime": "Date et heure de début",
+    "endDateTime": "Date et heure de fin",
+    "apply": "Appliquer la période",
+    "cancel": "Annuler",
+    "rangeSummary": "Période sélectionnée : du {{start}} au {{end}}"
+  },
   "pagination": {
     "prev": "Précédent",
     "next": "Suivant",

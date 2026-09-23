@@ -486,6 +486,7 @@ export function App() {
               onRefresh={pollTelemetry}
               isRefreshing={isRefreshing}
               showOutageHighlights={showOutageHighlights}
+              portName={selectedDevice}
             />
           )}
 

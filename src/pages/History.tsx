@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Download,
@@ -9,6 +9,7 @@ import {
   Search,
   Table,
   Activity,
+  Clock,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -23,6 +24,10 @@ import {
 } from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
 import { detectOutageDetails } from '../lib/outage';
+import { api } from '../lib/tauri';
+import { DurationPickerModal, CustomDurationRange } from '../components/DurationPickerModal';
+
+export type HistoryDuration = '1h' | '6h' | '24h' | '7d' | '30d' | 'all' | 'custom';
 
 interface HistoryProps {
   telemetry: TelemetryRecord[];
@@ -30,6 +35,7 @@ interface HistoryProps {
   onRefresh: () => void;
   isRefreshing: boolean;
   showOutageHighlights?: boolean;
+  portName?: string | null;
 }
 
 const PAGE_SIZE = 12;
@@ -40,6 +46,7 @@ export const History: React.FC<HistoryProps> = ({
   onRefresh,
   isRefreshing,
   showOutageHighlights = true,
+  portName,
 }) => {
   const { t } = useTranslation(['history', 'common']);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'events' | 'charts'>('telemetry');
@@ -47,6 +54,91 @@ export const History: React.FC<HistoryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // Duration filtering state
+  const [selectedDuration, setSelectedDuration] = useState<HistoryDuration>('24h');
+  const [customRange, setCustomRange] = useState<CustomDurationRange | null>(null);
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
+  const [loadedTelemetry, setLoadedTelemetry] = useState<TelemetryRecord[]>([]);
+  const [isLoadingTelemetry, setIsLoadingTelemetry] = useState<boolean>(false);
+
+  const fetchTelemetryHistory = useCallback(async () => {
+    if (!portName) return;
+    setIsLoadingTelemetry(true);
+    try {
+      if (selectedDuration === 'all') {
+        const records = await api.getRecentTelemetry(portName, 1500);
+        setLoadedTelemetry(records);
+      } else {
+        let startIso: string;
+        let endIso: string;
+        const now = new Date();
+
+        if (selectedDuration === '1h') {
+          startIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+          endIso = now.toISOString();
+        } else if (selectedDuration === '6h') {
+          startIso = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
+          endIso = now.toISOString();
+        } else if (selectedDuration === '24h') {
+          startIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+          endIso = now.toISOString();
+        } else if (selectedDuration === '7d') {
+          startIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          endIso = now.toISOString();
+        } else if (selectedDuration === '30d') {
+          startIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+          endIso = now.toISOString();
+        } else if (selectedDuration === 'custom' && customRange) {
+          startIso = customRange.startIso;
+          endIso = customRange.endIso;
+        } else {
+          setIsLoadingTelemetry(false);
+          return;
+        }
+
+        const records = await api.getTelemetryRange(portName, startIso, endIso, 1500);
+        setLoadedTelemetry(records);
+      }
+    } catch (err) {
+      console.error('Failed to fetch telemetry history range:', err);
+    } finally {
+      setIsLoadingTelemetry(false);
+    }
+  }, [portName, selectedDuration, customRange]);
+
+  useEffect(() => {
+    fetchTelemetryHistory();
+  }, [fetchTelemetryHistory]);
+
+  // Active telemetry source: database range records when portName is available, fallback to telemetry prop
+  const activeTelemetry = portName ? loadedTelemetry : telemetry;
+
+  // Filtered Telemetry
+  const filteredTelemetry = useMemo(() => {
+    if (!searchQuery.trim()) return activeTelemetry;
+    const q = searchQuery.toLowerCase();
+    return activeTelemetry.filter(
+      (t) =>
+        t.port_name.toLowerCase().includes(q) ||
+        t.timestamp.toLowerCase().includes(q) ||
+        String(t.grid_voltage).includes(q) ||
+        String(t.load_pct).includes(q)
+    );
+  }, [activeTelemetry, searchQuery]);
+
+  // Filtered Events
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery.trim()) return events;
+    const q = searchQuery.toLowerCase();
+    return events.filter(
+      (e) =>
+        e.port_name.toLowerCase().includes(q) ||
+        e.event_type.toLowerCase().includes(q) ||
+        e.message.toLowerCase().includes(q) ||
+        e.timestamp.toLowerCase().includes(q)
+    );
+  }, [events, searchQuery]);
 
   const exportCsv = () => {
     if (activeTab === 'telemetry' || activeTab === 'charts') {
@@ -80,32 +172,6 @@ export const History: React.FC<HistoryProps> = ({
     }
   };
 
-  // Filtered Telemetry
-  const filteredTelemetry = useMemo(() => {
-    if (!searchQuery.trim()) return telemetry;
-    const q = searchQuery.toLowerCase();
-    return telemetry.filter(
-      (t) =>
-        t.port_name.toLowerCase().includes(q) ||
-        t.timestamp.toLowerCase().includes(q) ||
-        String(t.grid_voltage).includes(q) ||
-        String(t.load_pct).includes(q)
-    );
-  }, [telemetry, searchQuery]);
-
-  // Filtered Events
-  const filteredEvents = useMemo(() => {
-    if (!searchQuery.trim()) return events;
-    const q = searchQuery.toLowerCase();
-    return events.filter(
-      (e) =>
-        e.port_name.toLowerCase().includes(q) ||
-        e.event_type.toLowerCase().includes(q) ||
-        e.message.toLowerCase().includes(q) ||
-        e.timestamp.toLowerCase().includes(q)
-    );
-  }, [events, searchQuery]);
-
   // Active records depending on tab
   const currentRecordsCount =
     activeTab === 'telemetry'
@@ -127,29 +193,55 @@ export const History: React.FC<HistoryProps> = ({
     return filteredEvents.slice(start, start + PAGE_SIZE);
   }, [filteredEvents, safePage]);
 
+  // Check if active history spans more than 24 hours to format time axis labels cleanly
+  const isMultiDay = useMemo(() => {
+    if (activeTelemetry.length < 2) return false;
+    const first = new Date(activeTelemetry[0].timestamp).getTime();
+    const last = new Date(activeTelemetry[activeTelemetry.length - 1].timestamp).getTime();
+    return Math.abs(last - first) > 24 * 60 * 60 * 1000;
+  }, [activeTelemetry]);
+
   const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
-    const samples = telemetry.map((t) => ({
-      time: t.timestamp.includes('T') ? t.timestamp.split('T')[1].substring(0, 8) : t.timestamp.slice(-8),
-      grid_voltage: t.grid_voltage,
-      rawTimestamp: t.timestamp,
-    }));
+    const samples = activeTelemetry.map((t) => {
+      let timeStr: string;
+      if (t.timestamp.includes('T')) {
+        const [dPart, tPart] = t.timestamp.split('T');
+        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+      } else {
+        timeStr = t.timestamp.slice(-8);
+      }
+      return {
+        time: timeStr,
+        grid_voltage: t.grid_voltage,
+        rawTimestamp: t.timestamp,
+      };
+    });
     return detectOutageDetails(samples, events, false);
-  }, [telemetry, events]);
+  }, [activeTelemetry, events, isMultiDay]);
 
   const chartData = useMemo(() => {
-    return telemetry.map((t, idx) => ({
-      time: t.timestamp.includes('T') ? t.timestamp.split('T')[1].substring(0, 8) : t.timestamp.slice(-8),
-      grid_voltage: t.grid_voltage,
-      output_voltage: t.output_voltage,
-      grid_frequency: t.grid_frequency ?? 50.0,
-      output_frequency: t.output_frequency ?? 50.0,
-      load_pct: t.load_pct,
-      output_watts: t.output_watts ?? 0,
-      battery_voltage: t.battery_voltage,
-      temperature_c: t.temperature_c,
-      isOutage: isOutageMap[idx] ?? false,
-    }));
-  }, [telemetry, isOutageMap]);
+    return activeTelemetry.map((t, idx) => {
+      let timeStr: string;
+      if (t.timestamp.includes('T')) {
+        const [dPart, tPart] = t.timestamp.split('T');
+        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+      } else {
+        timeStr = t.timestamp.slice(-8);
+      }
+      return {
+        time: timeStr,
+        grid_voltage: t.grid_voltage,
+        output_voltage: t.output_voltage,
+        grid_frequency: t.grid_frequency ?? 50.0,
+        output_frequency: t.output_frequency ?? 50.0,
+        load_pct: t.load_pct,
+        output_watts: t.output_watts ?? 0,
+        battery_voltage: t.battery_voltage,
+        temperature_c: t.temperature_c,
+        isOutage: isOutageMap[idx] ?? false,
+      };
+    });
+  }, [activeTelemetry, isOutageMap, isMultiDay]);
 
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
@@ -186,7 +278,7 @@ export const History: React.FC<HistoryProps> = ({
             }`}
           >
             <Table className="w-3.5 h-3.5" />
-            <span>{t('history:tabs.telemetry', 'Telemetry Table')} ({telemetry.length})</span>
+            <span>{t('history:tabs.telemetry', 'Telemetry Table')} ({activeTelemetry.length})</span>
           </button>
 
           <button
@@ -238,15 +330,71 @@ export const History: React.FC<HistoryProps> = ({
           </button>
 
           <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
+            onClick={() => {
+              onRefresh();
+              fetchTelemetryHistory();
+            }}
+            disabled={isRefreshing || isLoadingTelemetry}
             className="p-1.5 rounded-lg border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0 transition"
             title={t('common:buttons.refresh', 'Refresh records')}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing || isLoadingTelemetry ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
+
+      {/* ── Duration Range Filter Bar (Telemetry & Visual Analytics) ────── */}
+      {(activeTab === 'telemetry' || activeTab === 'charts') && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-slate-400 font-medium flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{t('history:timeRange', 'Time Range')}:</span>
+            </span>
+            <div className="flex flex-wrap items-center bg-slate-950/80 border border-slate-800 rounded-lg p-0.5">
+              {(['1h', '6h', '24h', '7d', '30d', 'all'] as const).map((dur) => (
+                <button
+                  key={dur}
+                  onClick={() => {
+                    setSelectedDuration(dur);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-md font-medium transition ${
+                    selectedDuration === dur
+                      ? 'bg-[#22c55e] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {dur === 'all' ? t('history:durations.all', 'All') : dur}
+                </button>
+              ))}
+              <button
+                onClick={() => setIsCustomModalOpen(true)}
+                className={`px-2.5 py-1 rounded-md font-medium transition ${
+                  selectedDuration === 'custom'
+                    ? 'bg-[#22c55e] text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {selectedDuration === 'custom' && customRange ? customRange.label : t('history:durations.custom', 'Custom...')}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 text-xs text-slate-400">
+            {isLoadingTelemetry ? (
+              <span className="flex items-center space-x-1.5 text-cyan-400 animate-pulse font-mono">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                <span>{t('history:durations.loading', 'Loading records...')}</span>
+              </span>
+            ) : (
+              <span className="font-mono text-[11px] text-slate-400">
+                {activeTelemetry.length} {activeTelemetry.length === 1 ? 'sample' : 'samples'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Content Container ─────────────────────────────────── */}
       <div
@@ -278,9 +426,9 @@ export const History: React.FC<HistoryProps> = ({
             </div>
 
             <div className="h-80 w-full">
-              {telemetry.length === 0 ? (
+              {activeTelemetry.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-                  {t('history:noRecords', 'No telemetry records recorded yet.')}
+                  {isLoadingTelemetry ? t('history:durations.loading', 'Loading records...') : t('history:noRecords', 'No telemetry records recorded yet.')}
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -618,6 +766,18 @@ export const History: React.FC<HistoryProps> = ({
           </div>
         )}
       </div>
+
+      {/* Custom Duration Range Picker Modal */}
+      <DurationPickerModal
+        isOpen={isCustomModalOpen}
+        onClose={() => setIsCustomModalOpen(false)}
+        onApply={(range) => {
+          setCustomRange(range);
+          setSelectedDuration('custom');
+          setCurrentPage(1);
+          setIsCustomModalOpen(false);
+        }}
+      />
     </div>
   );
 };

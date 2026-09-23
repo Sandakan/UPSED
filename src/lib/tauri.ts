@@ -39,6 +39,19 @@ export const api = {
   getRecentTelemetry: (portName: string, limit?: number) =>
     invoke<TelemetryRecord[]>('get_recent_telemetry', { portName, limit }),
 
+  getTelemetryRange: (
+    portName: string,
+    startTime: string,
+    endTime: string,
+    maxPoints?: number
+  ) =>
+    invoke<TelemetryRecord[]>('get_telemetry_range', {
+      portName,
+      startTime,
+      endTime,
+      maxPoints,
+    }),
+
   getRecentEvents: (limit?: number) =>
     invoke<EventLogRecord[]>('get_recent_events', { limit }),
 

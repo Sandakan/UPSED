@@ -354,6 +354,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
         metadata={metadata}
         events={events}
         showOutageHighlights={showOutageHighlights}
+        portName={portName}
       />
 
       {/* Warnings and Status Bit Flags */}
