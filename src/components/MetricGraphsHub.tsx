@@ -679,7 +679,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
 
               <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={voltageCombined}>
+                  <AreaChart data={voltageCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
                     <defs>
                       <linearGradient id="gridVGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
@@ -707,7 +707,13 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         return val;
                       }}
                     />
-                    <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="V" />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={11}
+                      domain={['auto', 'auto']}
+                      unit="V"
+                      padding={{ top: 24, bottom: 12 }}
+                    />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
@@ -761,6 +767,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                             fill: '#f87171',
                             fontSize: 10,
                             fontWeight: 600,
+                            offset: 6,
                           }}
                         />
                       ))}
@@ -838,7 +845,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
 
               <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={frequencyCombined}>
+                  <AreaChart data={frequencyCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
                     <defs>
                       <linearGradient id="gridFGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
@@ -866,7 +873,13 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         return val;
                       }}
                     />
-                    <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="Hz" />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={11}
+                      domain={['auto', 'auto']}
+                      unit="Hz"
+                      padding={{ top: 24, bottom: 12 }}
+                    />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
@@ -920,6 +933,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                             fill: '#f87171',
                             fontSize: 10,
                             fontWeight: 600,
+                            offset: 6,
                           }}
                         />
                       ))}

@@ -438,7 +438,7 @@ export const History: React.FC<HistoryProps> = ({
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <AreaChart data={chartData} margin={{ top: 12, right: 12, left: -20, bottom: 4 }}>
                     <defs>
                       <linearGradient id="histGrad1" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
@@ -466,7 +466,13 @@ export const History: React.FC<HistoryProps> = ({
                         return val;
                       }}
                     />
-                    <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} tickLine={false} />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={11}
+                      domain={['auto', 'auto']}
+                      tickLine={false}
+                      padding={{ top: 24, bottom: 12 }}
+                    />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
@@ -521,6 +527,7 @@ export const History: React.FC<HistoryProps> = ({
                             fill: '#f87171',
                             fontSize: 10,
                             fontWeight: 600,
+                            offset: 6,
                           }}
                         />
                       ))}

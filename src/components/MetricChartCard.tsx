@@ -36,6 +36,7 @@ interface MetricChartCardProps {
   statusBadge?: React.ReactNode;
   outageIntervals?: OutageInterval[];
   showOutageHighlights?: boolean;
+  yAxisPadding?: { top: number; bottom: number };
 }
 
 const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
@@ -55,6 +56,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   statusBadge,
   outageIntervals,
   showOutageHighlights = true,
+  yAxisPadding = { top: 14, bottom: 8 },
 }) => {
   const xDataKey = data[0]?.xKey ? 'xKey' : 'time';
 
@@ -124,7 +126,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 5, right: 8, left: -15, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: -15, bottom: 4 }}>
               <defs>
                 <linearGradient id={`${gradientId}-grad`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.35} />
@@ -162,6 +164,8 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 domain={domain as any}
                 tickLine={false}
                 axisLine={false}
+                padding={yAxisPadding}
+                allowDataOverflow={false}
               />
               <Tooltip
                 content={({ active, payload, label }) => {
@@ -217,6 +221,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                       fill: '#f87171',
                       fontSize: 9,
                       fontWeight: 600,
+                      offset: 4,
                     }}
                   />
                 ))}
