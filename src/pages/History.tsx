@@ -22,7 +22,7 @@ import {
   Legend,
 } from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
-import { detectOutageDetails } from '../lib/outage';
+import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from '../components/DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
@@ -206,7 +206,7 @@ export const History: React.FC<HistoryProps> = ({
     return Math.abs(last - first) > 24 * 60 * 60 * 1000;
   }, [activeTelemetry]);
 
-  const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
+  const { isOutageMap } = useMemo(() => {
     const samples = activeTelemetry.map((t, idx) => {
       let timeStr: string;
       if (t.timestamp.includes('T')) {
@@ -257,8 +257,16 @@ export const History: React.FC<HistoryProps> = ({
     isZoomed: isHistoryZoomed,
     zoomPercent: historyZoomPercent,
     resetZoom: resetHistoryZoom,
+    zoomIn: zoomHistoryIn,
+    zoomOut: zoomHistoryOut,
+    canZoomIn: canHistoryZoomIn,
     isDragging: isHistoryDragging,
   } = useChartZoom({ data: chartData, minPoints: 8 });
+
+  const visibleOutageIntervals = useMemo(() => {
+    if (!showOutageHighlights) return [];
+    return deriveVisibleOutageIntervals(visibleChartData);
+  }, [visibleChartData, showOutageHighlights]);
 
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
@@ -426,7 +434,14 @@ export const History: React.FC<HistoryProps> = ({
                 {t('history:metricStream', 'Metric Stream')}
               </span>
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <ChartZoomBadge isZoomed={isHistoryZoomed} zoomPercent={historyZoomPercent} onReset={resetHistoryZoom} />
+                <ChartZoomBadge
+                  isZoomed={isHistoryZoomed}
+                  zoomPercent={historyZoomPercent}
+                  onReset={resetHistoryZoom}
+                  onZoomIn={zoomHistoryIn}
+                  onZoomOut={zoomHistoryOut}
+                  canZoomIn={canHistoryZoomIn}
+                />
                 <div className="flex flex-wrap gap-1.5">
                   {(['voltage', 'frequency', 'power', 'battery', 'temperature'] as const).map((m) => (
                     <button
@@ -529,7 +544,7 @@ export const History: React.FC<HistoryProps> = ({
                     />
                     <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                     {showOutageHighlights &&
-                      outageIntervals.map((interval, idx) => (
+                      visibleOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
                           key={`outage-hist-${idx}`}
                           interval={interval}

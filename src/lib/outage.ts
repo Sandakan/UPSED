@@ -143,3 +143,53 @@ export function detectOutageIntervals(
   return detectOutageDetails(samples, events, isCurrentlyFailing).intervals;
 }
 
+/**
+ * Derives outage intervals from an active data array (such as visibleData after zoom).
+ * This ensures that when zooming, start/end bounds strictly match data points present
+ * in the rendered chart view, guaranteeing that ReferenceArea coordinates are valid
+ * and the outage band does not disappear or overflow.
+ */
+export function deriveVisibleOutageIntervals<T extends { isOutage?: boolean; time: string; xKey?: string }>(
+  data: T[]
+): OutageInterval[] {
+  if (!data || data.length === 0) return [];
+
+  const intervals: OutageInterval[] = [];
+  let currentStartIdx: number | null = null;
+
+  for (let i = 0; i < data.length; i++) {
+    if (data[i].isOutage) {
+      if (currentStartIdx === null) {
+        currentStartIdx = i;
+      }
+    } else {
+      if (currentStartIdx !== null) {
+        intervals.push({
+          start: data[currentStartIdx].time,
+          end: data[i - 1].time,
+          rawStart: data[currentStartIdx].xKey || data[currentStartIdx].time,
+          rawEnd: data[i - 1].xKey || data[i - 1].time,
+          startIndex: currentStartIdx,
+          endIndex: i - 1,
+          isActive: false,
+        });
+        currentStartIdx = null;
+      }
+    }
+  }
+
+  if (currentStartIdx !== null) {
+    intervals.push({
+      start: data[currentStartIdx].time,
+      end: data[data.length - 1].time,
+      rawStart: data[currentStartIdx].xKey || data[currentStartIdx].time,
+      rawEnd: data[data.length - 1].xKey || data[data.length - 1].time,
+      startIndex: currentStartIdx,
+      endIndex: data.length - 1,
+      isActive: Boolean(data[data.length - 1].isOutage),
+    });
+  }
+
+  return intervals;
+}
+

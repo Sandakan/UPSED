@@ -6,11 +6,14 @@ interface UseChartZoomOptions<T> {
 }
 
 export interface UseChartZoomReturn<T> {
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: (node: HTMLDivElement | null) => void;
   visibleData: T[];
   isZoomed: boolean;
   zoomPercent: number;
   resetZoom: () => void;
+  zoomIn: (factor?: number) => void;
+  zoomOut: (factor?: number) => void;
+  canZoomIn: boolean;
   isDragging: boolean;
 }
 
@@ -18,7 +21,7 @@ export function useChartZoom<T>({
   data,
   minPoints = 8,
 }: UseChartZoomOptions<T>): UseChartZoomReturn<T> {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [zoomRange, setZoomRange] = useState<{ start: number; end: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -28,6 +31,10 @@ export function useChartZoom<T>({
 
   const zoomRangeRef = useRef(zoomRange);
   zoomRangeRef.current = zoomRange;
+
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    setContainerEl(node);
+  }, []);
 
   // Reset or clamp zoom if data shrinks below the current range
   useEffect(() => {
@@ -52,10 +59,68 @@ export function useChartZoom<T>({
     setZoomRange(null);
   }, []);
 
+  const zoomIn = useCallback((factor = 0.72) => {
+    const totalLen = dataLenRef.current;
+    if (totalLen <= minPoints) return;
+
+    const current = zoomRangeRef.current;
+    const currentStart = current ? current.start : 0;
+    const currentEnd = current ? current.end : totalLen - 1;
+    const currentSpan = currentEnd - currentStart + 1;
+
+    const newSpan = Math.max(minPoints, Math.round(currentSpan * factor));
+    if (newSpan >= currentSpan) return;
+
+    const center = currentStart + currentSpan / 2;
+    let newStart = Math.round(center - newSpan / 2);
+    let newEnd = newStart + newSpan - 1;
+
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = Math.min(totalLen - 1, newStart + newSpan - 1);
+    } else if (newEnd >= totalLen) {
+      newEnd = totalLen - 1;
+      newStart = Math.max(0, newEnd - newSpan + 1);
+    }
+
+    setZoomRange({ start: newStart, end: newEnd });
+  }, [minPoints]);
+
+  const zoomOut = useCallback((factor = 1.38) => {
+    const totalLen = dataLenRef.current;
+    if (totalLen <= minPoints) return;
+
+    const current = zoomRangeRef.current;
+    if (!current) return;
+
+    const currentStart = current.start;
+    const currentEnd = current.end;
+    const currentSpan = currentEnd - currentStart + 1;
+
+    const newSpan = Math.round(currentSpan * factor);
+    if (newSpan >= totalLen) {
+      setZoomRange(null);
+      return;
+    }
+
+    const center = currentStart + currentSpan / 2;
+    let newStart = Math.round(center - newSpan / 2);
+    let newEnd = newStart + newSpan - 1;
+
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = Math.min(totalLen - 1, newStart + newSpan - 1);
+    } else if (newEnd >= totalLen) {
+      newEnd = totalLen - 1;
+      newStart = Math.max(0, newEnd - newSpan + 1);
+    }
+
+    setZoomRange({ start: newStart, end: newEnd });
+  }, [minPoints]);
+
   // Native non-passive wheel event listener to support Ctrl + Wheel zoom without browser page zoom
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    if (!containerEl) return;
 
     const handleWheel = (e: WheelEvent) => {
       const totalLen = dataLenRef.current;
@@ -71,7 +136,7 @@ export function useChartZoom<T>({
         e.preventDefault();
         e.stopPropagation();
 
-        const rect = el.getBoundingClientRect();
+        const rect = containerEl.getBoundingClientRect();
         const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
         const fraction = rect.width > 0 ? mouseX / rect.width : 0.5;
 
@@ -121,6 +186,7 @@ export function useChartZoom<T>({
       // 2. Horizontal Scroll or Shift + Scroll -> Pan left / right when zoomed
       if (current && (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY))) {
         e.preventDefault();
+        e.stopPropagation();
         const rawDelta = e.shiftKey ? e.deltaY : e.deltaX;
         const shiftPoints = Math.round((rawDelta / 20) * Math.max(1, Math.round(currentSpan / 50)));
         if (shiftPoints === 0) return;
@@ -140,16 +206,15 @@ export function useChartZoom<T>({
       }
     };
 
-    el.addEventListener('wheel', handleWheel, { passive: false });
+    containerEl.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => {
-      el.removeEventListener('wheel', handleWheel);
+      containerEl.removeEventListener('wheel', handleWheel, { capture: true });
     };
-  }, [minPoints]);
+  }, [containerEl, minPoints]);
 
   // Click and drag to pan left/right when zoomed in
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    if (!containerEl) return;
 
     let startClientX = 0;
     let initialStart = 0;
@@ -172,7 +237,7 @@ export function useChartZoom<T>({
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         if (!dragging) return;
-        const rect = el.getBoundingClientRect();
+        const rect = containerEl.getBoundingClientRect();
         if (rect.width <= 0) return;
 
         const deltaPixels = moveEvent.clientX - startClientX;
@@ -205,11 +270,11 @@ export function useChartZoom<T>({
       window.addEventListener('mouseup', handleMouseUp);
     };
 
-    el.addEventListener('mousedown', handleMouseDown);
+    containerEl.addEventListener('mousedown', handleMouseDown, { capture: true });
     return () => {
-      el.removeEventListener('mousedown', handleMouseDown);
+      containerEl.removeEventListener('mousedown', handleMouseDown, { capture: true });
     };
-  }, []);
+  }, [containerEl]);
 
   const isZoomed = Boolean(zoomRange && (zoomRange.end - zoomRange.start + 1 < data.length));
 
@@ -224,12 +289,17 @@ export function useChartZoom<T>({
     return Math.max(1, Math.round((span / data.length) * 100));
   }, [data.length, isZoomed, zoomRange]);
 
+  const canZoomIn = data.length > minPoints && (!zoomRange || (zoomRange.end - zoomRange.start + 1 > minPoints));
+
   return {
     containerRef,
     visibleData,
     isZoomed,
     zoomPercent,
     resetZoom,
+    zoomIn,
+    zoomOut,
+    canZoomIn,
     isDragging,
   };
 }

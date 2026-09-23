@@ -31,7 +31,7 @@ import {
   calculateEstimatedRuntime,
   detectNominalVoltage,
 } from '../lib/battery';
-import { detectOutageDetails } from '../lib/outage';
+import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from './DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
@@ -292,6 +292,9 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     isZoomed: isVoltageZoomed,
     zoomPercent: voltageZoomPercent,
     resetZoom: resetVoltageZoom,
+    zoomIn: zoomVoltageIn,
+    zoomOut: zoomVoltageOut,
+    canZoomIn: canVoltageZoomIn,
     isDragging: isVoltageDragging,
   } = useChartZoom({ data: voltageCombined, minPoints: 8 });
 
@@ -301,8 +304,21 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     isZoomed: isFreqZoomed,
     zoomPercent: freqZoomPercent,
     resetZoom: resetFreqZoom,
+    zoomIn: zoomFreqIn,
+    zoomOut: zoomFreqOut,
+    canZoomIn: canFreqZoomIn,
     isDragging: isFreqDragging,
   } = useChartZoom({ data: frequencyCombined, minPoints: 8 });
+
+  const visibleVoltageOutageIntervals = useMemo(() => {
+    if (!showOutageHighlights) return [];
+    return deriveVisibleOutageIntervals(visibleVoltageCombined);
+  }, [visibleVoltageCombined, showOutageHighlights]);
+
+  const visibleFreqOutageIntervals = useMemo(() => {
+    if (!showOutageHighlights) return [];
+    return deriveVisibleOutageIntervals(visibleFreqCombined);
+  }, [visibleFreqCombined, showOutageHighlights]);
 
   const gridColsClass = useMemo(() => {
     switch (gridCols) {
@@ -693,7 +709,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center space-x-2.5">
-                  <ChartZoomBadge isZoomed={isVoltageZoomed} zoomPercent={voltageZoomPercent} onReset={resetVoltageZoom} />
+                  <ChartZoomBadge
+                    isZoomed={isVoltageZoomed}
+                    zoomPercent={voltageZoomPercent}
+                    onReset={resetVoltageZoom}
+                    onZoomIn={zoomVoltageIn}
+                    onZoomOut={zoomVoltageOut}
+                    canZoomIn={canVoltageZoomIn}
+                  />
                   <span className="text-slate-400">
                     Regulation Delta: {Math.abs(status.grid_voltage_v - status.output_voltage_v).toFixed(1)}V
                   </span>
@@ -778,7 +801,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     />
                     <Legend />
                     {showOutageHighlights &&
-                      outageIntervals.map((interval, idx) => (
+                      visibleVoltageOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
                           key={`outage-v-${idx}`}
                           interval={interval}
@@ -855,7 +878,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center space-x-2.5">
-                  <ChartZoomBadge isZoomed={isFreqZoomed} zoomPercent={freqZoomPercent} onReset={resetFreqZoom} />
+                  <ChartZoomBadge
+                    isZoomed={isFreqZoomed}
+                    zoomPercent={freqZoomPercent}
+                    onReset={resetFreqZoom}
+                    onZoomIn={zoomFreqIn}
+                    onZoomOut={zoomFreqOut}
+                    canZoomIn={canFreqZoomIn}
+                  />
                   <span className="text-emerald-400 font-semibold">Frequency Synchronized</span>
                 </div>
               </div>
@@ -938,7 +968,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     />
                     <Legend />
                     {showOutageHighlights &&
-                      outageIntervals.map((interval, idx) => (
+                      visibleFreqOutageIntervals.map((interval, idx) => (
                         <OutageReferenceArea
                           key={`outage-f-${idx}`}
                           interval={interval}

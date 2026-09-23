@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { OutageInterval } from '../lib/types';
+import { deriveVisibleOutageIntervals } from '../lib/outage';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from './ChartZoomBadge';
 import { OutageReferenceArea } from './OutageReferenceArea';
@@ -56,7 +57,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   showStats = true,
   gradientId,
   statusBadge,
-  outageIntervals,
+  outageIntervals: _outageIntervals,
   showOutageHighlights = true,
   yAxisPadding = { top: 14, bottom: 8 },
 }) => {
@@ -66,10 +67,18 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
     isZoomed,
     zoomPercent,
     resetZoom,
+    zoomIn,
+    zoomOut,
+    canZoomIn,
     isDragging,
   } = useChartZoom({ data, minPoints: 6 });
 
   const xDataKey = visibleData[0]?.xKey ? 'xKey' : 'time';
+
+  const cardOutageIntervals = useMemo(() => {
+    if (!showOutageHighlights) return [];
+    return deriveVisibleOutageIntervals(visibleData);
+  }, [visibleData, showOutageHighlights]);
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -109,7 +118,14 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
         </div>
 
         <div className="flex items-center space-x-1.5 shrink-0">
-          <ChartZoomBadge isZoomed={isZoomed} zoomPercent={zoomPercent} onReset={resetZoom} />
+          <ChartZoomBadge
+            isZoomed={isZoomed}
+            zoomPercent={zoomPercent}
+            onReset={resetZoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            canZoomIn={canZoomIn}
+          />
           {statusBadge && <div>{statusBadge}</div>}
         </div>
       </div>
@@ -223,8 +239,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 }}
               />
               {showOutageHighlights &&
-                outageIntervals &&
-                outageIntervals.map((interval, idx) => (
+                cardOutageIntervals.map((interval, idx) => (
                   <OutageReferenceArea
                     key={`outage-${idx}`}
                     interval={interval}
