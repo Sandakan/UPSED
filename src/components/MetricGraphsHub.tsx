@@ -22,7 +22,6 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
-  ReferenceArea,
 } from 'recharts';
 import { Q1Status, TelemetryRecord, UpsMetadata, EventLogRecord } from '../lib/types';
 import { MetricChartCard } from './MetricChartCard';
@@ -35,6 +34,9 @@ import {
 import { detectOutageDetails } from '../lib/outage';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from './DurationPickerModal';
+import { useChartZoom } from '../lib/useChartZoom';
+import { ChartZoomBadge } from './ChartZoomBadge';
+import { OutageReferenceArea } from './OutageReferenceArea';
 
 interface MetricGraphsHubProps {
   status: Q1Status;
@@ -283,6 +285,24 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       })),
     };
   }, [telemetryData]);
+
+  const {
+    containerRef: voltageZoomRef,
+    visibleData: visibleVoltageCombined,
+    isZoomed: isVoltageZoomed,
+    zoomPercent: voltageZoomPercent,
+    resetZoom: resetVoltageZoom,
+    isDragging: isVoltageDragging,
+  } = useChartZoom({ data: voltageCombined, minPoints: 8 });
+
+  const {
+    containerRef: freqZoomRef,
+    visibleData: visibleFreqCombined,
+    isZoomed: isFreqZoomed,
+    zoomPercent: freqZoomPercent,
+    resetZoom: resetFreqZoom,
+    isDragging: isFreqDragging,
+  } = useChartZoom({ data: frequencyCombined, minPoints: 8 });
 
   const gridColsClass = useMemo(() => {
     switch (gridCols) {
@@ -672,14 +692,22 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <span className="text-slate-300">Output Line: {status.output_voltage_v.toFixed(1)}V</span>
                   </div>
                 </div>
-                <span className="text-slate-400">
-                  Regulation Delta: {Math.abs(status.grid_voltage_v - status.output_voltage_v).toFixed(1)}V
-                </span>
+                <div className="flex items-center space-x-2.5">
+                  <ChartZoomBadge isZoomed={isVoltageZoomed} zoomPercent={voltageZoomPercent} onReset={resetVoltageZoom} />
+                  <span className="text-slate-400">
+                    Regulation Delta: {Math.abs(status.grid_voltage_v - status.output_voltage_v).toFixed(1)}V
+                  </span>
+                </div>
               </div>
 
-              <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
+              <div
+                ref={voltageZoomRef}
+                className={`h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0 relative select-none ${
+                  isVoltageZoomed ? (isVoltageDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+                }`}
+              >
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={voltageCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
+                  <AreaChart data={visibleVoltageCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
                     <defs>
                       <linearGradient id="gridVGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
@@ -751,24 +779,10 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <Legend />
                     {showOutageHighlights &&
                       outageIntervals.map((interval, idx) => (
-                        <ReferenceArea
+                        <OutageReferenceArea
                           key={`outage-v-${idx}`}
-                          x1={interval.rawStart || interval.start}
-                          x2={interval.rawEnd || interval.end}
-                          fill="#ef4444"
-                          fillOpacity={0.16}
-                          stroke="#ef4444"
-                          strokeOpacity={0.35}
-                          strokeDasharray="3 3"
-                          ifOverflow="extendDomain"
-                          label={{
-                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
-                            position: 'insideTop',
-                            fill: '#f87171',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            offset: 6,
-                          }}
+                          interval={interval}
+                          xDataKey="xKey"
                         />
                       ))}
                     <Area
@@ -840,12 +854,20 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <span className="text-slate-300">Output Frequency: {status.output_frequency_hz.toFixed(1)}Hz</span>
                   </div>
                 </div>
-                <span className="text-emerald-400 font-semibold">Frequency Synchronized</span>
+                <div className="flex items-center space-x-2.5">
+                  <ChartZoomBadge isZoomed={isFreqZoomed} zoomPercent={freqZoomPercent} onReset={resetFreqZoom} />
+                  <span className="text-emerald-400 font-semibold">Frequency Synchronized</span>
+                </div>
               </div>
 
-              <div className="h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0">
+              <div
+                ref={freqZoomRef}
+                className={`h-60 sm:h-72 w-full bg-slate-950/60 rounded-xl p-2 sm:p-3 border border-slate-800 min-w-0 relative select-none ${
+                  isFreqZoomed ? (isFreqDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+                }`}
+              >
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={frequencyCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
+                  <AreaChart data={visibleFreqCombined} margin={{ top: 12, right: 12, left: -10, bottom: 4 }}>
                     <defs>
                       <linearGradient id="gridFGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
@@ -917,24 +939,10 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                     <Legend />
                     {showOutageHighlights &&
                       outageIntervals.map((interval, idx) => (
-                        <ReferenceArea
+                        <OutageReferenceArea
                           key={`outage-f-${idx}`}
-                          x1={interval.rawStart || interval.start}
-                          x2={interval.rawEnd || interval.end}
-                          fill="#ef4444"
-                          fillOpacity={0.16}
-                          stroke="#ef4444"
-                          strokeOpacity={0.35}
-                          strokeDasharray="3 3"
-                          ifOverflow="extendDomain"
-                          label={{
-                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
-                            position: 'insideTop',
-                            fill: '#f87171',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            offset: 6,
-                          }}
+                          interval={interval}
+                          xDataKey="xKey"
                         />
                       ))}
                     <Area

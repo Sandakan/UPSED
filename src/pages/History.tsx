@@ -20,12 +20,14 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
-  ReferenceArea,
 } from 'recharts';
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
 import { detectOutageDetails } from '../lib/outage';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from '../components/DurationPickerModal';
+import { useChartZoom } from '../lib/useChartZoom';
+import { ChartZoomBadge } from '../components/ChartZoomBadge';
+import { OutageReferenceArea } from '../components/OutageReferenceArea';
 
 export type HistoryDuration = '1h' | '6h' | '24h' | '7d' | '30d' | 'all' | 'custom';
 
@@ -249,6 +251,15 @@ export const History: React.FC<HistoryProps> = ({
     });
   }, [activeTelemetry, isOutageMap, isMultiDay]);
 
+  const {
+    containerRef: historyZoomRef,
+    visibleData: visibleChartData,
+    isZoomed: isHistoryZoomed,
+    zoomPercent: historyZoomPercent,
+    resetZoom: resetHistoryZoom,
+    isDragging: isHistoryDragging,
+  } = useChartZoom({ data: chartData, minPoints: 8 });
+
   const toggleSelectOne = (id?: number) => {
     if (!id) return;
     const next = new Set(selectedIds);
@@ -414,31 +425,39 @@ export const History: React.FC<HistoryProps> = ({
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 {t('history:metricStream', 'Metric Stream')}
               </span>
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                {(['voltage', 'frequency', 'power', 'battery', 'temperature'] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setChartMetric(m)}
-                    className={`px-2.5 py-1 rounded-lg capitalize text-xs font-medium transition ${
-                      chartMetric === m
-                        ? 'bg-[#22c55e] text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200 bg-white/[0.04]'
-                    }`}
-                  >
-                    {t(`history:metricShort.${m}`, m)}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <ChartZoomBadge isZoomed={isHistoryZoomed} zoomPercent={historyZoomPercent} onReset={resetHistoryZoom} />
+                <div className="flex flex-wrap gap-1.5">
+                  {(['voltage', 'frequency', 'power', 'battery', 'temperature'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setChartMetric(m)}
+                      className={`px-2.5 py-1 rounded-lg capitalize text-xs font-medium transition ${
+                        chartMetric === m
+                          ? 'bg-[#22c55e] text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200 bg-white/[0.04]'
+                      }`}
+                    >
+                      {t(`history:metricShort.${m}`, m)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="h-80 w-full">
+            <div
+              ref={historyZoomRef}
+              className={`h-80 w-full relative select-none ${
+                isHistoryZoomed ? (isHistoryDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+              }`}
+            >
               {activeTelemetry.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-slate-500 text-xs">
                   {isLoadingTelemetry ? t('history:durations.loading', 'Loading records...') : t('history:noRecords', 'No telemetry records recorded yet.')}
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 12, right: 12, left: -20, bottom: 4 }}>
+                  <AreaChart data={visibleChartData} margin={{ top: 12, right: 12, left: -20, bottom: 4 }}>
                     <defs>
                       <linearGradient id="histGrad1" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
@@ -511,24 +530,10 @@ export const History: React.FC<HistoryProps> = ({
                     <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                     {showOutageHighlights &&
                       outageIntervals.map((interval, idx) => (
-                        <ReferenceArea
+                        <OutageReferenceArea
                           key={`outage-hist-${idx}`}
-                          x1={interval.rawStart || interval.start}
-                          x2={interval.rawEnd || interval.end}
-                          fill="#ef4444"
-                          fillOpacity={0.16}
-                          stroke="#ef4444"
-                          strokeOpacity={0.35}
-                          strokeDasharray="3 3"
-                          ifOverflow="extendDomain"
-                          label={{
-                            value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
-                            position: 'insideTop',
-                            fill: '#f87171',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            offset: 6,
-                          }}
+                          interval={interval}
+                          xDataKey="xKey"
                         />
                       ))}
 

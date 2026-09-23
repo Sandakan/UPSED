@@ -7,9 +7,11 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  ReferenceArea,
 } from 'recharts';
 import { OutageInterval } from '../lib/types';
+import { useChartZoom } from '../lib/useChartZoom';
+import { ChartZoomBadge } from './ChartZoomBadge';
+import { OutageReferenceArea } from './OutageReferenceArea';
 
 export interface MetricDataPoint {
   time: string;
@@ -58,7 +60,16 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   showOutageHighlights = true,
   yAxisPadding = { top: 14, bottom: 8 },
 }) => {
-  const xDataKey = data[0]?.xKey ? 'xKey' : 'time';
+  const {
+    containerRef,
+    visibleData,
+    isZoomed,
+    zoomPercent,
+    resetZoom,
+    isDragging,
+  } = useChartZoom({ data, minPoints: 6 });
+
+  const xDataKey = visibleData[0]?.xKey ? 'xKey' : 'time';
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -97,7 +108,10 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
           </div>
         </div>
 
-        {statusBadge && <div className="shrink-0">{statusBadge}</div>}
+        <div className="flex items-center space-x-1.5 shrink-0">
+          <ChartZoomBadge isZoomed={isZoomed} zoomPercent={zoomPercent} onReset={resetZoom} />
+          {statusBadge && <div>{statusBadge}</div>}
+        </div>
       </div>
 
       {/* Summary Min / Avg / Max Strip */}
@@ -119,14 +133,20 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
       )}
 
       {/* Chart Canvas */}
-      <div style={{ height }} className="w-full min-w-0">
-        {data.length === 0 ? (
+      <div
+        ref={containerRef}
+        style={{ height }}
+        className={`w-full min-w-0 relative select-none ${
+          isZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+        }`}
+      >
+        {visibleData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-slate-500 font-mono">
             Awaiting telemetry samples...
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 8, left: -15, bottom: 4 }}>
+            <AreaChart data={visibleData} margin={{ top: 8, right: 8, left: -15, bottom: 4 }}>
               <defs>
                 <linearGradient id={`${gradientId}-grad`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.35} />
@@ -205,24 +225,12 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
               {showOutageHighlights &&
                 outageIntervals &&
                 outageIntervals.map((interval, idx) => (
-                  <ReferenceArea
+                  <OutageReferenceArea
                     key={`outage-${idx}`}
-                    x1={xDataKey === 'xKey' ? (interval.rawStart || interval.start) : interval.start}
-                    x2={xDataKey === 'xKey' ? (interval.rawEnd || interval.end) : interval.end}
-                    fill="#ef4444"
-                    fillOpacity={0.16}
-                    stroke="#ef4444"
-                    strokeOpacity={0.35}
-                    strokeDasharray="3 3"
-                    ifOverflow="extendDomain"
-                    label={{
-                      value: interval.isActive ? 'Outage (Active)' : 'Power Outage',
-                      position: 'insideTop',
-                      fill: '#f87171',
-                      fontSize: 9,
-                      fontWeight: 600,
-                      offset: 4,
-                    }}
+                    interval={interval}
+                    xDataKey={xDataKey}
+                    topPadding={yAxisPadding?.top ?? 14}
+                    bottomPadding={yAxisPadding?.bottom ?? 8}
                   />
                 ))}
               <Area
