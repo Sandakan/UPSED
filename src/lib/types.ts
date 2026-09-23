@@ -111,6 +111,10 @@ export interface ProbeStatusEvent {
 export interface OutageInterval {
   start: string;
   end: string;
+  rawStart?: string;
+  rawEnd?: string;
+  startIndex?: number;
+  endIndex?: number;
   isActive?: boolean;
 }
 

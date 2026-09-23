@@ -56,6 +56,16 @@
     "pollSeconds": "{{count}} Seconds",
     "pollWarning": "High-frequency polling (<5s) may increase serial port traffic on low-baud RS-232 interfaces."
   },
+  "downsamplingSection": {
+    "title": "Historical Graph Resolution & Downsampling",
+    "desc": "Adjust the maximum telemetry points loaded into charts to balance rendering performance and minute-by-minute waveform detail.",
+    "selectLabel": "Graph Resolution Threshold",
+    "points1500": "1,500 points (Aggressive / Lightest)",
+    "points3000": "3,000 points (Balanced)",
+    "points5000": "5,000 points (Default - High Detail)",
+    "points10000": "10,000 points (Ultra Detail)",
+    "pointsRaw": "Raw Data (No Downsampling / Unlimited)"
+  },
   "bridgeSection": {
     "title": "OS Native Battery Bridge",
     "desc": "Exposes connected UPS as a virtual native battery to Windows OS.",

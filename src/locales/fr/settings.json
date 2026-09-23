@@ -56,6 +56,16 @@
     "pollSeconds": "{{count}} Secondes",
     "pollWarning": "Une interrogation très rapprochée (<5s) peut surcharger les liaisons RS-232 à faible débit de bauds."
   },
+  "downsamplingSection": {
+    "title": "Résolution des graphiques & Sous-échantillonnage",
+    "desc": "Ajustez le nombre maximal de points de télémétrie chargés dans les graphiques pour équilibrer la fluidité d'affichage et la précision des courbes.",
+    "selectLabel": "Seuil de résolution des graphiques",
+    "points1500": "1 500 points (Rapide / Très léger)",
+    "points3000": "3 000 points (Équilibré)",
+    "points5000": "5 000 points (Par défaut - Haute précision)",
+    "points10000": "10 000 points (Ultra détaillé)",
+    "pointsRaw": "Données brutes (Aucun sous-échantillonnage / Illimité)"
+  },
   "bridgeSection": {
     "title": "Passerelle batterie native Windows",
     "desc": "Expose l'onduleur connecté comme une batterie d'ordinateur portable native auprès de Windows.",

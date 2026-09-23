@@ -34,6 +34,10 @@ export function App() {
     const saved = localStorage.getItem('upsed_show_outage_highlights');
     return saved !== null ? saved === 'true' : true;
   });
+  const [downsamplingMaxPoints, setDownsamplingMaxPoints] = useState<number>(() => {
+    const saved = localStorage.getItem('upsed_downsampling_max_points');
+    return saved !== null ? Number(saved) : 5000;
+  });
   const [probeStatus, setProbeStatus] = useState<ProbeStatusEvent | null>(null);
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<string | null>(null);
@@ -45,6 +49,11 @@ export function App() {
   const handleShowOutageHighlightsChange = (val: boolean) => {
     setShowOutageHighlights(val);
     localStorage.setItem('upsed_show_outage_highlights', String(val));
+  };
+
+  const handleDownsamplingMaxPointsChange = (val: number) => {
+    setDownsamplingMaxPoints(val);
+    localStorage.setItem('upsed_downsampling_max_points', String(val));
   };
 
   // 1. Scan serial and USB ports query
@@ -455,6 +464,7 @@ export function App() {
               targetDeviceName={activeDeviceLabel}
               events={events}
               showOutageHighlights={showOutageHighlights}
+              downsamplingMaxPoints={downsamplingMaxPoints}
               onRescan={() => scanPorts()}
             />
           )}
@@ -486,6 +496,7 @@ export function App() {
               onRefresh={pollTelemetry}
               isRefreshing={isRefreshing}
               showOutageHighlights={showOutageHighlights}
+              downsamplingMaxPoints={downsamplingMaxPoints}
               portName={selectedDevice}
             />
           )}
@@ -507,6 +518,8 @@ export function App() {
               onThemeModeChange={setThemeMode}
               showOutageHighlights={showOutageHighlights}
               onShowOutageHighlightsChange={handleShowOutageHighlightsChange}
+              downsamplingMaxPoints={downsamplingMaxPoints}
+              onDownsamplingMaxPointsChange={handleDownsamplingMaxPointsChange}
               onDirtyChange={setIsSettingsDirty}
               onOpenAbout={() => setIsAboutModalOpen(true)}
             />

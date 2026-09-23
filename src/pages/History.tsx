@@ -36,6 +36,7 @@ interface HistoryProps {
   isRefreshing: boolean;
   showOutageHighlights?: boolean;
   portName?: string | null;
+  downsamplingMaxPoints?: number;
 }
 
 const PAGE_SIZE = 12;
@@ -47,6 +48,7 @@ export const History: React.FC<HistoryProps> = ({
   isRefreshing,
   showOutageHighlights = true,
   portName,
+  downsamplingMaxPoints = 5000,
 }) => {
   const { t } = useTranslation(['history', 'common']);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'events' | 'charts'>('telemetry');
@@ -67,7 +69,8 @@ export const History: React.FC<HistoryProps> = ({
     setIsLoadingTelemetry(true);
     try {
       if (selectedDuration === 'all') {
-        const records = await api.getRecentTelemetry(portName, 1500);
+        const limit = downsamplingMaxPoints === 0 ? 50000 : downsamplingMaxPoints;
+        const records = await api.getRecentTelemetry(portName, limit);
         setLoadedTelemetry(records);
       } else {
         let startIso: string;
@@ -97,7 +100,7 @@ export const History: React.FC<HistoryProps> = ({
           return;
         }
 
-        const records = await api.getTelemetryRange(portName, startIso, endIso, 1500);
+        const records = await api.getTelemetryRange(portName, startIso, endIso, downsamplingMaxPoints);
         setLoadedTelemetry(records);
       }
     } catch (err) {
@@ -105,7 +108,7 @@ export const History: React.FC<HistoryProps> = ({
     } finally {
       setIsLoadingTelemetry(false);
     }
-  }, [portName, selectedDuration, customRange]);
+  }, [portName, selectedDuration, customRange, downsamplingMaxPoints]);
 
   useEffect(() => {
     fetchTelemetryHistory();
@@ -202,7 +205,7 @@ export const History: React.FC<HistoryProps> = ({
   }, [activeTelemetry]);
 
   const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
-    const samples = activeTelemetry.map((t) => {
+    const samples = activeTelemetry.map((t, idx) => {
       let timeStr: string;
       if (t.timestamp.includes('T')) {
         const [dPart, tPart] = t.timestamp.split('T');
@@ -212,6 +215,7 @@ export const History: React.FC<HistoryProps> = ({
       }
       return {
         time: timeStr,
+        xKey: `${t.timestamp}__${idx}`,
         grid_voltage: t.grid_voltage,
         rawTimestamp: t.timestamp,
       };
@@ -228,8 +232,10 @@ export const History: React.FC<HistoryProps> = ({
       } else {
         timeStr = t.timestamp.slice(-8);
       }
+      const xKey = `${t.timestamp}__${idx}`;
       return {
         time: timeStr,
+        xKey,
         grid_voltage: t.grid_voltage,
         output_voltage: t.output_voltage,
         grid_frequency: t.grid_frequency ?? 50.0,
@@ -444,12 +450,29 @@ export const History: React.FC<HistoryProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.25} />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} />
+                    <XAxis
+                      dataKey="xKey"
+                      stroke="#64748b"
+                      fontSize={11}
+                      tickLine={false}
+                      tickFormatter={(val) => {
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          if (raw.includes('T')) {
+                            const [dPart, tPart] = raw.split('T');
+                            return isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
+                          }
+                        }
+                        return val;
+                      }}
+                    />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} tickLine={false} />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
-                        const isOutage = payload[0]?.payload?.isOutage;
+                        const itemPayload = payload[0]?.payload;
+                        const isOutage = itemPayload?.isOutage;
+                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -460,7 +483,7 @@ export const History: React.FC<HistoryProps> = ({
                             }}
                           >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{displayTime}</span>
                               {isOutage && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
                                   Power Outage (Battery Mode)
@@ -484,8 +507,8 @@ export const History: React.FC<HistoryProps> = ({
                       outageIntervals.map((interval, idx) => (
                         <ReferenceArea
                           key={`outage-hist-${idx}`}
-                          x1={interval.start}
-                          x2={interval.end}
+                          x1={interval.rawStart || interval.start}
+                          x2={interval.rawEnd || interval.end}
                           fill="#ef4444"
                           fillOpacity={0.16}
                           stroke="#ef4444"

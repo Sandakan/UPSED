@@ -31,6 +31,7 @@ interface DashboardProps {
   targetDeviceName?: string | null;
   events?: EventLogRecord[];
   showOutageHighlights?: boolean;
+  downsamplingMaxPoints?: number;
   onRescan?: () => void;
 }
 
@@ -46,6 +47,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   targetDeviceName,
   events,
   showOutageHighlights,
+  downsamplingMaxPoints,
   onRescan,
 }) => {
   const { t } = useTranslation(['dashboard', 'common']);
@@ -355,6 +357,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
         events={events}
         showOutageHighlights={showOutageHighlights}
         portName={portName}
+        downsamplingMaxPoints={downsamplingMaxPoints}
       />
 
       {/* Warnings and Status Bit Flags */}

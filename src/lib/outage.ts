@@ -6,6 +6,7 @@ export interface OutageSample {
   time: string;
   grid_voltage: number;
   rawTimestamp?: string;
+  xKey?: string;
 }
 
 export interface OutageDetectionResult {
@@ -104,6 +105,10 @@ export function detectOutageDetails(
         intervals.push({
           start: samples[currentStartIdx].time,
           end: samples[i - 1].time,
+          rawStart: samples[currentStartIdx].xKey || samples[currentStartIdx].rawTimestamp || samples[currentStartIdx].time,
+          rawEnd: samples[i - 1].xKey || samples[i - 1].rawTimestamp || samples[i - 1].time,
+          startIndex: currentStartIdx,
+          endIndex: i - 1,
           isActive: false,
         });
         currentStartIdx = null;
@@ -116,6 +121,10 @@ export function detectOutageDetails(
     intervals.push({
       start: samples[currentStartIdx].time,
       end: samples[samples.length - 1].time,
+      rawStart: samples[currentStartIdx].xKey || samples[currentStartIdx].rawTimestamp || samples[currentStartIdx].time,
+      rawEnd: samples[samples.length - 1].xKey || samples[samples.length - 1].rawTimestamp || samples[samples.length - 1].time,
+      startIndex: currentStartIdx,
+      endIndex: samples.length - 1,
       isActive: isCurrentlyFailing || isOutageMap[samples.length - 1],
     });
   }

@@ -43,6 +43,7 @@ interface MetricGraphsHubProps {
   events?: EventLogRecord[];
   showOutageHighlights?: boolean;
   portName?: string | null;
+  downsamplingMaxPoints?: number;
 }
 
 type ViewMode = 'grid' | 'categories';
@@ -57,6 +58,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   events = [],
   showOutageHighlights = true,
   portName,
+  downsamplingMaxPoints = 5000,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('categories');
   const [activeCategory, setActiveCategory] = useState<CategoryTab>('voltage');
@@ -97,14 +99,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
         return;
       }
 
-      const records = await api.getTelemetryRange(portName, startIso, endIso, 1500);
+      const records = await api.getTelemetryRange(portName, startIso, endIso, downsamplingMaxPoints);
       setRangeHistory(records);
     } catch (err) {
       console.error('Failed to query telemetry range for graphs:', err);
     } finally {
       setIsLoadingRange(false);
     }
-  }, [portName, selectedDuration, customRange]);
+  }, [portName, selectedDuration, customRange, downsamplingMaxPoints]);
 
   useEffect(() => {
     if (selectedDuration !== 'live') {
@@ -151,7 +153,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
 
   // Detect outage intervals and per-sample states
   const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
-    const samples = visibleHistory.map((rec) => {
+    const samples = visibleHistory.map((rec, idx) => {
       let timeStr: string;
       if (rec.timestamp.includes('T')) {
         const [dPart, tPart] = rec.timestamp.split('T');
@@ -161,6 +163,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       }
       return {
         time: timeStr,
+        xKey: `${rec.timestamp}__${idx}`,
         grid_voltage: rec.grid_voltage,
         rawTimestamp: rec.timestamp,
       };
@@ -178,6 +181,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
       } else {
         timeStr = rec.timestamp.slice(-8);
       }
+      const xKey = `${rec.timestamp}__${idx}`;
 
       const batPct = calculateBatterySoC(
         rec.battery_voltage,
@@ -201,6 +205,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
 
       return {
         time: timeStr,
+        xKey,
         grid_voltage: Number(rec.grid_voltage.toFixed(1)),
         output_voltage: Number(rec.output_voltage.toFixed(1)),
         grid_frequency: Number((rec.grid_frequency ?? status.grid_frequency_hz).toFixed(1)),
@@ -214,7 +219,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
         isOutage: isOutageMap[idx] ?? false,
       };
     });
-  }, [visibleHistory, nominalBat, ratedW, metadata, status.grid_frequency_hz, status.output_frequency_hz, isOutageMap]);
+  }, [visibleHistory, nominalBat, ratedW, metadata, status.grid_frequency_hz, status.output_frequency_hz, isOutageMap, isMultiDay]);
 
   // Current calculated metrics
   const currentBatPct = calculateBatterySoC(
@@ -252,24 +257,26 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
     frequencyCombined,
   } = useMemo(() => {
     return {
-      gridVData: telemetryData.map((d) => ({ time: d.time, value: d.grid_voltage, isOutage: d.isOutage })),
-      outVData: telemetryData.map((d) => ({ time: d.time, value: d.output_voltage, isOutage: d.isOutage })),
-      gridFData: telemetryData.map((d) => ({ time: d.time, value: d.grid_frequency, isOutage: d.isOutage })),
-      outFData: telemetryData.map((d) => ({ time: d.time, value: d.output_frequency, isOutage: d.isOutage })),
-      loadData: telemetryData.map((d) => ({ time: d.time, value: d.load_pct, isOutage: d.isOutage })),
-      wattsData: telemetryData.map((d) => ({ time: d.time, value: d.output_watts, isOutage: d.isOutage })),
-      batVData: telemetryData.map((d) => ({ time: d.time, value: d.battery_voltage, isOutage: d.isOutage })),
-      batSocData: telemetryData.map((d) => ({ time: d.time, value: d.battery_soc, isOutage: d.isOutage })),
-      tempData: telemetryData.map((d) => ({ time: d.time, value: d.temperature_c, isOutage: d.isOutage })),
-      runtimeData: telemetryData.map((d) => ({ time: d.time, value: d.runtime_mins, isOutage: d.isOutage })),
+      gridVData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.grid_voltage, isOutage: d.isOutage })),
+      outVData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.output_voltage, isOutage: d.isOutage })),
+      gridFData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.grid_frequency, isOutage: d.isOutage })),
+      outFData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.output_frequency, isOutage: d.isOutage })),
+      loadData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.load_pct, isOutage: d.isOutage })),
+      wattsData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.output_watts, isOutage: d.isOutage })),
+      batVData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.battery_voltage, isOutage: d.isOutage })),
+      batSocData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.battery_soc, isOutage: d.isOutage })),
+      tempData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.temperature_c, isOutage: d.isOutage })),
+      runtimeData: telemetryData.map((d) => ({ time: d.time, xKey: d.xKey, value: d.runtime_mins, isOutage: d.isOutage })),
       voltageCombined: telemetryData.map((d) => ({
         time: d.time,
+        xKey: d.xKey,
         value: d.grid_voltage,
         value2: d.output_voltage,
         isOutage: d.isOutage,
       })),
       frequencyCombined: telemetryData.map((d) => ({
         time: d.time,
+        xKey: d.xKey,
         value: d.grid_frequency,
         value2: d.output_frequency,
         isOutage: d.isOutage,
@@ -684,12 +691,28 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
+                    <XAxis
+                      dataKey="xKey"
+                      stroke="#64748b"
+                      fontSize={11}
+                      minTickGap={25}
+                      tickFormatter={(val) => {
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          if (raw.includes('T')) {
+                            const [, tPart] = raw.split('T');
+                            return tPart.slice(0, 8);
+                          }
+                        }
+                        return val;
+                      }}
+                    />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="V" />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
                         const isOutage = payload[0]?.payload?.isOutage;
+                        const displayTime = payload[0]?.payload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -700,7 +723,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                             }}
                           >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{displayTime}</span>
                               {isOutage && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
                                   Power Outage (Battery Mode)
@@ -724,8 +747,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       outageIntervals.map((interval, idx) => (
                         <ReferenceArea
                           key={`outage-v-${idx}`}
-                          x1={interval.start}
-                          x2={interval.end}
+                          x1={interval.rawStart || interval.start}
+                          x2={interval.rawEnd || interval.end}
                           fill="#ef4444"
                           fillOpacity={0.16}
                           stroke="#ef4444"
@@ -827,12 +850,28 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="time" stroke="#64748b" fontSize={11} minTickGap={25} />
+                    <XAxis
+                      dataKey="xKey"
+                      stroke="#64748b"
+                      fontSize={11}
+                      minTickGap={25}
+                      tickFormatter={(val) => {
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          if (raw.includes('T')) {
+                            const [, tPart] = raw.split('T');
+                            return tPart.slice(0, 8);
+                          }
+                        }
+                        return val;
+                      }}
+                    />
                     <YAxis stroke="#64748b" fontSize={11} domain={['auto', 'auto']} unit="Hz" />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null;
                         const isOutage = payload[0]?.payload?.isOutage;
+                        const displayTime = payload[0]?.payload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -843,7 +882,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                             }}
                           >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{displayTime}</span>
                               {isOutage && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
                                   Power Outage (Battery Mode)
@@ -867,8 +906,8 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       outageIntervals.map((interval, idx) => (
                         <ReferenceArea
                           key={`outage-f-${idx}`}
-                          x1={interval.start}
-                          x2={interval.end}
+                          x1={interval.rawStart || interval.start}
+                          x2={interval.rawEnd || interval.end}
                           fill="#ef4444"
                           fillOpacity={0.16}
                           stroke="#ef4444"

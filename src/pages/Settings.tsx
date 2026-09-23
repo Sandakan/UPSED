@@ -16,6 +16,7 @@ import {
   AlertCircle,
   RotateCcw,
   CheckCircle2,
+  Activity,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
@@ -48,6 +49,8 @@ export interface SettingsProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   showOutageHighlights?: boolean;
   onShowOutageHighlightsChange?: (val: boolean) => void;
+  downsamplingMaxPoints?: number;
+  onDownsamplingMaxPointsChange?: (val: number) => void;
   onDirtyChange?: (isDirty: boolean) => void;
   onOpenAbout?: () => void;
 }
@@ -63,6 +66,7 @@ interface PersistedSettings {
   osNotif: boolean;
   inAppToast: boolean;
   outageHighlights: boolean;
+  downsamplingMaxPoints: number;
   upsName: string;
   ratedVa: number;
   powerFactor: number;
@@ -89,6 +93,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       onThemeModeChange,
       showOutageHighlights = true,
       onShowOutageHighlightsChange,
+      downsamplingMaxPoints = 5000,
+      onDownsamplingMaxPointsChange,
       onDirtyChange,
       onOpenAbout,
     },
@@ -102,6 +108,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
     const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
     const [outageHighlightsVal, setOutageHighlightsVal] = useState<boolean>(showOutageHighlights);
+    const [downsamplingVal, setDownsamplingVal] = useState<number>(downsamplingMaxPoints);
     const [autostartVal, setAutostartVal] = useState(false);
     const [startMinimizedVal, setStartMinimizedVal] = useState(true);
     const [closeToMinimizeVal, setCloseToMinimizeVal] = useState(true);
@@ -151,6 +158,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           osNotif: osNotificationsEnabled,
           inAppToast: inAppToastsEnabled,
           outageHighlights: showOutageHighlights,
+          downsamplingMaxPoints,
           upsName: metadata?.name || 'Connected UPS',
           ratedVa: metadata?.rated_va || 1000,
           powerFactor: metadata?.power_factor || 0.8,
@@ -208,7 +216,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         closeToMinimizeVal !== persisted.closeToMinimize ||
         osNotifVal !== persisted.osNotif ||
         inAppToastVal !== persisted.inAppToast ||
-        outageHighlightsVal !== persisted.outageHighlights;
+        outageHighlightsVal !== persisted.outageHighlights ||
+        downsamplingVal !== persisted.downsamplingMaxPoints;
 
       if (isBasicDirty) return true;
 
@@ -237,6 +246,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       closeToMinimizeVal,
       osNotifVal,
       inAppToastVal,
+      outageHighlightsVal,
+      downsamplingVal,
       metadata,
       upsName,
       ratedVa,
@@ -265,6 +276,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       setOsNotifVal(persisted.osNotif);
       setInAppToastVal(persisted.inAppToast);
       setOutageHighlightsVal(persisted.outageHighlights);
+      setDownsamplingVal(persisted.downsamplingMaxPoints);
       setUpsName(persisted.upsName);
       setRatedVa(persisted.ratedVa);
       setPowerFactor(persisted.powerFactor);
@@ -282,6 +294,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         onOsNotificationsChange(osNotifVal);
         onInAppToastsChange(inAppToastVal);
         onShowOutageHighlightsChange?.(outageHighlightsVal);
+        onDownsamplingMaxPointsChange?.(downsamplingVal);
         onThemeModeChange(currentTheme);
 
         await api.setBatteryBridgeStatus(bridgeVal);
@@ -325,6 +338,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           osNotif: osNotifVal,
           inAppToast: inAppToastVal,
           outageHighlights: outageHighlightsVal,
+          downsamplingMaxPoints: downsamplingVal,
           upsName: upsName.trim() || 'Connected UPS',
           ratedVa: Math.max(50, Number(ratedVa)),
           powerFactor: Number(powerFactor),
@@ -363,12 +377,14 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       osNotifVal,
       inAppToastVal,
       outageHighlightsVal,
+      downsamplingVal,
       currentTheme,
       onPollIntervalChange,
       onBatteryBridgeChange,
       onOsNotificationsChange,
       onInAppToastsChange,
       onShowOutageHighlightsChange,
+      onDownsamplingMaxPointsChange,
       onThemeModeChange,
       closeToMinimizeVal,
       startMinimizedVal,
@@ -827,6 +843,56 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               {t('settings:pollingSection.pollSeconds', { count: sec, defaultValue: `${sec}s` })} {sec === 10 ? '(Default)' : ''}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* ── 4b. Historical Graph Resolution & Downsampling ─── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-3"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center space-x-2.5 text-slate-200">
+          <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+            <Activity className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-slate-100">
+              {t('settings:downsamplingSection.title', 'Historical Graph Resolution & Downsampling')}
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {t('settings:downsamplingSection.desc', 'Adjust the maximum telemetry points loaded into charts to balance rendering performance and minute-by-minute waveform detail.')}
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-2 max-w-md">
+          <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            {t('settings:downsamplingSection.selectLabel', 'Graph Resolution Threshold')}
+          </label>
+          <select
+            value={downsamplingVal}
+            onChange={(e) => setDownsamplingVal(Number(e.target.value))}
+            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-purple-500/60 transition cursor-pointer"
+          >
+            <option value={1500} className="bg-slate-900 text-slate-200">
+              {t('settings:downsamplingSection.points1500', '1,500 points (Aggressive / Lightest)')}
+            </option>
+            <option value={3000} className="bg-slate-900 text-slate-200">
+              {t('settings:downsamplingSection.points3000', '3,000 points (Balanced)')}
+            </option>
+            <option value={5000} className="bg-slate-900 text-slate-200">
+              {t('settings:downsamplingSection.points5000', '5,000 points (Default - High Detail)')}
+            </option>
+            <option value={10000} className="bg-slate-900 text-slate-200">
+              {t('settings:downsamplingSection.points10000', '10,000 points (Ultra Detail)')}
+            </option>
+            <option value={0} className="bg-slate-900 text-slate-200">
+              {t('settings:downsamplingSection.pointsRaw', 'Raw Data (No Downsampling / Unlimited)')}
+            </option>
+          </select>
         </div>
       </div>
 

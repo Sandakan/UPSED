@@ -13,6 +13,7 @@ import { OutageInterval } from '../lib/types';
 
 export interface MetricDataPoint {
   time: string;
+  xKey?: string;
   value: number;
   value2?: number;
   isOutage?: boolean;
@@ -55,6 +56,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   outageIntervals,
   showOutageHighlights = true,
 }) => {
+  const xDataKey = data[0]?.xKey ? 'xKey' : 'time';
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -136,7 +138,23 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 )}
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-              <XAxis dataKey="time" stroke="#64748b" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} minTickGap={35} />
+              <XAxis
+                dataKey={xDataKey}
+                stroke="#64748b"
+                tick={{ fontSize: 9, fill: '#64748b' }}
+                tickLine={false}
+                minTickGap={35}
+                tickFormatter={(val) => {
+                  if (typeof val === 'string' && val.includes('__')) {
+                    const raw = val.split('__')[0];
+                    if (raw.includes('T')) {
+                      const [, tPart] = raw.split('T');
+                      return tPart.slice(0, 8);
+                    }
+                  }
+                  return val;
+                }}
+              />
               <YAxis
                 stroke="#64748b"
                 width={28}
@@ -148,7 +166,9 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload || !payload.length) return null;
-                  const isOutage = payload[0]?.payload?.isOutage;
+                  const itemPayload = payload[0]?.payload;
+                  const isOutage = itemPayload?.isOutage;
+                  const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
                   return (
                     <div
                       className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -159,7 +179,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                       }}
                     >
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-[10px] text-slate-400 font-mono">{label}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{displayTime}</span>
                         {isOutage && (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/60">
                             Power Outage (Battery Mode)
@@ -183,8 +203,8 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 outageIntervals.map((interval, idx) => (
                   <ReferenceArea
                     key={`outage-${idx}`}
-                    x1={interval.start}
-                    x2={interval.end}
+                    x1={xDataKey === 'xKey' ? (interval.rawStart || interval.start) : interval.start}
+                    x2={xDataKey === 'xKey' ? (interval.rawEnd || interval.end) : interval.end}
                     fill="#ef4444"
                     fillOpacity={0.16}
                     stroke="#ef4444"

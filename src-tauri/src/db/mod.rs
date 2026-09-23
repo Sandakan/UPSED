@@ -250,11 +250,24 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        let max_p = max_points.unwrap_or(1500).max(100);
-        let step = if count > max_p {
-            (count as f64 / max_p as f64).ceil() as u32
-        } else {
-            1
+        let step = match max_points {
+            Some(0) => 1, // Raw mode: no downsampling
+            Some(limit) => {
+                let max_p = limit.max(100);
+                if count > max_p {
+                    (count as f64 / max_p as f64).ceil() as u32
+                } else {
+                    1
+                }
+            }
+            None => {
+                let max_p = 5000;
+                if count > max_p {
+                    (count as f64 / max_p as f64).ceil() as u32
+                } else {
+                    1
+                }
+            }
         };
 
         let mut results = Vec::new();
