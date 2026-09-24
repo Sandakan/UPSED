@@ -141,43 +141,53 @@ export const History: React.FC<HistoryProps> = ({
   const [loadedTelemetry, setLoadedTelemetry] = useState<TelemetryRecord[]>([]);
   const [isLoadingTelemetry, setIsLoadingTelemetry] = useState<boolean>(false);
 
+  const activeTimeRange = useMemo(() => {
+    if (selectedDuration === 'all') return null;
+    const now = new Date();
+    if (selectedDuration === '1h') {
+      return { startIso: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '6h') {
+      return { startIso: new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '24h') {
+      return { startIso: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '7d') {
+      return { startIso: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '30d') {
+      return { startIso: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === 'custom' && customRange) {
+      return { startIso: customRange.startIso, endIso: customRange.endIso };
+    }
+    return null;
+  }, [selectedDuration, customRange]);
+
+  const rangeBounds = useMemo(() => {
+    if (!activeTimeRange) return undefined;
+    return {
+      startMs: Date.parse(activeTimeRange.startIso),
+      endMs: Date.parse(activeTimeRange.endIso),
+    };
+  }, [activeTimeRange]);
+
   const fetchTelemetryHistory = useCallback(async () => {
     if (!portName) return;
     setIsLoadingTelemetry(true);
     try {
-      if (selectedDuration === 'all') {
+      if (selectedDuration === 'all' || !activeTimeRange) {
         const limit = downsamplingMaxPoints === 0 ? 50000 : downsamplingMaxPoints;
         const records = await api.getRecentTelemetry(portName, limit);
         setLoadedTelemetry(records);
       } else {
-        let startIso: string;
-        let endIso: string;
-        const now = new Date();
-
-        if (selectedDuration === '1h') {
-          startIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-          endIso = now.toISOString();
-        } else if (selectedDuration === '6h') {
-          startIso = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
-          endIso = now.toISOString();
-        } else if (selectedDuration === '24h') {
-          startIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-          endIso = now.toISOString();
-        } else if (selectedDuration === '7d') {
-          startIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-          endIso = now.toISOString();
-        } else if (selectedDuration === '30d') {
-          startIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-          endIso = now.toISOString();
-        } else if (selectedDuration === 'custom' && customRange) {
-          startIso = customRange.startIso;
-          endIso = customRange.endIso;
-        } else {
-          setIsLoadingTelemetry(false);
-          return;
-        }
-
-        const records = await api.getTelemetryRange(portName, startIso, endIso, downsamplingMaxPoints);
+        const records = await api.getTelemetryRange(
+          portName,
+          activeTimeRange.startIso,
+          activeTimeRange.endIso,
+          downsamplingMaxPoints
+        );
         setLoadedTelemetry(records);
       }
     } catch (err) {
@@ -185,7 +195,7 @@ export const History: React.FC<HistoryProps> = ({
     } finally {
       setIsLoadingTelemetry(false);
     }
-  }, [portName, selectedDuration, customRange, downsamplingMaxPoints]);
+  }, [portName, selectedDuration, activeTimeRange, downsamplingMaxPoints]);
 
   useEffect(() => {
     fetchTelemetryHistory();
@@ -321,11 +331,14 @@ export const History: React.FC<HistoryProps> = ({
 
   // Check if active history spans more than 24 hours to format time axis labels cleanly
   const isMultiDay = useMemo(() => {
+    if (rangeBounds) {
+      return Math.abs(rangeBounds.endMs - rangeBounds.startMs) > 24 * 60 * 60 * 1000;
+    }
     if (activeTelemetry.length < 2) return false;
     const first = new Date(activeTelemetry[0].timestamp).getTime();
     const last = new Date(activeTelemetry[activeTelemetry.length - 1].timestamp).getTime();
     return Math.abs(last - first) > 24 * 60 * 60 * 1000;
-  }, [activeTelemetry]);
+  }, [rangeBounds, activeTelemetry]);
 
   const { isOutageMap } = useMemo(() => {
     const samples = activeTelemetry.map((t, idx) => {
@@ -361,12 +374,12 @@ export const History: React.FC<HistoryProps> = ({
   }, [activeTelemetry, isOutageMap, isMultiDay]);
 
   const historyGaps = useMemo(() => {
-    return detectDataGaps(activeTelemetry);
-  }, [activeTelemetry]);
+    return detectDataGaps(activeTelemetry, 10, rangeBounds);
+  }, [activeTelemetry, rangeBounds]);
 
   const chartDataWithGaps = useMemo(() => {
-    return injectGapAnchorPoints(chartData, historyGaps);
-  }, [chartData, historyGaps]);
+    return injectGapAnchorPoints(chartData, historyGaps, undefined, rangeBounds);
+  }, [chartData, historyGaps, rangeBounds]);
 
   const {
     containerRef: historyZoomRef,
@@ -625,13 +638,11 @@ export const History: React.FC<HistoryProps> = ({
                       stroke="#64748b"
                       fontSize={11}
                       tickLine={false}
+                      minTickGap={25}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string') {
-                          if (val.includes('__gap')) return '';
-                          if (val.includes('__')) {
-                            const raw = val.split('__')[0];
-                            return formatChartAxisTimestamp(raw, isMultiDay);
-                          }
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          return formatChartAxisTimestamp(raw, isMultiDay);
                         }
                         return val;
                       }}

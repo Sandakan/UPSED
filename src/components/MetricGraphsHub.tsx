@@ -79,39 +79,49 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   const [rangeHistory, setRangeHistory] = useState<TelemetryRecord[]>([]);
   const [isLoadingRange, setIsLoadingRange] = useState<boolean>(false);
 
+  const activeTimeRange = useMemo(() => {
+    if (selectedDuration === 'live') return null;
+    const now = new Date();
+    if (selectedDuration === '1h') {
+      return { startIso: new Date(now.getTime() - 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '6h') {
+      return { startIso: new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === '24h') {
+      return { startIso: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(), endIso: now.toISOString() };
+    }
+    if (selectedDuration === 'custom' && customRange) {
+      return { startIso: customRange.startIso, endIso: customRange.endIso };
+    }
+    return null;
+  }, [selectedDuration, customRange]);
+
+  const rangeBounds = useMemo(() => {
+    if (!activeTimeRange) return undefined;
+    return {
+      startMs: Date.parse(activeTimeRange.startIso),
+      endMs: Date.parse(activeTimeRange.endIso),
+    };
+  }, [activeTimeRange]);
+
   const fetchRangeData = useCallback(async () => {
-    if (!portName || selectedDuration === 'live') return;
+    if (!portName || selectedDuration === 'live' || !activeTimeRange) return;
     setIsLoadingRange(true);
     try {
-      let startIso: string;
-      let endIso: string;
-      const now = new Date();
-
-      if (selectedDuration === '1h') {
-        startIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-        endIso = now.toISOString();
-      } else if (selectedDuration === '6h') {
-        startIso = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
-        endIso = now.toISOString();
-      } else if (selectedDuration === '24h') {
-        startIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-        endIso = now.toISOString();
-      } else if (selectedDuration === 'custom' && customRange) {
-        startIso = customRange.startIso;
-        endIso = customRange.endIso;
-      } else {
-        setIsLoadingRange(false);
-        return;
-      }
-
-      const records = await api.getTelemetryRange(portName, startIso, endIso, downsamplingMaxPoints);
+      const records = await api.getTelemetryRange(
+        portName,
+        activeTimeRange.startIso,
+        activeTimeRange.endIso,
+        downsamplingMaxPoints
+      );
       setRangeHistory(records);
     } catch (err) {
       console.error('Failed to query telemetry range for graphs:', err);
     } finally {
       setIsLoadingRange(false);
     }
-  }, [portName, selectedDuration, customRange, downsamplingMaxPoints]);
+  }, [portName, selectedDuration, activeTimeRange, downsamplingMaxPoints]);
 
   useEffect(() => {
     if (selectedDuration !== 'live') {
@@ -139,11 +149,14 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
 
   // Check if visible history spans more than 24 hours to format time axis labels cleanly
   const isMultiDay = useMemo(() => {
+    if (rangeBounds) {
+      return Math.abs(rangeBounds.endMs - rangeBounds.startMs) > 24 * 60 * 60 * 1000;
+    }
     if (visibleHistory.length < 2) return false;
     const first = new Date(visibleHistory[0].timestamp).getTime();
     const last = new Date(visibleHistory[visibleHistory.length - 1].timestamp).getTime();
     return Math.abs(last - first) > 24 * 60 * 60 * 1000;
-  }, [visibleHistory]);
+  }, [rangeBounds, visibleHistory]);
 
   // Nominal battery and rated watts calculation
   const nominalBat = metadata?.battery_voltage
@@ -278,16 +291,16 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   }, [telemetryData]);
 
   const graphGaps = useMemo(() => {
-    return detectDataGaps(visibleHistory);
-  }, [visibleHistory]);
+    return detectDataGaps(visibleHistory, 10, rangeBounds);
+  }, [visibleHistory, rangeBounds]);
 
   const voltageCombinedWithGaps = useMemo(() => {
-    return injectGapAnchorPoints(voltageCombined, graphGaps);
-  }, [voltageCombined, graphGaps]);
+    return injectGapAnchorPoints(voltageCombined, graphGaps, undefined, rangeBounds);
+  }, [voltageCombined, graphGaps, rangeBounds]);
 
   const frequencyCombinedWithGaps = useMemo(() => {
-    return injectGapAnchorPoints(frequencyCombined, graphGaps);
-  }, [frequencyCombined, graphGaps]);
+    return injectGapAnchorPoints(frequencyCombined, graphGaps, undefined, rangeBounds);
+  }, [frequencyCombined, graphGaps, rangeBounds]);
 
   const {
     containerRef: voltageZoomRef,
@@ -384,6 +397,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'out-v':
@@ -401,6 +415,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'grid-f':
@@ -418,6 +433,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'out-f':
@@ -435,6 +451,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'load':
@@ -453,6 +470,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'watts':
@@ -470,6 +488,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'bat-v':
@@ -487,6 +506,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'bat-soc':
@@ -505,6 +525,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'temp':
@@ -522,6 +543,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       case 'runtime':
@@ -539,6 +561,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
             height={150}
             outageIntervals={outageIntervals}
             showOutageHighlights={showOutageHighlights}
+            rangeBounds={rangeBounds}
           />
         );
       default:
@@ -759,12 +782,9 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       fontSize={11}
                       minTickGap={25}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string') {
-                          if (val.includes('__gap')) return '';
-                          if (val.includes('__')) {
-                            const raw = val.split('__')[0];
-                            return formatChartAxisTimestamp(raw, isMultiDay);
-                          }
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          return formatChartAxisTimestamp(raw, isMultiDay);
                         }
                         return val;
                       }}
@@ -881,6 +901,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={130}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
                 <MetricChartCard
                   title="Output Voltage"
@@ -894,6 +915,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={130}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
               </div>
             </div>
@@ -950,12 +972,9 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                       fontSize={11}
                       minTickGap={25}
                       tickFormatter={(val) => {
-                        if (typeof val === 'string') {
-                          if (val.includes('__gap')) return '';
-                          if (val.includes('__')) {
-                            const raw = val.split('__')[0];
-                            return formatChartAxisTimestamp(raw, isMultiDay);
-                          }
+                        if (typeof val === 'string' && val.includes('__')) {
+                          const raw = val.split('__')[0];
+                          return formatChartAxisTimestamp(raw, isMultiDay);
                         }
                         return val;
                       }}
@@ -1071,6 +1090,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={130}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
                 <MetricChartCard
                   title="Output Frequency"
@@ -1084,6 +1104,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={130}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
               </div>
             </div>
@@ -1121,6 +1142,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={220}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
                 <MetricChartCard
                   title="Active Output Power"
@@ -1134,6 +1156,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={220}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
               </div>
             </div>
@@ -1171,6 +1194,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={220}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
                 <MetricChartCard
                   title="Battery Bus Voltage"
@@ -1184,6 +1208,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                   height={220}
                   outageIntervals={outageIntervals}
                   showOutageHighlights={showOutageHighlights}
+                  rangeBounds={rangeBounds}
                 />
               </div>
             </div>
@@ -1214,6 +1239,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                 height={260}
                 outageIntervals={outageIntervals}
                 showOutageHighlights={showOutageHighlights}
+                rangeBounds={rangeBounds}
               />
             </div>
           )}
@@ -1242,6 +1268,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                 height={260}
                 outageIntervals={outageIntervals}
                 showOutageHighlights={showOutageHighlights}
+                rangeBounds={rangeBounds}
               />
             </div>
           )}

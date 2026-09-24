@@ -38,7 +38,7 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
         width={renderWidth}
         height={fullHeight}
         fill="#1e293b"
-        fillOpacity={0.22}
+        fillOpacity={0.15}
       />
 
       {/* Subtle dashed boundary lines with reduced opacity */}

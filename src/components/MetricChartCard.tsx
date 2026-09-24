@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { OutageInterval } from '../lib/types';
 import { deriveVisibleOutageIntervals } from '../lib/outage';
-import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps } from '../lib/dataGaps';
+import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps, RangeBounds } from '../lib/dataGaps';
 import { formatChartAxisTimestamp, formatChartTooltipTimestamp } from '../lib/time';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from './ChartZoomBadge';
@@ -43,6 +43,7 @@ interface MetricChartCardProps {
   outageIntervals?: OutageInterval[];
   showOutageHighlights?: boolean;
   yAxisPadding?: { top: number; bottom: number };
+  rangeBounds?: RangeBounds;
 }
 
 const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
@@ -63,14 +64,15 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   outageIntervals: _outageIntervals,
   showOutageHighlights = true,
   yAxisPadding = { top: 14, bottom: 8 },
+  rangeBounds,
 }) => {
   const cardGaps = useMemo(() => {
-    return detectDataGaps(data);
-  }, [data]);
+    return detectDataGaps(data, 10, rangeBounds);
+  }, [data, rangeBounds]);
 
   const cardDataWithGaps = useMemo(() => {
-    return injectGapAnchorPoints(data, cardGaps);
-  }, [data, cardGaps]);
+    return injectGapAnchorPoints(data, cardGaps, undefined, rangeBounds);
+  }, [data, cardGaps, rangeBounds]);
 
   const {
     containerRef,
@@ -96,6 +98,9 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   }, [visibleData]);
 
   const isMultiDay = useMemo(() => {
+    if (rangeBounds) {
+      return Math.abs(rangeBounds.endMs - rangeBounds.startMs) > 24 * 60 * 60 * 1000;
+    }
     if (data.length < 2) return false;
     const first = data[0].xKey?.split('__')[0] || data[0].time;
     const last = data[data.length - 1].xKey?.split('__')[0] || data[data.length - 1].time;
@@ -105,7 +110,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
       return Math.abs(t2 - t1) > 24 * 60 * 60 * 1000;
     }
     return false;
-  }, [data]);
+  }, [data, rangeBounds]);
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -210,12 +215,9 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                 tickLine={false}
                 minTickGap={35}
                 tickFormatter={(val) => {
-                  if (typeof val === 'string') {
-                    if (val.includes('__gap')) return '';
-                    if (val.includes('__')) {
-                      const raw = val.split('__')[0];
-                      return formatChartAxisTimestamp(raw, isMultiDay);
-                    }
+                  if (typeof val === 'string' && val.includes('__')) {
+                    const raw = val.split('__')[0];
+                    return formatChartAxisTimestamp(raw, isMultiDay);
                   }
                   return val;
                 }}
@@ -340,7 +342,9 @@ export const MetricChartCard = React.memo(MetricChartCardComponent, (prev, next)
     prev.showStats !== next.showStats ||
     prev.gradientId !== next.gradientId ||
     prev.showOutageHighlights !== next.showOutageHighlights ||
-    prev.outageIntervals !== next.outageIntervals
+    prev.outageIntervals !== next.outageIntervals ||
+    prev.rangeBounds?.startMs !== next.rangeBounds?.startMs ||
+    prev.rangeBounds?.endMs !== next.rangeBounds?.endMs
   ) {
     return false;
   }
