@@ -1,5 +1,5 @@
 /**
- * Time formatting utilities for VoltWatch.
+ * Time formatting utilities for UPSED.
  * Converts UTC ISO-8601 timestamps from SQLite into user-friendly local system time.
  */
 

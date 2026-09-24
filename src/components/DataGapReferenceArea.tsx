@@ -10,7 +10,7 @@ interface DataGapReferenceAreaProps {
 }
 
 const FullHeightDataGapShape: React.FC<any> = (props) => {
-  const { x, y, width, height, labelText, topPadding = 24, bottomPadding = 12 } = props;
+  const { x, y, width, height, gapDuration, topPadding = 24, bottomPadding = 12 } = props;
   if (typeof x !== 'number' || isNaN(x)) return null;
 
   const rawWidth = typeof width === 'number' && !isNaN(width) ? width : 0;
@@ -19,36 +19,72 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
   // Stretch across the Y-axis padding to reach the true top ceiling and bottom floor
   const topY = Math.max(0, (y ?? 0) - topPadding);
   const fullHeight = (height ?? 0) + topPadding + bottomPadding;
-  const showLabel = Boolean(labelText && renderWidth >= 36);
+  const centerX = x + renderWidth / 2;
+  const centerY = topY + fullHeight / 2;
 
-  // Compact label if width is tight
-  const displayLabel = renderWidth < 120
-    ? labelText.replace('No Data Recorded', 'No Data').replace('Monitoring Inactive', 'Inactive')
-    : labelText;
+  // Responsive centered label without heavy badge:
+  // >= 110px: "No Data (5h 43m)"
+  // 60px - 109px: "No Data"
+  // < 60px: hidden to preserve chart clarity
+  let displayText: string | null = null;
+  if (renderWidth >= 110) {
+    displayText = gapDuration ? `No Data (${gapDuration})` : 'No Data';
+  } else if (renderWidth >= 60) {
+    displayText = 'No Data';
+  }
 
-  const badgeWidth = Math.min(renderWidth - 8, Math.max(76, displayLabel.length * 6.5 + 24));
-  const badgeX = x + renderWidth / 2 - badgeWidth / 2;
+  const patternId = 'data-gap-diagonal-hatch';
 
   return (
     <g className="data-gap-highlight-band pointer-events-none">
-      {/* Semi-transparent slate background fill with reduced opacity */}
+      <defs>
+        <pattern
+          id={patternId}
+          width="8"
+          height="8"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="8"
+            stroke="#64748b"
+            strokeWidth="1"
+            strokeDasharray="2 3"
+            strokeOpacity="0.3"
+          />
+        </pattern>
+      </defs>
+
+      {/* Semi-transparent dark background fill */}
       <rect
         x={x}
         y={topY}
         width={renderWidth}
         height={fullHeight}
-        fill="#1e293b"
-        fillOpacity={0.15}
+        fill="#0b0f19"
+        fillOpacity={0.35}
       />
 
-      {/* Subtle dashed boundary lines with reduced opacity */}
+      {/* Subtle dashed diagonal hatch pattern texture */}
+      <rect
+        x={x}
+        y={topY}
+        width={renderWidth}
+        height={fullHeight}
+        fill={`url(#${patternId})`}
+      />
+
+      {/* Subtle dashed boundary lines */}
       <line
         x1={x}
         y1={topY}
         x2={x}
         y2={topY + fullHeight}
         stroke="#64748b"
-        strokeOpacity={0.85}
+        strokeOpacity={0.75}
         strokeDasharray="4 3"
         strokeWidth={1}
       />
@@ -58,39 +94,27 @@ const FullHeightDataGapShape: React.FC<any> = (props) => {
         x2={x + renderWidth}
         y2={topY + fullHeight}
         stroke="#64748b"
-        strokeOpacity={0.85}
+        strokeOpacity={0.75}
         strokeDasharray="4 3"
         strokeWidth={1}
       />
 
-      {/* Duration Badge Pill */}
-      {showLabel && (
-        <g>
-          <rect
-            x={badgeX}
-            y={topY + 6}
-            width={badgeWidth}
-            height={18}
-            rx={4}
-            fill="#0f172a"
-            fillOpacity={0.92}
-            stroke="#475569"
-            strokeOpacity={0.8}
-            strokeWidth={1}
-          />
-          <circle cx={badgeX + 10} cy={topY + 15} r={3} fill="#94a3b8" opacity={0.8} />
-          <text
-            x={badgeX + 18 + (badgeWidth - 22) / 2}
-            y={topY + 18}
-            fill="#cbd5e1"
-            fontSize={9}
-            fontWeight={600}
-            fontFamily="monospace"
-            textAnchor="middle"
-          >
-            {displayLabel}
-          </text>
-        </g>
+      {/* Clean centered text (no badge pill/border) */}
+      {displayText && (
+        <text
+          x={centerX}
+          y={centerY}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="#94a3b8"
+          fillOpacity={0.8}
+          fontSize={10}
+          fontWeight={500}
+          fontFamily="monospace"
+          letterSpacing="0.04em"
+        >
+          {displayText}
+        </text>
       )}
     </g>
   );
@@ -102,7 +126,6 @@ export const DataGapReferenceArea: React.FC<DataGapReferenceAreaProps> = ({
   topPadding = 24,
   bottomPadding = 12,
 }) => {
-  const labelText = `No Data (${gap.formattedDuration})`;
   const x1 = xDataKey === 'xKey' ? gap.rawStart : gap.start;
   const x2 = xDataKey === 'xKey' ? gap.rawEnd : gap.end;
 
@@ -114,7 +137,7 @@ export const DataGapReferenceArea: React.FC<DataGapReferenceAreaProps> = ({
       shape={(props: any) => (
         <FullHeightDataGapShape
           {...props}
-          labelText={labelText}
+          gapDuration={gap.formattedDuration}
           topPadding={topPadding}
           bottomPadding={bottomPadding}
         />

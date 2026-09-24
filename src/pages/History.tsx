@@ -655,9 +655,13 @@ export const History: React.FC<HistoryProps> = ({
                       padding={{ top: 24, bottom: 12 }}
                     />
                     <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (!active || !payload || !payload.length) return null;
-                        const itemPayload = payload[0]?.payload;
+                      filterNull={false}
+                      content={({ active, payload, label, activeIndex }: any) => {
+                        if (!active) return null;
+                        const itemPayload =
+                          payload?.[0]?.payload ||
+                          (typeof activeIndex === 'number' ? visibleChartData[activeIndex] : null);
+                        if (!itemPayload) return null;
                         const isOutage = itemPayload?.isOutage;
                         const isGap = itemPayload?.isGap;
                         const displayTime = typeof label === 'string' && label.includes('__')
@@ -681,23 +685,47 @@ export const History: React.FC<HistoryProps> = ({
                               )}
                               {isGap && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-800/90 text-slate-300 border border-slate-700/80">
-                                  No Data Recorded
+                                  Monitoring Inactive
                                 </span>
                               )}
                             </div>
                             {isGap ? (
-                              <div className="text-[11px] font-mono text-slate-400 py-0.5">
-                                Monitoring Inactive ({itemPayload?.gapDuration || 'Data Gap'})
-                              </div>
-                            ) : (
-                              payload.map((item, idx) => (
-                                <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                                  <span style={{ color: item.color }}>{item.name}:</span>
-                                  <span className="font-semibold text-slate-100">
-                                    {item.value} {item.unit}
+                              <div className="space-y-1.5 py-1">
+                                <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                  <span className="text-slate-400">Duration:</span>
+                                  <span className="font-semibold text-slate-200">
+                                    {itemPayload?.gapDuration || 'Data Gap'}
                                   </span>
                                 </div>
-                              ))
+                                {(itemPayload?.gapStartIso || itemPayload?.gapEndIso) && (
+                                  <div className="text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 mt-1 space-y-0.5">
+                                    {itemPayload.gapStartIso && (
+                                      <div>
+                                        From: <span className="text-slate-300">{formatChartTooltipTimestamp(itemPayload.gapStartIso)}</span>
+                                      </div>
+                                    )}
+                                    {itemPayload.gapEndIso && (
+                                      <div>
+                                        To: <span className="text-slate-300">{formatChartTooltipTimestamp(itemPayload.gapEndIso)}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="text-[9.5px] text-slate-500 italic pt-0.5">
+                                  System offline or monitoring disconnected
+                                </div>
+                              </div>
+                            ) : (
+                              payload
+                                ?.filter((item: any) => item.value != null)
+                                .map((item: any, idx: number) => (
+                                  <div key={idx} className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                                    <span style={{ color: item.color }}>{item.name}:</span>
+                                    <span className="font-semibold text-slate-100">
+                                      {item.value} {item.unit}
+                                    </span>
+                                  </div>
+                                ))
                             )}
                           </div>
                         );

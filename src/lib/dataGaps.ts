@@ -11,6 +11,8 @@ export interface DataGapInterval {
   endIndex: number;
   isLeading?: boolean;
   isTrailing?: boolean;
+  gapStartIso?: string;
+  gapEndIso?: string;
 }
 
 export interface RangeBounds {
@@ -239,6 +241,10 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
         rawTimestamp: ptIso,
         isGap: true,
         gapDuration: gaps[0].formattedDuration,
+        gapStartIso: new Date(gaps[0].startMs).toISOString(),
+        gapEndIso: new Date(gaps[0].endMs).toISOString(),
+        gapStartMs: gaps[0].startMs,
+        gapEndMs: gaps[0].endMs,
       };
       for (const key of numericKeys) {
         pt[key] = null;
@@ -276,6 +282,10 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
         rawTimestamp: ptIso,
         isGap: true,
         gapDuration: leadingGap.formattedDuration,
+        gapStartIso: new Date(leadingGap.startMs).toISOString(),
+        gapEndIso: new Date(leadingGap.endMs).toISOString(),
+        gapStartMs: leadingGap.startMs,
+        gapEndMs: leadingGap.endMs,
       };
       for (const key of numericKeys) {
         pt[key] = null;
@@ -309,6 +319,10 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
           rawTimestamp: ptIso,
           isGap: true,
           gapDuration: gap.formattedDuration,
+          gapStartIso: new Date(gap.startMs).toISOString(),
+          gapEndIso: new Date(gap.endMs).toISOString(),
+          gapStartMs: gap.startMs,
+          gapEndMs: gap.endMs,
         };
         for (const key of numericKeys) {
           pt[key] = null;
@@ -332,6 +346,10 @@ export function injectGapAnchorPoints<T extends TimestampedSample & Record<strin
         rawTimestamp: ptIso,
         isGap: true,
         gapDuration: trailingGap.formattedDuration,
+        gapStartIso: new Date(trailingGap.startMs).toISOString(),
+        gapEndIso: new Date(trailingGap.endMs).toISOString(),
+        gapStartMs: trailingGap.startMs,
+        gapEndMs: trailingGap.endMs,
       };
       for (const key of numericKeys) {
         pt[key] = null;
@@ -372,9 +390,9 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
         const gapInfoItem = data[inGapStartIdx];
 
         gaps.push({
-          startMs: 0,
-          endMs: 0,
-          durationMs: 0,
+          startMs: (gapInfoItem as any).gapStartMs || 0,
+          endMs: (gapInfoItem as any).gapEndMs || 0,
+          durationMs: (gapInfoItem as any).gapEndMs && (gapInfoItem as any).gapStartMs ? (gapInfoItem as any).gapEndMs - (gapInfoItem as any).gapStartMs : 0,
           formattedDuration: gapInfoItem.gapDuration || 'Offline',
           start: startItem.time || '',
           end: endItem.time || '',
@@ -382,6 +400,8 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
           rawEnd: endItem.xKey || endItem.rawTimestamp || '',
           startIndex: boundaryStartIdx,
           endIndex: boundaryEndIdx,
+          gapStartIso: (gapInfoItem as any).gapStartIso,
+          gapEndIso: (gapInfoItem as any).gapEndIso,
         });
         inGapStartIdx = null;
       }
@@ -398,9 +418,9 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
     const gapInfoItem = data[inGapStartIdx];
 
     gaps.push({
-      startMs: 0,
-      endMs: 0,
-      durationMs: 0,
+      startMs: (gapInfoItem as any).gapStartMs || 0,
+      endMs: (gapInfoItem as any).gapEndMs || 0,
+      durationMs: (gapInfoItem as any).gapEndMs && (gapInfoItem as any).gapStartMs ? (gapInfoItem as any).gapEndMs - (gapInfoItem as any).gapStartMs : 0,
       formattedDuration: gapInfoItem.gapDuration || 'Offline',
       start: startItem.time || '',
       end: endItem.time || '',
@@ -408,6 +428,8 @@ export function deriveVisibleDataGaps<T extends { isGap?: boolean; time?: string
       rawEnd: endItem.xKey || endItem.rawTimestamp || '',
       startIndex: boundaryStartIdx,
       endIndex: boundaryEndIdx,
+      gapStartIso: (gapInfoItem as any).gapStartIso,
+      gapEndIso: (gapInfoItem as any).gapEndIso,
     });
   }
 
