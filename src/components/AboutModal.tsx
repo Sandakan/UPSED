@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
-import { X, Shield, Cpu, Scale, ExternalLink, Terminal } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Cpu, ExternalLink } from 'lucide-react';
 import { UpsedLogo } from './UpsedLogo';
+import { PrimaryButton } from './PrimaryButton';
 
 export interface AboutModalProps {
   isOpen: boolean;
@@ -8,143 +9,138 @@ export interface AboutModalProps {
 }
 
 export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
-  // ESC key handler
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isClosing, setIsClosing] = useState(false);
+
+  // Manage enter and exit animation lifecycle (matching DeviceConnectModal)
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsClosing(false);
+    } else if (shouldRender) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsClosing(false);
+      }, 180);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, shouldRender]);
+
+  // Handle ESC key to dismiss
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm ${
+        isClosing ? 'animate-backdrop-out' : 'animate-backdrop-in'
+      }`}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
       }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="about-upsed-title"
     >
       <div
-        className="w-full max-w-lg transform overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/95 text-left shadow-2xl shadow-black/80 backdrop-blur-xl animate-modal-in"
+        className={`w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col ${
+          isClosing ? 'animate-modal-out' : 'animate-modal-in'
+        }`}
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
       >
-        {/* Header with Logo and Close */}
-        <div className="p-6 border-b border-slate-800/80 bg-gradient-to-b from-slate-900/60 to-transparent flex items-start justify-between">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <UpsedLogo size="lg" className="text-white" />
+        {/* ── Modal Header ────────────────────────────────────── */}
+        <div className="p-5 border-b border-white/[0.07] flex items-start justify-between bg-black/20">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center space-x-3">
+              <UpsedLogo size="lg" className="text-slate-100" />
               <span className="px-2 py-0.5 text-[10px] font-mono font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                 v0.1.0
               </span>
             </div>
-
-            {/* Phonetic Pronunciation Guide */}
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="font-mono text-cyan-400 bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/40">
-                /juː-piː-ɛst/
-              </span>
-              <span className="text-slate-300 font-medium">“U-P-S'd”</span>
-              <span className="text-slate-500 text-[11px]">— you-pee-ess-d</span>
-            </div>
+            <p className="text-xs text-slate-400">
+              Cross-Platform Voltronic UPS Manager
+            </p>
           </div>
-
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] rounded-lg transition cursor-pointer"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Content Body */}
-        <div className="p-6 space-y-5 text-xs text-slate-300 max-h-[70vh] overflow-y-auto custom-scrollbar">
-          {/* Tagline & Summary */}
-          <p className="text-sm leading-relaxed text-slate-200">
-            <strong>UPSED</strong> is a high-performance, memory-safe, cross-platform desktop manager for 
-            <strong> Voltronic Power</strong> and rebranded UPS hardware (Axpert, Mecer, MPP Solar, Effekta, RCT).
+        {/* ── Modal Body ──────────────────────────────────────── */}
+        <div className="p-5 space-y-4 text-xs">
+          {/* Overview */}
+          <p className="text-slate-300 leading-relaxed text-xs">
+            A high-performance, memory-safe desktop manager for <strong className="text-slate-100 font-semibold">Voltronic Power</strong> and rebranded uninterruptible power supplies (Axpert, Mecer, MPP Solar, Effekta, RCT, Prolink).
           </p>
 
-          {/* Clean-Room Legal Status */}
-          <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50 space-y-2">
-            <div className="flex items-center gap-2 font-semibold text-slate-200">
-              <Scale className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Clean-Room & Legal Status</span>
+          {/* Architecture Highlights Card */}
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5 space-y-1.5">
+            <div className="flex items-center space-x-2 text-slate-200 font-medium">
+              <Cpu className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Direct Hardware Architecture</span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Developed strictly under <strong>17 U.S.C. § 1201(f)</strong> (reverse engineering for interoperability) 
-              and <strong>EU Directive 2009/24/EC Article 6</strong>. UPSED contains <em>zero</em> proprietary Java bytecode, 
-              JSP files, or binary assets from ViewPower. All hardware communication relies exclusively on publicly documented 
-              ASCII serial protocols.
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Built on Tauri v2, Rust async runtime, and React 19. Communicates directly with hardware via native USB HID or RS-232 serial with zero external web servers and an incremental 4-stage safety command gate.
             </p>
           </div>
 
-          {/* Architecture & Safety Gate */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl border border-slate-800/80 bg-slate-900/30 space-y-1.5">
-              <div className="flex items-center gap-1.5 font-medium text-slate-200">
-                <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Hardware Gate</span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Strict 4-Tier Command Gate (T1 Read-Only to T4 Power Control) preventing command injection or firmware corruption.
-              </p>
+          {/* Technical Specifications */}
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5 space-y-2">
+            <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+              <span className="text-slate-400">Supported Protocols</span>
+              <span className="font-mono text-slate-200 text-[11px]">Megatec, P00, P01, P02, P03, P04</span>
             </div>
-
-            <div className="p-3 rounded-xl border border-slate-800/80 bg-slate-900/30 space-y-1.5">
-              <div className="flex items-center gap-1.5 font-medium text-slate-200">
-                <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Runtime Engine</span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Tauri v2 + Rust async runtime with Tokio, embedded SQLite WAL telemetry storage, and zero web server attack surface.
-              </p>
+            <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+              <span className="text-slate-400">Hardware Transports</span>
+              <span className="font-mono text-slate-200 text-[11px]">USB HID (0665:5161), Serial COM</span>
             </div>
-          </div>
-
-          {/* Protocol specs */}
-          <div className="p-3 rounded-xl border border-slate-800/80 bg-slate-900/30 space-y-1 text-[11px] text-slate-400">
-            <div className="flex items-center gap-1.5 text-slate-200 font-medium mb-1">
-              <Terminal className="w-3.5 h-3.5 text-amber-400" />
-              <span>Protocol Interoperability</span>
+            <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+              <span className="text-slate-400">Telemetry Database</span>
+              <span className="font-mono text-slate-200 text-[11px]">SQLite WAL (upsed.db)</span>
             </div>
-            <div className="flex justify-between py-0.5 border-b border-slate-800/50">
-              <span>Supported Protocols:</span>
-              <span className="font-mono text-slate-300">P01, P02, P03, P04, P05, Megatec</span>
-            </div>
-            <div className="flex justify-between py-0.5 border-b border-slate-800/50">
-              <span>Transports:</span>
-              <span className="font-mono text-slate-300">Serial COM (2400/9600 8N1), USB HID</span>
-            </div>
-            <div className="flex justify-between py-0.5">
-              <span>Database Storage:</span>
-              <span className="font-mono text-slate-300">SQLite (upsed.db)</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-slate-400">Safety Command Gate</span>
+              <span className="font-mono text-emerald-400 text-[11px]">4-Tier Active (T1–T4)</span>
             </div>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between">
+        {/* ── Footer Actions ──────────────────────────────────── */}
+        <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-between">
           <a
             href="https://github.com/Sandakan/UPSED"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition"
+            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer"
           >
             <span>GitHub Repository</span>
-            <ExternalLink className="w-3 h-3" />
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
           </a>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-slate-200 hover:text-white transition cursor-pointer"
-          >
+          <PrimaryButton onClick={onClose} size="md">
             Close
-          </button>
+          </PrimaryButton>
         </div>
       </div>
     </div>
@@ -152,4 +148,3 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 };
 
 export default AboutModal;
-
