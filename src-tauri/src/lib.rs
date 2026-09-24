@@ -191,7 +191,11 @@ pub fn run() {
             commands::set_start_minimized,
             commands::get_theme,
             commands::set_theme,
-            commands::is_dev_mode
+            commands::is_dev_mode,
+            commands::get_db_stats,
+            commands::prune_telemetry,
+            commands::clear_telemetry,
+            commands::vacuum_database
         ])
         .run(tauri::generate_context!())
         .expect("error while running UPSED application");

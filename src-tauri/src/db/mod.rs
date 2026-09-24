@@ -1,6 +1,6 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +60,16 @@ pub struct UpsMetadata {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbStats {
+    pub file_size_bytes: u64,
+    pub wal_size_bytes: u64,
+    pub telemetry_count: u64,
+    pub events_count: u64,
+    pub oldest_telemetry: Option<String>,
+    pub newest_telemetry: Option<String>,
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -74,18 +84,58 @@ impl Default for AppSettings {
 }
 
 pub struct Database {
-    conn: Arc<Mutex<Connection>>,
+    writer: Arc<Mutex<Connection>>,
+    reader: Arc<Mutex<Connection>>,
+    db_path: PathBuf,
 }
 
 impl Database {
     pub fn init<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = Connection::open(path)?;
+        let p = path.as_ref();
+        let db_path = p.to_path_buf();
+        let is_memory = p == Path::new(":memory:") || p.to_str() == Some(":memory:");
+
+        let writer_conn = Connection::open(p)?;
+        Self::apply_pragmas(&writer_conn)?;
+        Self::init_schema(&writer_conn)?;
+
+        let writer = Arc::new(Mutex::new(writer_conn));
+
+        let reader = if is_memory {
+            // For in-memory unit tests, share connection so tables/data exist across handles
+            writer.clone()
+        } else {
+            // For production disk database, open separate reader connection to unlock concurrent reads under WAL
+            let reader_conn = Connection::open(p)?;
+            Self::apply_pragmas(&reader_conn)?;
+            Arc::new(Mutex::new(reader_conn))
+        };
+
+        Ok(Self {
+            writer,
+            reader,
+            db_path,
+        })
+    }
+
+    fn apply_pragmas(conn: &Connection) -> Result<()> {
         conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
             PRAGMA busy_timeout = 5000;
             PRAGMA synchronous = NORMAL;
+            PRAGMA cache_size = -64000;
+            PRAGMA mmap_size = 268435456;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA wal_autocheckpoint = 1000;
+            ",
+        )?;
+        Ok(())
+    }
 
+    fn init_schema(conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "
             CREATE TABLE IF NOT EXISTS telemetry (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -128,6 +178,11 @@ impl Database {
                 topology TEXT NOT NULL DEFAULT 'Online',
                 updated_at TEXT NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_telemetry_port_time ON telemetry(port_name, timestamp ASC);
+            CREATE INDEX IF NOT EXISTS idx_telemetry_port_id ON telemetry(port_name, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_events_ack ON events(acknowledged);
+            CREATE INDEX IF NOT EXISTS idx_events_port_time ON events(port_name, timestamp DESC);
             ",
         )?;
 
@@ -169,18 +224,12 @@ impl Database {
             "ALTER TABLE events ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0",
             [],
         );
-        let _ = conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_telemetry_port_time ON telemetry(port_name, timestamp)",
-            [],
-        );
 
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-        })
+        Ok(())
     }
 
     pub fn insert_telemetry(&self, record: &TelemetryRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute(
             "INSERT INTO telemetry (timestamp, port_name, grid_voltage, output_voltage, grid_frequency, output_frequency, load_pct, output_watts, battery_voltage, temperature_c)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -205,7 +254,7 @@ impl Database {
         port_name: &str,
         limit: u32,
     ) -> Result<Vec<TelemetryRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
              FROM telemetry WHERE port_name = ?1 ORDER BY id DESC LIMIT ?2",
@@ -242,7 +291,7 @@ impl Database {
         end_time: &str,
         max_points: Option<u32>,
     ) -> Result<Vec<TelemetryRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
 
         let count: u32 = conn.query_row(
             "SELECT COUNT(*) FROM telemetry WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3",
@@ -273,15 +322,19 @@ impl Database {
         let mut results = Vec::new();
 
         if step > 1 {
+            // Zero-sort stride downsampling:
+            // ORDER BY timestamp ASC directly aligns with idx_telemetry_port_time (port_name, timestamp ASC)
+            // avoiding heavy temporary sorting buffers or full-table memory materialization
             let sql = format!(
                 "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
                  FROM (
-                     SELECT *, ROW_NUMBER() OVER (ORDER BY id ASC) as rn
+                     SELECT id, timestamp, port_name, grid_voltage, output_voltage, grid_frequency, output_frequency, load_pct, output_watts, battery_voltage, temperature_c,
+                            ROW_NUMBER() OVER (ORDER BY timestamp ASC) as rn
                      FROM telemetry
                      WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3
                  )
                  WHERE (rn - 1) % {} = 0
-                 ORDER BY id ASC",
+                 ORDER BY timestamp ASC",
                 step
             );
             let mut stmt = conn.prepare(&sql)?;
@@ -308,7 +361,7 @@ impl Database {
                 "SELECT id, timestamp, port_name, grid_voltage, output_voltage, COALESCE(grid_frequency, 50.0), COALESCE(output_frequency, 50.0), load_pct, COALESCE(output_watts, 0), battery_voltage, temperature_c
                  FROM telemetry
                  WHERE port_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3
-                 ORDER BY id ASC",
+                 ORDER BY timestamp ASC",
             )?;
             let rows = stmt.query_map(params![port_name, start_time, end_time], |row| {
                 Ok(TelemetryRecord {
@@ -334,7 +387,7 @@ impl Database {
     }
 
     pub fn insert_event(&self, record: &EventLogRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute(
             "INSERT INTO events (timestamp, port_name, event_type, severity, message, acknowledged)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -351,7 +404,7 @@ impl Database {
     }
 
     pub fn query_recent_events(&self, limit: u32) -> Result<Vec<EventLogRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, port_name, event_type, COALESCE(severity, 'info'), message, COALESCE(acknowledged, 0)
              FROM events ORDER BY id DESC LIMIT ?1",
@@ -378,25 +431,25 @@ impl Database {
     }
 
     pub fn clear_events(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute("DELETE FROM events", [])?;
         Ok(())
     }
 
     pub fn acknowledge_event(&self, event_id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute("UPDATE events SET acknowledged = 1 WHERE id = ?1", params![event_id])?;
         Ok(())
     }
 
     pub fn acknowledge_all_events(&self) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         let rows = conn.execute("UPDATE events SET acknowledged = 1 WHERE acknowledged = 0", [])?;
         Ok(rows)
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         if let Some(row) = rows.next()? {
@@ -407,7 +460,7 @@ impl Database {
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -422,7 +475,7 @@ impl Database {
         new_usb_uuid: &str,
         updated_at: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute(
             "UPDATE ups_metadata SET usb_uuid = ?1, updated_at = ?2 WHERE unique_id = ?3",
             params![new_usb_uuid, updated_at, unique_id],
@@ -431,7 +484,7 @@ impl Database {
     }
 
     pub fn get_ups_metadata(&self, unique_id: &str) -> Result<Option<UpsMetadata>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata WHERE unique_id = ?1",
@@ -458,7 +511,7 @@ impl Database {
     }
 
     pub fn save_ups_metadata(&self, meta: &UpsMetadata) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.writer.lock().unwrap();
         conn.execute(
             "INSERT INTO ups_metadata (unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -491,7 +544,7 @@ impl Database {
     }
 
     pub fn list_all_ups_metadata(&self) -> Result<Vec<UpsMetadata>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata ORDER BY updated_at DESC",
@@ -518,6 +571,70 @@ impl Database {
             results.push(r?);
         }
         Ok(results)
+    }
+
+    pub fn prune_telemetry(&self, older_than_days: u32) -> Result<usize> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(older_than_days as i64);
+        let cutoff_iso = cutoff.to_rfc3339();
+        let conn = self.writer.lock().unwrap();
+        let count = conn.execute(
+            "DELETE FROM telemetry WHERE timestamp < ?1",
+            params![cutoff_iso],
+        )?;
+        Ok(count)
+    }
+
+    pub fn clear_telemetry(&self) -> Result<usize> {
+        let conn = self.writer.lock().unwrap();
+        let count = conn.execute("DELETE FROM telemetry", [])?;
+        Ok(count)
+    }
+
+    pub fn vacuum_database(&self) -> Result<()> {
+        let conn = self.writer.lock().unwrap();
+        conn.execute_batch(
+            "
+            VACUUM;
+            PRAGMA optimize;
+            ",
+        )?;
+        Ok(())
+    }
+
+    pub fn get_db_stats(&self) -> Result<DbStats> {
+        let file_size_bytes = std::fs::metadata(&self.db_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let wal_path = {
+            let mut p = self.db_path.clone().into_os_string();
+            p.push("-wal");
+            PathBuf::from(p)
+        };
+        let wal_size_bytes = std::fs::metadata(&wal_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let conn = self.reader.lock().unwrap();
+        let telemetry_count: u64 = conn.query_row("SELECT COUNT(*) FROM telemetry", [], |r| r.get(0))?;
+        let events_count: u64 = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        let oldest_telemetry: Option<String> = conn
+            .query_row("SELECT MIN(timestamp) FROM telemetry", [], |r| r.get(0))
+            .optional()?
+            .flatten();
+        let newest_telemetry: Option<String> = conn
+            .query_row("SELECT MAX(timestamp) FROM telemetry", [], |r| r.get(0))
+            .optional()?
+            .flatten();
+
+        Ok(DbStats {
+            file_size_bytes,
+            wal_size_bytes,
+            telemetry_count,
+            events_count,
+            oldest_telemetry,
+            newest_telemetry,
+        })
     }
 }
 

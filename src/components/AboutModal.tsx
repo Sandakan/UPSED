@@ -129,7 +129,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         {/* Footer Actions */}
         <div className="p-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between">
           <a
-            href="https://github.com/neurodivergent-dev/VoltWatch"
+            href="https://github.com/Sandakan/VoltWatch"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition"

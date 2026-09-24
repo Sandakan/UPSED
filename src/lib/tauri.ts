@@ -8,6 +8,7 @@ import {
   VoltronicCommand,
   UpsMetadata,
   ThemeMode,
+  DbStats,
 } from './types';
 
 export const api = {
@@ -107,6 +108,11 @@ export const api = {
     invoke<void>('set_theme', { theme }),
 
   isDevMode: () => invoke<boolean>('is_dev_mode'),
+  getDbStats: () => invoke<DbStats>('get_db_stats'),
+  pruneTelemetry: (olderThanDays: number) =>
+    invoke<number>('prune_telemetry', { olderThanDays }),
+  clearTelemetry: () => invoke<number>('clear_telemetry'),
+  vacuumDatabase: () => invoke<void>('vacuum_database'),
 };
 
 

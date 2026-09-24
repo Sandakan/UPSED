@@ -1,5 +1,5 @@
 use crate::battery_bridge::BatteryBridge;
-use crate::db::{Database, EventLogRecord, TelemetryRecord, UpsMetadata};
+use crate::db::{Database, DbStats, EventLogRecord, TelemetryRecord, UpsMetadata};
 use crate::gate::CommandGate;
 use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
@@ -558,6 +558,58 @@ pub fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
 #[tauri::command]
 pub fn is_dev_mode() -> bool {
     cfg!(debug_assertions)
+}
+
+#[tauri::command]
+pub async fn get_db_stats(state: State<'_, AppState>) -> Result<DbStats, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone.db.get_db_stats().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn prune_telemetry(
+    state: State<'_, AppState>,
+    older_than_days: u32,
+) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .prune_telemetry(older_than_days)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clear_telemetry(state: State<'_, AppState>) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .clear_telemetry()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn vacuum_database(state: State<'_, AppState>) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .vacuum_database()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Detects hardware state transitions and alarms by diffing status between consecutive poll cycles.

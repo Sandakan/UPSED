@@ -118,4 +118,13 @@ export interface OutageInterval {
   isActive?: boolean;
 }
 
+export interface DbStats {
+  file_size_bytes: number;
+  wal_size_bytes: number;
+  telemetry_count: number;
+  events_count: number;
+  oldest_telemetry?: string | null;
+  newest_telemetry?: string | null;
+}
+
 
