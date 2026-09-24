@@ -1,8 +1,8 @@
 ---
-name: voltwatch-dev
+name: upsed-dev
 description: >-
-  Essential workflows and development procedures for UPSED (formerly VoltWatch).
-  Use when building the Tauri v2 backend, running the 61-test mock-hardware test suite,
+  Essential workflows and development procedures for UPSED.
+  Use when building the Tauri v2 backend, running the test suite,
   adding new Voltronic commands, or debugging serial UPS communication.
 ---
 
@@ -69,7 +69,7 @@ cargo test --test concurrency_tests
 # OS Battery bridge (opt-in validation & icon generation)
 cargo test --test battery_bridge_tests
 
-# Monitor & Database lifecycle (settings persistence, watch channels, legacy db migration)
+# Monitor & Database lifecycle (settings persistence, watch channels)
 cargo test --test monitor_tests
 ```
 
@@ -179,7 +179,6 @@ await api.sendCommand(portName, { type: 'MyNewCommand', payload: 50 });
 
 ### Database & Log Files:
 - **Database Path:** `%APPDATA%\com.adsandakannipunajith.upsed\upsed.db` (never in `src-tauri/` to prevent Tauri dev watcher hot-reload infinite loops).
-- **Automated Legacy Migration:** During startup, if `upsed.db` is missing or empty, `db::migrate_legacy_db_if_needed` automatically locates and migrates legacy databases (`voltwatch.db`, including `-wal` and `-shm` journals) from `%APPDATA%\com.adsan.voltwatch\` or `%APPDATA%\voltwatch\`.
 - **Log Files:** `%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log` (rotating, powered by `tauri-plugin-log`). Logs also stream to stdout and webview console.
 
 ### Window State & Geometry Persistence:

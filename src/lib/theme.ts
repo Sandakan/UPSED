@@ -3,7 +3,6 @@ import { ThemeMode } from './types';
 import { api } from './tauri';
 
 export const THEME_STORAGE_KEY = 'upsed-theme-mode';
-export const LEGACY_THEME_STORAGE_KEY = 'voltwatch-theme-mode';
 
 export function getSystemTheme(): 'dark' | 'light' {
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -29,14 +28,13 @@ export function useTheme() {
     if (typeof window === 'undefined') return 'system';
     return (
       (localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode) ||
-      (localStorage.getItem(LEGACY_THEME_STORAGE_KEY) as ThemeMode) ||
       'system'
     );
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>(() => {
     const saved = (typeof window !== 'undefined'
-      ? localStorage.getItem(THEME_STORAGE_KEY) || localStorage.getItem(LEGACY_THEME_STORAGE_KEY)
+      ? localStorage.getItem(THEME_STORAGE_KEY)
       : null) as ThemeMode || 'system';
     return applyTheme(saved);
   });

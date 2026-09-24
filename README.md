@@ -75,7 +75,6 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 ### 📋 Events Hub & SQLite Persistence
 - Dedicated Events Hub with real-time unread counter, severity classification (`Critical`, `Warning`, `Success`, `Info`), keyword search, and CSV export.
 - Embedded SQLite storage (`%APPDATA%\com.adsandakannipunajith.upsed\upsed.db`) with automatic WAL journal mode.
-- Automated backward-compatible migration from legacy `voltwatch.db` (including `-wal` and `-shm` journals) on initial startup.
 
 ### 📝 Diagnostic Logging & Window Persistence
 - Multi-target structured logging powered by `tauri-plugin-log`: streams to terminal `stdout`, webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log`).
@@ -205,8 +204,8 @@ Ensure the following are installed:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/neurodivergent-dev/VoltWatch.git
-   cd VoltWatch
+   git clone https://github.com/Sandakan/UPSED.git
+   cd UPSED
    ```
 
 2. **Install frontend dependencies:**

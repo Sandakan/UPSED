@@ -38,45 +38,6 @@ async fn monitor_003_watch_channel_dynamic_cadence() {
 }
 
 #[test]
-fn monitor_004_legacy_database_migration() {
-    let temp_dir = std::env::temp_dir().join(format!("upsed_mig_test_{}", uuid_or_timestamp()));
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let legacy_db = temp_dir.join("voltwatch.db");
-    let target_db = temp_dir.join("upsed.db");
-
-    // 1. Populate legacy VoltWatch database
-    {
-        let db = Database::init(&legacy_db).expect("Failed to initialize legacy db");
-        db.set_setting("poll_interval_secs", "30").unwrap();
-        db.set_setting("migrated_flag", "true").unwrap();
-    }
-
-    assert!(legacy_db.exists());
-    assert!(!target_db.exists());
-
-    // 2. Perform migration
-    let candidates = vec![legacy_db.clone()];
-    let migrated = upsed_lib::db::migrate_legacy_db_if_needed(&target_db, &candidates);
-    assert!(migrated, "Migration should report true when copying legacy db");
-    assert!(target_db.exists(), "Target upsed.db must exist after migration");
-
-    // 3. Verify data in migrated target
-    {
-        let db = Database::init(&target_db).expect("Failed to open migrated upsed db");
-        assert_eq!(db.get_setting("poll_interval_secs").unwrap(), Some("30".into()));
-        assert_eq!(db.get_setting("migrated_flag").unwrap(), Some("true".into()));
-    }
-
-    // 4. Repeated migration when target already exists should be a no-op
-    let re_migrated = upsed_lib::db::migrate_legacy_db_if_needed(&target_db, &candidates);
-    assert!(!re_migrated, "Migration should return false when target already populated");
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
 fn monitor_005_database_performance_indexes_and_downsampling() {
     let temp_db = std::env::temp_dir().join(format!("upsed_perf_test_{}.db", uuid_or_timestamp()));
     let db = Database::init(&temp_db).expect("Failed to initialize database for performance test");
