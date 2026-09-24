@@ -63,6 +63,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: 'src-tauri -> target'
+          shared-key: 'upsed-cargo'
 
       - name: Run mock integration test suite
         run: cargo test --manifest-path src-tauri/Cargo.toml
