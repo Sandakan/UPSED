@@ -11,6 +11,7 @@ import {
 import { OutageInterval } from '../lib/types';
 import { deriveVisibleOutageIntervals } from '../lib/outage';
 import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps } from '../lib/dataGaps';
+import { formatChartAxisTimestamp, formatChartTooltipTimestamp } from '../lib/time';
 import { useChartZoom } from '../lib/useChartZoom';
 import { ChartZoomBadge } from './ChartZoomBadge';
 import { OutageReferenceArea } from './OutageReferenceArea';
@@ -93,6 +94,18 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
   const visibleCardGaps = useMemo(() => {
     return deriveVisibleDataGaps(visibleData);
   }, [visibleData]);
+
+  const isMultiDay = useMemo(() => {
+    if (data.length < 2) return false;
+    const first = data[0].xKey?.split('__')[0] || data[0].time;
+    const last = data[data.length - 1].xKey?.split('__')[0] || data[data.length - 1].time;
+    const t1 = Date.parse(first);
+    const t2 = Date.parse(last);
+    if (!isNaN(t1) && !isNaN(t2)) {
+      return Math.abs(t2 - t1) > 24 * 60 * 60 * 1000;
+    }
+    return false;
+  }, [data]);
 
   const stats = useMemo(() => {
     if (!data.length) return null;
@@ -201,10 +214,7 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                     if (val.includes('__gap')) return '';
                     if (val.includes('__')) {
                       const raw = val.split('__')[0];
-                      if (raw.includes('T')) {
-                        const [, tPart] = raw.split('T');
-                        return tPart.slice(0, 8);
-                      }
+                      return formatChartAxisTimestamp(raw, isMultiDay);
                     }
                   }
                   return val;
@@ -226,7 +236,9 @@ const MetricChartCardComponent: React.FC<MetricChartCardProps> = ({
                   const itemPayload = payload[0]?.payload;
                   const isOutage = itemPayload?.isOutage;
                   const isGap = itemPayload?.isGap;
-                  const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                  const displayTime = typeof label === 'string' && label.includes('__')
+                    ? formatChartTooltipTimestamp(label.split('__')[0])
+                    : itemPayload?.time || label;
                   return (
                     <div
                       className="rounded-xl p-2.5 shadow-lg border text-xs"

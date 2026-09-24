@@ -10,6 +10,9 @@ import {
   Table,
   Activity,
   Clock,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -24,6 +27,12 @@ import {
 import { EventLogRecord, TelemetryRecord } from '../lib/types';
 import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
 import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps, formatGapDuration } from '../lib/dataGaps';
+import {
+  formatTableTimestamp,
+  formatChartAxisTimestamp,
+  formatChartTooltipTimestamp,
+  formatLocalCsvTimestamp,
+} from '../lib/time';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from '../components/DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
@@ -60,6 +69,70 @@ export const History: React.FC<HistoryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // Sorting state - defaults to latest records on top (descending)
+  type TelemetrySortField =
+    | 'id'
+    | 'timestamp'
+    | 'port_name'
+    | 'grid_voltage'
+    | 'grid_frequency'
+    | 'output_voltage'
+    | 'output_frequency'
+    | 'load_pct'
+    | 'output_watts'
+    | 'battery_voltage'
+    | 'temperature_c';
+
+  type EventSortField = 'id' | 'timestamp' | 'port_name' | 'event_type' | 'message';
+  type SortDirection = 'asc' | 'desc';
+
+  const [telemetrySortField, setTelemetrySortField] = useState<TelemetrySortField>('timestamp');
+  const [telemetrySortDirection, setTelemetrySortDirection] = useState<SortDirection>('desc');
+  const [eventSortField, setEventSortField] = useState<EventSortField>('timestamp');
+  const [eventSortDirection, setEventSortDirection] = useState<SortDirection>('desc');
+
+  const handleTelemetrySort = (field: TelemetrySortField) => {
+    if (telemetrySortField === field) {
+      setTelemetrySortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setTelemetrySortField(field);
+      setTelemetrySortDirection('desc');
+    }
+    setCurrentPage(1);
+  };
+
+  const handleEventSort = (field: EventSortField) => {
+    if (eventSortField === field) {
+      setEventSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setEventSortField(field);
+      setEventSortDirection('desc');
+    }
+    setCurrentPage(1);
+  };
+
+  const renderTelemetrySortIcon = (field: TelemetrySortField) => {
+    if (telemetrySortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-40 group-hover:opacity-100 transition" />;
+    }
+    return telemetrySortDirection === 'desc' ? (
+      <ArrowDown className="w-3 h-3 text-emerald-400" />
+    ) : (
+      <ArrowUp className="w-3 h-3 text-emerald-400" />
+    );
+  };
+
+  const renderEventSortIcon = (field: EventSortField) => {
+    if (eventSortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-40 group-hover:opacity-100 transition" />;
+    }
+    return eventSortDirection === 'desc' ? (
+      <ArrowDown className="w-3 h-3 text-emerald-400" />
+    ) : (
+      <ArrowUp className="w-3 h-3 text-emerald-400" />
+    );
+  };
 
   // Duration filtering state
   const [selectedDuration, setSelectedDuration] = useState<HistoryDuration>('24h');
@@ -147,13 +220,59 @@ export const History: React.FC<HistoryProps> = ({
     );
   }, [events, searchQuery]);
 
+  // Sorted Telemetry for DataTable (defaults to newest records first on top)
+  const sortedTelemetry = useMemo(() => {
+    const list = [...filteredTelemetry];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (telemetrySortField === 'timestamp') {
+        const timeA = Date.parse(a.timestamp) || 0;
+        const timeB = Date.parse(b.timestamp) || 0;
+        cmp = timeA - timeB;
+      } else if (telemetrySortField === 'port_name') {
+        cmp = a.port_name.localeCompare(b.port_name);
+      } else if (telemetrySortField === 'id') {
+        cmp = (a.id ?? 0) - (b.id ?? 0);
+      } else {
+        const valA = (a[telemetrySortField] ?? 0) as number;
+        const valB = (b[telemetrySortField] ?? 0) as number;
+        cmp = valA - valB;
+      }
+      return telemetrySortDirection === 'desc' ? -cmp : cmp;
+    });
+    return list;
+  }, [filteredTelemetry, telemetrySortField, telemetrySortDirection]);
+
+  // Sorted Events for DataTable (defaults to newest records first on top)
+  const sortedEvents = useMemo(() => {
+    const list = [...filteredEvents];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (eventSortField === 'timestamp') {
+        const timeA = Date.parse(a.timestamp) || 0;
+        const timeB = Date.parse(b.timestamp) || 0;
+        cmp = timeA - timeB;
+      } else if (eventSortField === 'port_name') {
+        cmp = a.port_name.localeCompare(b.port_name);
+      } else if (eventSortField === 'event_type') {
+        cmp = a.event_type.localeCompare(b.event_type);
+      } else if (eventSortField === 'message') {
+        cmp = a.message.localeCompare(b.message);
+      } else if (eventSortField === 'id') {
+        cmp = (a.id ?? 0) - (b.id ?? 0);
+      }
+      return eventSortDirection === 'desc' ? -cmp : cmp;
+    });
+    return list;
+  }, [filteredEvents, eventSortField, eventSortDirection]);
+
   const exportCsv = () => {
     if (activeTab === 'telemetry' || activeTab === 'charts') {
-      const headers = 'ID,Timestamp,Port,Grid_V,Output_V,Grid_Hz,Output_Hz,Load_Pct,Output_Watts,Battery_V,Temp_C\n';
-      const rows = filteredTelemetry
+      const headers = 'ID,Timestamp_UTC,Local_Time,Port,Grid_V,Output_V,Grid_Hz,Output_Hz,Load_Pct,Output_Watts,Battery_V,Temp_C\n';
+      const rows = sortedTelemetry
         .map(
           (t) =>
-            `${t.id || ''},"${t.timestamp}","${t.port_name}",${t.grid_voltage},${t.output_voltage},${t.grid_frequency ?? 50.0},${t.output_frequency ?? 50.0},${t.load_pct},${t.output_watts ?? 0},${t.battery_voltage},${t.temperature_c}`
+            `${t.id || ''},"${t.timestamp}","${formatLocalCsvTimestamp(t.timestamp)}","${t.port_name}",${t.grid_voltage},${t.output_voltage},${t.grid_frequency ?? 50.0},${t.output_frequency ?? 50.0},${t.load_pct},${t.output_watts ?? 0},${t.battery_voltage},${t.temperature_c}`
         )
         .join('\n');
       const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -163,11 +282,11 @@ export const History: React.FC<HistoryProps> = ({
       a.download = `upsed-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
     } else {
-      const headers = 'ID,Timestamp,Port,Type,Message\n';
-      const rows = filteredEvents
+      const headers = 'ID,Timestamp_UTC,Local_Time,Port,Type,Message\n';
+      const rows = sortedEvents
         .map(
           (e) =>
-            `${e.id || ''},"${e.timestamp}","${e.port_name}","${e.event_type}","${e.message}"`
+            `${e.id || ''},"${e.timestamp}","${formatLocalCsvTimestamp(e.timestamp)}","${e.port_name}","${e.event_type}","${e.message}"`
         )
         .join('\n');
       const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -182,9 +301,9 @@ export const History: React.FC<HistoryProps> = ({
   // Active records depending on tab
   const currentRecordsCount =
     activeTab === 'telemetry'
-      ? filteredTelemetry.length
+      ? sortedTelemetry.length
       : activeTab === 'events'
-      ? filteredEvents.length
+      ? sortedEvents.length
       : 0;
 
   const totalPages = Math.max(1, Math.ceil(currentRecordsCount / PAGE_SIZE));
@@ -192,13 +311,13 @@ export const History: React.FC<HistoryProps> = ({
 
   const paginatedTelemetry = useMemo(() => {
     const start = (safePage - 1) * PAGE_SIZE;
-    return filteredTelemetry.slice(start, start + PAGE_SIZE);
-  }, [filteredTelemetry, safePage]);
+    return sortedTelemetry.slice(start, start + PAGE_SIZE);
+  }, [sortedTelemetry, safePage]);
 
   const paginatedEvents = useMemo(() => {
     const start = (safePage - 1) * PAGE_SIZE;
-    return filteredEvents.slice(start, start + PAGE_SIZE);
-  }, [filteredEvents, safePage]);
+    return sortedEvents.slice(start, start + PAGE_SIZE);
+  }, [sortedEvents, safePage]);
 
   // Check if active history spans more than 24 hours to format time axis labels cleanly
   const isMultiDay = useMemo(() => {
@@ -210,13 +329,7 @@ export const History: React.FC<HistoryProps> = ({
 
   const { isOutageMap } = useMemo(() => {
     const samples = activeTelemetry.map((t, idx) => {
-      let timeStr: string;
-      if (t.timestamp.includes('T')) {
-        const [dPart, tPart] = t.timestamp.split('T');
-        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
-      } else {
-        timeStr = t.timestamp.slice(-8);
-      }
+      const timeStr = formatChartAxisTimestamp(t.timestamp, isMultiDay);
       return {
         time: timeStr,
         xKey: `${t.timestamp}__${idx}`,
@@ -229,13 +342,7 @@ export const History: React.FC<HistoryProps> = ({
 
   const chartData = useMemo(() => {
     return activeTelemetry.map((t, idx) => {
-      let timeStr: string;
-      if (t.timestamp.includes('T')) {
-        const [dPart, tPart] = t.timestamp.split('T');
-        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
-      } else {
-        timeStr = t.timestamp.slice(-8);
-      }
+      const timeStr = formatChartAxisTimestamp(t.timestamp, isMultiDay);
       const xKey = `${t.timestamp}__${idx}`;
       return {
         time: timeStr,
@@ -523,10 +630,7 @@ export const History: React.FC<HistoryProps> = ({
                           if (val.includes('__gap')) return '';
                           if (val.includes('__')) {
                             const raw = val.split('__')[0];
-                            if (raw.includes('T')) {
-                              const [dPart, tPart] = raw.split('T');
-                              return isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
-                            }
+                            return formatChartAxisTimestamp(raw, isMultiDay);
                           }
                         }
                         return val;
@@ -545,7 +649,9 @@ export const History: React.FC<HistoryProps> = ({
                         const itemPayload = payload[0]?.payload;
                         const isOutage = itemPayload?.isOutage;
                         const isGap = itemPayload?.isGap;
-                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                        const displayTime = typeof label === 'string' && label.includes('__')
+                          ? formatChartTooltipTimestamp(label.split('__')[0])
+                          : itemPayload?.time || label;
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -652,16 +758,106 @@ export const History: React.FC<HistoryProps> = ({
                         className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                       />
                     </th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.timestamp', 'Time')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.port', 'Port')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.gridV', 'Grid In (V)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.gridHz', 'Grid (Hz)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.outV', 'Output (V)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.outHz', 'Out (Hz)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.loadPct', 'Load (%)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.outW', 'Power (W)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.batV', 'Battery (V)')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.tempC', 'Temp (°C)')}</th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('timestamp')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by timestamp"
+                      >
+                        <span>{t('history:tableHeaders.timestamp', 'Time')}</span>
+                        {renderTelemetrySortIcon('timestamp')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('port_name')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by port name"
+                      >
+                        <span>{t('history:tableHeaders.port', 'Port')}</span>
+                        {renderTelemetrySortIcon('port_name')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('grid_voltage')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by grid voltage"
+                      >
+                        <span>{t('history:tableHeaders.gridV', 'Grid In (V)')}</span>
+                        {renderTelemetrySortIcon('grid_voltage')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('grid_frequency')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by grid frequency"
+                      >
+                        <span>{t('history:tableHeaders.gridHz', 'Grid (Hz)')}</span>
+                        {renderTelemetrySortIcon('grid_frequency')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('output_voltage')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by output voltage"
+                      >
+                        <span>{t('history:tableHeaders.outV', 'Output (V)')}</span>
+                        {renderTelemetrySortIcon('output_voltage')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('output_frequency')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by output frequency"
+                      >
+                        <span>{t('history:tableHeaders.outHz', 'Out (Hz)')}</span>
+                        {renderTelemetrySortIcon('output_frequency')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('load_pct')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by load percentage"
+                      >
+                        <span>{t('history:tableHeaders.loadPct', 'Load (%)')}</span>
+                        {renderTelemetrySortIcon('load_pct')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('output_watts')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by active power watts"
+                      >
+                        <span>{t('history:tableHeaders.outW', 'Power (W)')}</span>
+                        {renderTelemetrySortIcon('output_watts')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('battery_voltage')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by battery voltage"
+                      >
+                        <span>{t('history:tableHeaders.batV', 'Battery (V)')}</span>
+                        {renderTelemetrySortIcon('battery_voltage')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleTelemetrySort('temperature_c')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by temperature"
+                      >
+                        <span>{t('history:tableHeaders.tempC', 'Temp (°C)')}</span>
+                        {renderTelemetrySortIcon('temperature_c')}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04] text-slate-300">
@@ -708,8 +904,8 @@ export const History: React.FC<HistoryProps> = ({
                                 className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                               />
                             </td>
-                            <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
-                              {row.timestamp.replace('T', ' ').substring(0, 19)}
+                            <td className="py-3 px-4 text-slate-300 whitespace-nowrap">
+                              {formatTableTimestamp(row.timestamp)}
                             </td>
                             <td
                               className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
@@ -800,10 +996,46 @@ export const History: React.FC<HistoryProps> = ({
                         className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                       />
                     </th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.timestamp', 'Time')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.port', 'Port')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.type', 'Event Type')}</th>
-                    <th className="py-3.5 px-4">{t('history:tableHeaders.message', 'Details')}</th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleEventSort('timestamp')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by timestamp"
+                      >
+                        <span>{t('history:tableHeaders.timestamp', 'Time')}</span>
+                        {renderEventSortIcon('timestamp')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleEventSort('port_name')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by port name"
+                      >
+                        <span>{t('history:tableHeaders.port', 'Port')}</span>
+                        {renderEventSortIcon('port_name')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleEventSort('event_type')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by event type"
+                      >
+                        <span>{t('history:tableHeaders.type', 'Event Type')}</span>
+                        {renderEventSortIcon('event_type')}
+                      </button>
+                    </th>
+                    <th className="py-3.5 px-4">
+                      <button
+                        onClick={() => handleEventSort('message')}
+                        className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
+                        title="Sort by message details"
+                      >
+                        <span>{t('history:tableHeaders.message', 'Details')}</span>
+                        {renderEventSortIcon('message')}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04] text-slate-300">
@@ -822,8 +1054,8 @@ export const History: React.FC<HistoryProps> = ({
                             className="rounded border-slate-700 bg-slate-900/80 text-green-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
                           />
                         </td>
-                        <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
-                          {evt.timestamp.replace('T', ' ').substring(0, 19)}
+                        <td className="py-3 px-4 text-slate-300 whitespace-nowrap">
+                          {formatTableTimestamp(evt.timestamp)}
                         </td>
                         <td
                           className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"

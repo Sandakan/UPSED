@@ -33,6 +33,7 @@ import {
 } from '../lib/battery';
 import { detectOutageDetails, deriveVisibleOutageIntervals } from '../lib/outage';
 import { detectDataGaps, injectGapAnchorPoints, deriveVisibleDataGaps } from '../lib/dataGaps';
+import { formatChartAxisTimestamp, formatChartTooltipTimestamp } from '../lib/time';
 import { api } from '../lib/tauri';
 import { DurationPickerModal, CustomDurationRange } from './DurationPickerModal';
 import { useChartZoom } from '../lib/useChartZoom';
@@ -158,13 +159,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   // Detect outage intervals and per-sample states
   const { intervals: outageIntervals, isOutageMap } = useMemo(() => {
     const samples = visibleHistory.map((rec, idx) => {
-      let timeStr: string;
-      if (rec.timestamp.includes('T')) {
-        const [dPart, tPart] = rec.timestamp.split('T');
-        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
-      } else {
-        timeStr = rec.timestamp.slice(-8);
-      }
+      const timeStr = formatChartAxisTimestamp(rec.timestamp, isMultiDay);
       return {
         time: timeStr,
         xKey: `${rec.timestamp}__${idx}`,
@@ -178,13 +173,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
   // Map history records into clean data points for all 10 metrics
   const telemetryData = useMemo(() => {
     return visibleHistory.map((rec, idx) => {
-      let timeStr: string;
-      if (rec.timestamp.includes('T')) {
-        const [dPart, tPart] = rec.timestamp.split('T');
-        timeStr = isMultiDay ? `${dPart.slice(5)} ${tPart.slice(0, 5)}` : tPart.slice(0, 8);
-      } else {
-        timeStr = rec.timestamp.slice(-8);
-      }
+      const timeStr = formatChartAxisTimestamp(rec.timestamp, isMultiDay);
       const xKey = `${rec.timestamp}__${idx}`;
 
       const batPct = calculateBatterySoC(
@@ -774,10 +763,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                           if (val.includes('__gap')) return '';
                           if (val.includes('__')) {
                             const raw = val.split('__')[0];
-                            if (raw.includes('T')) {
-                              const [, tPart] = raw.split('T');
-                              return tPart.slice(0, 8);
-                            }
+                            return formatChartAxisTimestamp(raw, isMultiDay);
                           }
                         }
                         return val;
@@ -796,7 +782,9 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         const itemPayload = payload[0]?.payload;
                         const isOutage = itemPayload?.isOutage;
                         const isGap = itemPayload?.isGap;
-                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                        const displayTime = typeof label === 'string' && label.includes('__')
+                          ? formatChartTooltipTimestamp(label.split('__')[0])
+                          : itemPayload?.time || label;
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"
@@ -966,10 +954,7 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                           if (val.includes('__gap')) return '';
                           if (val.includes('__')) {
                             const raw = val.split('__')[0];
-                            if (raw.includes('T')) {
-                              const [, tPart] = raw.split('T');
-                              return tPart.slice(0, 8);
-                            }
+                            return formatChartAxisTimestamp(raw, isMultiDay);
                           }
                         }
                         return val;
@@ -988,7 +973,9 @@ const MetricGraphsHubComponent: React.FC<MetricGraphsHubProps> = ({
                         const itemPayload = payload[0]?.payload;
                         const isOutage = itemPayload?.isOutage;
                         const isGap = itemPayload?.isGap;
-                        const displayTime = itemPayload?.time || (typeof label === 'string' && label.includes('__') ? label.split('__')[0].slice(-8) : label);
+                        const displayTime = typeof label === 'string' && label.includes('__')
+                          ? formatChartTooltipTimestamp(label.split('__')[0])
+                          : itemPayload?.time || label;
                         return (
                           <div
                             className="rounded-xl p-2.5 shadow-lg border text-xs"

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { EventLogRecord, EventSeverity } from '../lib/types';
 import { getEventInfo } from '../lib/notifications';
+import { formatTableTimestamp } from '../lib/time';
 import { api } from '../lib/tauri';
 import { ConfirmModal } from '../components/ConfirmModal';
 
@@ -33,7 +34,7 @@ export const Events: React.FC<EventsProps> = ({
   onRefresh,
   isRefreshing,
 }) => {
-  const { t, i18n } = useTranslation(['events', 'common']);
+  const { t } = useTranslation(['events', 'common']);
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -427,14 +428,8 @@ export const Events: React.FC<EventsProps> = ({
                       </td>
 
                       {/* Timestamp */}
-                      <td className="py-3 px-4 font-mono text-slate-400 whitespace-nowrap">
-                        {new Date(ev.timestamp).toLocaleString(i18n.language, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        })}
+                      <td className="py-3 px-4 font-mono text-slate-300 whitespace-nowrap">
+                        {formatTableTimestamp(ev.timestamp)}
                       </td>
 
                       {/* Event Type Code */}
