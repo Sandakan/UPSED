@@ -626,15 +626,18 @@ flowchart TD
 
 ## 13. UPSED Bridge — Architecture Overview
 
-### Baseline Hardware Standard: ESP32-S3 DevKitC-1 N16R8
-To guarantee a zero-compromise commercial-grade integration, the UPSED Bridge hardware is standardized on the **ESP32-S3 DevKitC-1 N16R8**:
-* **MCU:** Espressif ESP32-S3 (Xtensa® Dual-core 32-bit LX7 @ 240 MHz + AI vector instructions)
-* **Flash:** 16 MB SPI Flash (Quad/Octal)
-* **PSRAM:** 8 MB Octal PSRAM (Zero-wear high-speed circular memory)
-* **USB Interface:** Native USB 1.1 OTG / CDC on-chip (Full-Speed 12 Mbps, driver-free plug-and-play)
-* **RF:** 2.4 GHz Wi-Fi (802.11 b/g/n) + Bluetooth 5 (LE) with built-in PCB trace antenna
+### Hardware Options: Baseline ESP32-S3 vs. Low-Cost ESP32-S / OLED
+The architecture supports two deployment tiers depending on availability and budget:
+* **Gold Standard (ESP32-S3 DevKitC-1 N16R8):** Dual-core LX7 @ 240MHz, 16MB Flash, 8MB PSRAM, Native USB CDC (driverless plug-and-play), 60+ days offline data retention.
+* **Low-Cost Baseline (NodeMCU ESP32-S Narrow / Type-C OLED):** Dual-core LX6 @ 240MHz, 4MB Flash, integrated antenna, 2–4 days offline telemetry. Features an optional 0.96" OLED screen for physical real-time status without opening an app.
 
-### Physical Wiring & Port Topology
+### Verified Hardware Invariant from Manufacturer Manual
+> [!CAUTION]
+> **"USB port and RS-232 port can’t work at the same time."**  
+> Voltronic UPS mainboards multiplex the rear USB Type-B port and RS-232 port to the **same internal microcontroller UART**. Connecting both simultaneously causes electrical bus contention and frame corruption.  
+> **Rule:** The rear USB Type-B port must remain **unplugged**. The ESP32 connects solely to the **RS-232 port** via the MAX3232 transceiver.
+
+### Physical Wiring & Dual-Mode Connectivity Topology
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -643,10 +646,10 @@ To guarantee a zero-compromise commercial-grade integration, the UPSED Bridge ha
 │   ┌────────────────┐                                                   │
 │   │  RS-232 Port   │───────────────────────────────┐                  │
 │   │  (±12V Logic)  │                               │                  │
-│   │  USB 5V Port   │───────────────────────┐       │                  │
-│   └────────────────┘                       │       │                  │
-│                                            │       │                  │
-│                           5V Power ────────▼       │                  │
+│   │  USB Port (B)  │  [MUST REMAIN UNPLUGGED]      │                  │
+│   │  Intelligent   │  [LEAVE COVERED - NO POWER]   │                  │
+│   └────────────────┘                               │                  │
+│                                                    │                  │
 │                         ┌──────────────────────┐   │                  │
 │                         │ MAX3232 Level Shifter│◄──┘ (RS-232 DB9)     │
 │                         │ (3.3V ↔ ±12V Logic)  │                      │
@@ -654,30 +657,41 @@ To guarantee a zero-compromise commercial-grade integration, the UPSED Bridge ha
 │                                    │ 3.3V UART (TX/RX)                │
 │                                    ▼                                  │
 │   ┌────────────────────────────────────────────────────────────────┐  │
-│   │ ESP32-S3 DevKitC-1 N16R8 (Baseline Hardware)                   │  │
+│   │ ESP32 Bridge (NodeMCU ESP32-S or ESP32-S3)                     │  │
 │   │                                                                │  │
 │   │   GPIO18 (UART2 TX) ◄───────── MAX3232 ROUT (UPS TX)           │  │
 │   │   GPIO17 (UART2 RX) ──────────► MAX3232 TIN  (UPS RX)          │  │
-│   │   5V Pin ◄──────────────────── UPS USB 5V VBUS (Continuous)   │  │
-│   │   GND Pin ◄─────────────────── Common GND                      │  │
 │   │                                                                │  │
-│   │   Port 1: USB-OTG (Type-C) ──────────────► PC USB (UPSED)     │  │
-│   │           (Native USB CDC: GPIO19 D- / GPIO20 D+)              │  │
-│   │   Port 2: UART/JTAG (Type-C) ────────────► Optional Debug Port │  │
-│   │   Wi-Fi (Built-in PCB Antenna) ──────────► LAN Broker / Tuya   │  │
+│   │   [POWER INPUT OPTIONS - 5V DC]:                               │  │
+│   │   Option A: Mini in-line 5V battery buffer on PC USB cable     │  │
+│   │   Option B: Step-down buck (12V/24V → 5V) from UPS battery     │  │
+│   │                                                                │  │
+│   │   [PC LINK OPTIONS]:                                           │  │
+│   │   • Wired: USB Cable (Native CDC on S3 or CH340 on ESP32-S)    │  │
+│   │   • Wireless: Local Wi-Fi WebSocket (ws://ip:8080) / TCP       │  │
+│   │   • Wireless: Bluetooth Serial (SPP Virtual COM Port)          │  │
+│   │                                                                │  │
+│   │   Wi-Fi (Built-in PCB Antenna) ──────────► Home Assistant/Tuya │  │
 │   └────────────────────────────────────────────────────────────────┘  │
 │                                                                        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Continuous Power:** The ESP32-S3 is powered from the UPS USB 5V port. In all Voltronic architectures, this port remains powered directly from the internal battery bus during blackouts, grid brownouts, and PC shutdowns.
+**Continuous 24/7 Power Architecture:**
+* The rear AC sockets cut power when the UPS inverter is switched off.
+* The rear USB Type-B port is a power sink (0V output).
+* The Intelligent Slot requires custom PCB edge connectors and risks bus shorts.
+* **Verified Continuous Power Solutions:**
+  1. **In-line 5V Battery Buffer (Recommended Non-Invasive):** A single 18650 cell module with pass-through charging placed between the PC USB and ESP32. Charges while PC is on, provides 20–30+ hours of continuous power when PC and UPS are turned off.
+  2. **Direct Battery Buck Tap (Recommended Permanent):** An MP1584EN buck converter stepping internal 12V/24V battery voltage down to 5V.
 
-**Serial Isolation:** UART2 (GPIO17/18) is fully dedicated to the UPS at 2400/9600 baud. The classic UART0 is completely unused by UPSED, leaving it 100% free for deep hardware flashing and JTAG debugging via the secondary USB-C port.
-
-**PC Link:** Native USB CDC enumerates directly over the primary Type-C port without requiring external CH340 or CP2102 drivers on the PC. UPSED discovers it as a native, high-throughput virtual serial pipe.
+**Wired or 100% Wireless PC Operation:**
+Because the ESP32 handles Wi-Fi and Bluetooth, a physical USB cable to the PC is only needed for the initial 30-second bootstrap firmware flash. After that, UPSED can connect to the bridge over **Local Wi-Fi WebSocket/TCP** or **Bluetooth Serial (Virtual COM)**, allowing the UPS to be placed anywhere in the room.
 
 > [!IMPORTANT]
-> The ESP32 is the **sole UART master** to the UPS at all times. UPSED never touches the UPS serial port directly — it sends/receives Voltronic frames through the ESP32 USB CDC pipe. This eliminates all serial arbitration conflicts.
+> The ESP32 is the **sole UART master** to the UPS at all times. UPSED never touches the UPS serial port directly — it communicates with the ESP32 (wirelessly or via USB pipe). This eliminates all serial arbitration conflicts.
+
+
 
 ---
 
@@ -880,24 +894,31 @@ UPSED bundles the latest `upsed_bridge.bin` in its own release (inside `resource
 
 ---
 
-## 19. Power Continuity — Why This Works Through Outages
+## 19. Power Continuity & Blackout Survival
 
 ```mermaid
 flowchart TD
     A["⚡ AC Grid PRESENT"] --> B["UPS in Line Mode\nCharging battery"]
-    B --> C["UPS USB 5V → ESP32 powered ✅"]
+    B --> C["Power Source Active\n(In-line buffer / Buck converter) ✅"]
     C --> D["ESP32 UART ← UPS polling active ✅"]
 
     E["⚡ AC Grid FAILS"] --> F["UPS switches to Battery Mode\n< 20ms transfer time"]
-    F --> G["UPS USB 5V still active\n(sourced from battery bus) ✅"]
-    G --> H["ESP32 stays alive ✅"]
+    F --> G["Power Source Remains Active\n(Buffer / Buck from 12V/24V battery) ✅"]
+    G --> H["ESP32 stays completely alive ✅"]
     H --> I["ESP32 detects utility_fail=true\nPublishes MQTT alarm immediately"]
     I --> J["HA automation fires:\n'Grid power failed — alert!'"]
 
-    K["PC shuts down\n(manually or due to outage)"] --> L["USB CDC disconnects"]
+    K["PC shuts down\n(manually or due to outage)"] --> L["PC Link disconnects / sleeps"]
     L --> M["ESP32 transitions to Standalone Mode"]
-    M --> N["Continues polling UPS\nPublishes MQTT\nBuffers to NVS"]
+    M --> N["Continues polling UPS over RS-232\nPublishes MQTT & updates OLED\nBuffers offline history"]
 ```
+
+**Key Invariant on Power:**
+* The UPS's rear USB Type-B port is a client device port and **outputs 0V**.
+* The UPS AC sockets cut out when the UPS inverter is powered off.
+* To achieve true 24/7 independence regardless of UPS inverter power state, power is supplied either via:
+  1. An **in-line 5V battery buffer module** on the PC USB line (holding charge for 20–30+ hours of standalone operation).
+  2. A **direct DC-DC step-down buck converter (MP1584EN)** wired to the internal 12V/24V battery spade terminals.
 
 **The critical scenario — power outage while PC is on:**
 1. Grid fails → UPS switches to battery in <20ms
@@ -1100,41 +1121,40 @@ upsed-bridge/                         ← Companion firmware repository
 
 ---
 
-## 24. Hardware Shopping List (Baseline Standard)
+## 24. Hardware Shopping List
 
 | Component | Specification | Purpose | Approx. Cost |
 |---|---|---|---|
-| **ESP32-S3 DevKitC-1 N16R8** | **ESP32-S3-WROOM-1-N16R8 (16MB Flash, 8MB PSRAM, PCB Trace Antenna)** | Main Controller with Native USB CDC, high-speed PSRAM, and dual Type-C ports | **~2,050 LKR** (~$7 USD) |
-| **MAX3232 Module** | 3.3V to 5V RS-232 Breakout with charge pump capacitors | Translates ESP32-S3 3.3V UART to UPS ±12V serial levels | **~350 LKR** (~$1.20 USD) |
+| **MCU Board (Option A - S3)** | **ESP32-S3 DevKitC-1 N16R8** (Dual Type-C, Native CDC, 16MB Flash, 8MB PSRAM) | Enterprise gold standard: 60-day logging, driverless | **~2,050 LKR** (~$7 USD) |
+| **MCU Board (Option B - S/OLED)** | **NodeMCU ESP32-S Narrow** or **Type-C with 0.96" OLED Display** | Low-cost entry baseline: Real-time desk OLED screen, Wi-Fi/BLE, 2–4 days log | **~1,550 – 1,950 LKR** (~$5–6.50 USD) |
+| **MAX3232 Module** | 3.3V to 5V RS-232 Breakout with charge pump capacitors | Converts ESP32 3.3V UART to UPS ±12V serial levels | **~350 LKR** (~$1.20 USD) |
 | **DB9 Female to 3-Pin Cable** | Standard DB9 female with TX, RX, GND leads | Connects MAX3232 to UPS RS-232 port | **~300 LKR** (~$1.00 USD) |
-| **USB Type-C to Type-A Data Cable** | High-speed data cable (tested for 480/12 Mbps) | Connects ESP32-S3 Native USB port to PC | **~400 LKR** (~$1.30 USD) |
-| **USB-A to Type-C Power Cable** | Standard 5V power cable | Draws continuous 5V power from UPS USB port | **~350 LKR** (~$1.10 USD) |
+| **Power Solution (Option 1)** | **In-line 5V USB Battery Buffer Module (18650)** with power-path | Keeps ESP32 running 24/7 when PC & UPS are powered off | **~400 – 600 LKR** (~$1.50–2.00 USD) |
+| **Power Solution (Option 2)** | **MP1584EN DC-DC Buck Converter** (Input 7–28V, Output 5V) | Direct permanent tap to internal 12V/24V battery | **~250 LKR** (~$0.80 USD) |
 | **Breadboard & Jumper Wires** | 830-point breadboard + male-to-female Dupont jumpers | Prototype wiring harness | **~450 LKR** (~$1.50 USD) |
-
-**Total Setup Investment:** **~3,900 LKR (~$13.00 USD)** for the complete commercial-spec hardware suite.
 
 ---
 
-## 25. One-Time Setup Checklist — ESP32-S3 Baseline
+## 25. One-Time Setup Checklist
 
 - [ ] **Hardware Interconnect:**
-  - Connect MAX3232 `ROUT` → ESP32-S3 `GPIO17` (UART2 RX).
-  - Connect MAX3232 `TIN` → ESP32-S3 `GPIO18` (UART2 TX).
-  - Connect MAX3232 `VCC` → ESP32-S3 `3.3V` pin; MAX3232 `GND` → ESP32-S3 `GND`.
-  - Connect DB9 port to UPS RS-232 serial port.
-  - Connect UPS USB 5V port to ESP32-S3 `5V` pin (or secondary Type-C port) for continuous uninterrupted power.
+  - Connect MAX3232 `ROUT` → ESP32 `GPIO17` (UART2 RX).
+  - Connect MAX3232 `TIN` → ESP32 `GPIO18` (UART2 TX).
+  - Connect MAX3232 `VCC` → ESP32 `3.3V` pin; MAX3232 `GND` → ESP32 `GND`.
+  - Connect DB9 port to UPS RS-232 port.
+  - **Leave UPS USB Type-B port unplugged** (do not connect both USB and RS-232 simultaneously).
+  - Power the ESP32 via the in-line battery buffer or DC buck converter.
 - [ ] **Initial Bootstrap Flash:**
-  - Connect PC to ESP32-S3 UART/Debug Type-C port.
-  - Execute initial flash: `idf.py -p COMx flash` (only required once; all future updates are pushed directly via UPSED desktop app).
-- [ ] **Native PC Connection:**
-  - Unplug debug port; connect PC USB to ESP32-S3 **Native USB-OTG Type-C port**.
-  - Windows automatically registers `UPSED Native Bridge (COMx)` without manual driver installation.
+  - Connect PC to ESP32 via USB.
+  - Flash firmware using PlatformIO / ESP-IDF (initial bootstrap only).
+- [ ] **PC Link Configuration (Wired or Wireless):**
+  - **Wired:** Connect USB cable to PC (driverless on S3, or install CH340/CP2102 once on ESP32-S).
+  - **Wireless Alternative:** Connect UPSED to the ESP32's local IP address (`ws://192.168.x.x:8080`) or via paired Bluetooth Serial virtual COM port.
 - [ ] **Configuration via UPSED:**
   - Open UPSED desktop app → navigate to **Settings → Bridge**.
   - Enter Wi-Fi and MQTT credentials → click **Push Config to Hardware**.
-  - Bridge confirms flash write and connects to Home Assistant immediately.
+  - Bridge connects to Home Assistant / Tuya immediately.
 - [ ] **Validation Experiments:**
   - Verify all 11 entities are auto-discovered in Home Assistant.
-  - Shut down Windows PC → observe that Home Assistant continues updating live telemetry unbroken.
-  - Disconnect AC power from UPS → verify Home Assistant fires instant blackout automation.
-  - Power on PC → verify UPSED automatically performs bulk sync of all offline samples in < 1 second.
+  - Turn off UPS inverter output → verify ESP32 stays alive on battery buffer and reports outage state to Home Assistant.
+  - Test BLE proximity detection: verify walk-in room entry triggers instant UPS turn-on automation.

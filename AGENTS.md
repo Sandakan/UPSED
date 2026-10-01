@@ -21,6 +21,8 @@ This document establishes the universal rules, safety constraints, and architect
   - A descriptive, user-friendly explanation of the condition and recommended action MUST serve as the **Description**.
   - In-app toasts must use `react-hot-toast` in headless mode (`UpsedToaster.tsx`); OS Action Center notifications must be sent via `@tauri-apps/plugin-notification` when the window is out of focus, minimized, or in tray.
 - **Database Storage Path Invariant:** The embedded SQLite database (`upsed.db`) must never be placed inside `src-tauri/` or project source trees to prevent Tauri dev watcher hot-reload infinite loops. It must always reside in the platform-specific app data directory (`AppHandle::path().app_data_dir()`).
+- **Voltronic Physical Port Exclusivity Invariant:** The UPS rear USB Type-B port and RS-232 port must NEVER be connected or probed simultaneously. Because both physical interfaces are multiplexed to the same internal microcontroller UART, concurrent connections cause electrical contention and frame corruption. When deploying external bridges (e.g. ESP32), the bridge must connect exclusively to the RS-232 port via a level shifter, and the USB Type-B port must remain physically disconnected.
+- **Hardware Bridge Power Invariant:** The UPS RS-232 and USB Type-B ports do not supply operating power to external microcontrollers (USB Type-B is a 0V power sink; RS-232 signal lines cannot supply the ~250–400mA peaks required for Wi-Fi transmissions). External bridges must be powered via an independent 5V supply, in-line battery buffer, or direct DC-DC step-down buck converter (e.g. MP1584EN) attached to the internal battery terminals to maintain continuous 24/7 telemetry when the UPS AC output is turned off.
 
 ---
 

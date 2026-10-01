@@ -164,6 +164,10 @@ await api.sendCommand(portName, { type: 'MyNewCommand', payload: 50 });
 - **Baud Rate Mismatch:** Voltronic UPS hardware operates at either **2400 baud** (standard) or **9600 baud** (some newer King/Max models) with 8 data bits, no parity, 1 stop bit (`8N1`).
 - **Response Timeout:** If a command times out after 1000ms, check physical cabling. High electrical noise on inverter lines can cause frame drops.
 
+### Hardware Port Exclusivity & Bridge Power:
+- **Never Connect USB and RS-232 Simultaneously:** The UPS hardware does not support concurrent USB Type-B and RS-232 communication because both multiplex to the same internal UART. Always disconnect the USB Type-B cable when communicating via the RS-232 port or an external bridge.
+- **Bridge Power Requirements:** Never attempt to phantom-power microcontrollers or adapters from the RS-232 DTR/RTS lines or the USB Type-B port. Use an in-line battery-buffered 5V supply or an internal battery DC-DC buck regulator.
+
 ### USB HID Interfaces (`VID 0x0665 / PID 0x5161`):
 - **Device Node Format:** UPSED identifies HID devices as `USB:0665:5161:<INSTANCE_ID>`.
 - **Packet Framing:** USB HID communication uses 8-byte reports with Report ID `0x00` (`[0x00, byte0, ..., byte7]`). Unused trailing bytes in input reports are null-padded (`0x00`) and stripped during frame decoding.
