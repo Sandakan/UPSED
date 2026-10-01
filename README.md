@@ -1,8 +1,6 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="public/upsed-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="public/upsed-light.svg">
-    <img src="public/upsed-dark.svg" alt="UPSED Logo" width="360">
+    <img src="public/banner.webp" alt="UPSED Banner">
   </picture>
 </p>
 
@@ -19,27 +17,32 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 ## ✨ Core Features
 
 ### ⚡ Direct Hardware Communication & Multi-Device Support
+
 - Connects directly to native USB HID interfaces (`VID 0x0665 / PID 0x5161` via `hidapi`) or RS-232/USB serial COM ports (`serialport` crate).
 - Zero external drivers, zero Java runtime, zero Tomcat web servers, and zero open network listening ports.
 - Safely auto-discovers connected hardware on both USB HID and COM ports using strictly non-destructive Stage T1 read-only queries (`QPI\r`).
 - Concurrent multi-UPS management with independent communication channels and telemetry caches.
 
 ### 🛡️ Safety-First Command Gate (4-Stage Tiering)
+
 - Enforces an incremental 4-stage safety unlock hierarchy (`T1ReadOnly` → `T2NonDestructive` → `T3ConfigWrite` → `T4PowerControl`).
 - Completely eliminates raw string command injection vulnerabilities (such as ViewPower's `controlNew` flaw). Every interaction is a strongly typed variant of the `VoltronicCommand` enum.
 - Strict parameter bounds validation in Rust before any byte payload reaches the transport layer.
 
 ### 📉 Real-Time Outage Interval Detection
+
 - Hybrid outage detection combining physical voltage thresholds (< 50V line failure) with rising-edge event correlation (`UTILITY_FAIL` and `UTILITY_RESTORE`).
 - Automatic real-time status tracking with visual outage bands across charts (`OutageReferenceArea`) highlighting ongoing blackouts with live `Outage (Active)` badges.
 
 ### 🔍 Data Gap Visualization & Offline Highlighting
+
 - Automatically flags communication gaps and offline periods when the delta exceeds `max(3.5 * medianStepMs, 3 * pollIntervalSecs, 45s)`.
 - Renders responsive SVG diagonal hatch pattern textures (`DataGapReferenceArea`) across time-series charts.
 - Responsive duration formatting (`45s`, `14m`, `2h 15m`, `1d 6h`) with dynamic label density (expanded label at ≥ 110px width, concise "No Data" at 60–109px, subtle texture without text at < 60px).
 - Boundary anchor point injection (`injectGapAnchorPoints`) preserves true proportional duration along categorical time axes without misleading line interpolation.
 
 ### 📊 Configurable Time-Series Downsampling (LTTB / SQL Decimation)
+
 - Balances high-frequency waveform fidelity with rapid UI rendering across extensive historical datasets.
 - User-selectable graph resolution thresholds in Settings:
   - **1,500 points** — Aggressive / Lightest (ideal for low-power machines or long historical spans)
@@ -50,17 +53,20 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Server-side SQL window decimation engine uses `ROW_NUMBER() OVER (ORDER BY id ASC)` with step modulus `(rn - 1) % step = 0` to preserve uniform temporal distribution and constant memory footprint across large historical time spans, with Raw Data mode for uncompressed transient analysis.
 
 ### 🌐 Internationalization (i18n) Multi-Language Support
+
 - Comprehensive multi-language support covering **English (`en`)** and **French (`fr`)**.
 - Modular localization across 10 translation namespaces: `common`, `nav`, `dashboard`, `control`, `config`, `history`, `events`, `settings`, `modals`, and `notifications`.
 - Automatic system locale detection (`getSystemLanguage`) with explicit user overrides persisted across sessions.
 - Locale-aware timestamp formatting integrated with `date-fns/locale` (`enUS`, `fr`).
 
 ### 🔋 Hardware Profile & Peukert Active Runtime Estimation
+
 - Configurable UPS metadata specifications: Rated VA, Power Factor (0.6 Line-Interactive, 0.8 Business/Server, 0.9 Online, 1.0 Unity Enterprise), and calculated Rated Active Watts.
 - Multi-chemistry battery modeling: Standard Sealed Lead-Acid (VRLA / AGM), Gel Cell, and Lithium Iron Phosphate (LiFePO4) with calibrated cell cutoff, nominal, and float voltages.
 - Peukert load-derated discharge runtime estimation modeling non-linear capacity drop under high C-rate discharge (accounting for ~90–93% inverter conversion efficiency).
 
 ### 🖥️ Background Tray Lifecycle & Autostart
+
 - System tray icon with live battery capacity rendering, operational tooltips, and desktop menu ("Open UPSED", "Quit UPSED").
 - Seamless minimize-to-tray on window close (`close_to_minimize` preference prevents application exit).
 - Start minimized in tray capability (`start_minimized` preference and `--minimized` launch argument).
@@ -68,19 +74,23 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Native cold-boot dark background initialization (`#22262f`) eliminating white or black screen flash before initial paint.
 
 ### 🎨 System / Light / Dark Theme Engine
+
 - Full support for **System Default**, **Light**, and **Dark** themes with instant, flash-free transitions.
 - Dynamically responds to OS color scheme shifts via `prefers-color-scheme` media queries when set to System mode.
 - Dual-layer synchronization across frontend `localStorage` (`upsed-theme-mode`) and the SQLite settings store.
 
 ### 📋 Events Hub & SQLite Persistence
+
 - Dedicated Events Hub with real-time unread counter, severity classification (`Critical`, `Warning`, `Success`, `Info`), keyword search, and CSV export.
 - Embedded SQLite storage (`%APPDATA%\com.adsandakannipunajith.upsed\upsed.db`) with automatic WAL journal mode.
 
 ### 📝 Diagnostic Logging & Window Persistence
+
 - Multi-target structured logging powered by `tauri-plugin-log`: streams to terminal `stdout`, webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log`).
 - Window geometry persistence via `tauri-plugin-window-state`: remembers dimensions, screen position, and maximized state across reboots.
 
 ### 🔋 OS Native Battery Bridge (Opt-In)
+
 - Emulates an internal system battery for desktop operating systems:
   - **Windows:** Custom taskbar tray battery level gauge & tooltips.
   - **Linux:** Virtual HID device via `/dev/uhid` recognized by UPower for GNOME/KDE desktop battery widgets.
@@ -149,7 +159,7 @@ flowchart TD
 To safeguard connected equipment and prevent persistent EEPROM corruption or unintended power cuts, UPSED categorizes every hardware command into 4 strict safety stages:
 
 | Stage | Risk Level | Allowed Commands | Unlock Condition & Invariants |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.) | **Default at startup.** Automated hardware scans and live probing MUST strictly and exclusively use T1 commands. |
 | **Stage T2 (Non-Destructive)** | Low | `BUZZER` (Toggle beeper), `T` (10s battery test), `CT` (Cancel battery test) | Unlocks after automated T1 queries verify protocol compatibility. Does not modify non-volatile memory or drop load. |
 | **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | Requires parameter pre-validation against physical equipment safety limits in Rust before transmission. |
@@ -162,13 +172,15 @@ To safeguard connected equipment and prevent persistent EEPROM corruption or uni
 UPSED implements accurate battery physics models based on Peukert's law and inverter topology efficiency:
 
 ### 1. Battery Chemistries & Cell Voltage Thresholds
+
 | Chemistry | Nominal Cell Voltage | Cutoff Voltage (0% under load) | Float Voltage (100% ceiling) | Peukert Exponent ($k$) |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **VRLA / AGM (Standard Lead-Acid)** | 2.00 V/cell | 1.75 V/cell | 2.28 V/cell (27.36V on 24V pack) | 1.25 |
 | **GEL Cell Lead-Acid** | 2.00 V/cell | 1.80 V/cell | 2.30 V/cell | 1.20 |
 | **LiFePO4 (Lithium Iron Phosphate)** | 3.20 V/cell | 2.80 V/cell | 3.45 V/cell | 1.05 |
 
 ### 2. Peukert Discharge Derating & Runtime Calculation
+
 Lead-acid batteries deliver significantly less total energy when discharged at high C-rates. The runtime estimation engine calculates:
 
 $$\text{Remaining Energy (Wh)} = V_{\text{nominal}} \times \text{Capacity}_{\text{Ah}} \times \left(\frac{\text{SoC}\%}{100}\right) \times \eta_{\text{inverter}}$$
@@ -193,6 +205,7 @@ $$\text{Runtime (Hours)} = \frac{\text{Remaining Energy} \times k_{\text{Peukert
 ### Prerequisites
 
 Ensure the following are installed:
+
 - **Node.js:** v18+ (v20+ recommended) and `npm`
 - **Rust:** 1.77+ (`rustup` with MSVC toolchain on Windows, GCC/Clang on Linux/macOS)
 - **C++ Build Tools:**
@@ -203,30 +216,36 @@ Ensure the following are installed:
 ### Installation & Development
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/Sandakan/UPSED.git
    cd UPSED
    ```
 
 2. **Install frontend dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Run the mock-hardware test suite:**
+
    ```bash
    cd src-tauri
    cargo test
    cd ..
    ```
+
    *All 61 mock-hardware tests across 9 test suites must pass with 0 failures before launching.*
 
 4. **Launch Development Mode:**
+
    ```bash
    npm run tauri dev
    ```
 
 5. **Build Production Application:**
+
    ```bash
    npm run tauri build
    ```
@@ -236,6 +255,7 @@ Ensure the following are installed:
 ## 📖 Usage Guide
 
 ### 1. Connecting to a UPS
+
 1. Connect your UPS via USB (native USB HID `VID 0665 PID 5161` or USB-Serial adapter) or RS-232 serial cable.
 2. Launch UPSED.
 3. Click the **Scan (Search)** button in the sidebar under **Connected Devices**.
@@ -243,6 +263,7 @@ Ensure the following are installed:
 5. Detected units appear with their device identifier (e.g. `USB:0665:5161:1D9528FA` or `COM3`) and protocol variant (e.g. `P01`, `P17`, `P00`). Click any device to monitor telemetry.
 
 ### 2. Live Monitoring (Dashboard)
+
 - **Grid AC Input:** Live input voltage and line frequency with utility failure alarm detection.
 - **Output Load:** Percentage load, real active wattage, and dynamic color-coded load indicators.
 - **Battery Bank:** DC bus voltage, estimated State-of-Charge (SoC), active runtime estimate, and low-voltage alarms.
@@ -250,29 +271,34 @@ Ensure the following are installed:
 - **Power Flow Diagram:** Live animated energy flow between Utility Grid, Inverter/Charger, Battery Bank, and AC Output.
 
 ### 3. Hardware Events & Alarms (Events Tab)
+
 - Switch to the **Events** tab via the sidebar `Bell` icon.
 - Review real-time hardware state transitions (blackouts, restorations, low battery warnings, overloads, and high temperatures).
 - Filter by severity badges (`Critical`, `Warning`, `Success`, `Info`) or search by keyword and port.
 - Individual event acknowledgment (`Ack`), bulk acknowledgment, and one-click **Export CSV**.
 
 ### 4. Diagnostics & Hardware Control (Stage T2 & T4)
+
 - Switch to the **Hardware Control** tab.
 - **Toggle Buzzer (T2):** Mute or unmute the internal UPS beeper (`BUZZER`).
 - **10-Second Battery Test (T2):** Run a brief battery discharge diagnostic (`T`) or cancel an active test (`CT`).
 - **Emergency Shutdown (T4):** Delayed output shutdown with dual-confirmation countdown dialogs to prevent accidental power loss.
 
 ### 5. Hardware Configurations (Stage T3)
+
 - Navigate to the **Configuration** tab.
 - Safely update charging parameters such as maximum solar/utility charging current (`MCHGC`) or bypass voltage tolerances (`PBVH`/`PBVL`).
 - Inputs outside safe physical limits are blocked by Rust before transmission.
 
 ### 6. Historical Telemetry & Graphs
+
 - Go to the **History & Graphs** tab.
 - Inspect timestamped records of voltage, load, and battery metrics stored in SQLite.
 - Review waveform graphs with zoom/pan, outage highlighting bands, and data gap visualization.
 - Click **Export CSV** to download tabular data (`upsed-telemetry-...` and `upsed-events-...`).
 
 ### 7. Application Settings & Profile Configuration
+
 - **Hardware Profile Setup:** Configure rated VA, power factor, battery chemistry, and topology for accurate runtime math.
 - **Telemetry Polling Interval:** Configure polling frequency (2s, 5s, 10s default, 30s, or 60s).
 - **Historical Graph Resolution:** Choose downsampling threshold (1,500, 3,000, 5,000, 10,000, or Raw).
@@ -301,6 +327,7 @@ UPSED includes an in-memory mock-hardware test suite in `src-tauri/tests/`:
 - `monitor_tests.rs`: Verifies application settings persistence, watch channel interval updates, and legacy SQLite database migration.
 
 Run all tests:
+
 ```bash
 cd src-tauri
 cargo test
@@ -311,6 +338,7 @@ cargo test
 ## ⚖️ Clean-Room Legal & Fair Use Notice
 
 This software is an independent clean-room engineering effort created for **interoperability purposes** under:
+
 - **United States Code:** 17 U.S.C. § 1201(f) (Reverse Engineering / Interoperability exemption of the DMCA).
 - **European Union:** Directive 2009/24/EC, Article 6 (Decompilation for Interoperability).
 

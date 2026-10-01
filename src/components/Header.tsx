@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronRight,
   RefreshCw,
   Plus,
   MoreHorizontal,
@@ -13,7 +12,6 @@ import { UnlockStage } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
 import { PrimaryButton } from './PrimaryButton';
 import { setAppLanguage } from '../lib/i18n';
-import { UpsedLogo } from './UpsedLogo';
 
 interface HeaderProps {
   currentTab: string;
@@ -51,7 +49,6 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   isRefreshing,
   lastUpdatedAt,
   safetyStage,
-  onTabChange,
   onOpenAddDeviceModal,
 }) => {
   const { t, i18n } = useTranslation(['common', 'nav', 'modals']);
@@ -90,16 +87,8 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
-      {/* ── Left: Brand & Breadcrumb ───────────────────────── */}
-      <div className="flex items-center space-x-2 text-sm min-w-0 shrink mr-2">
-        <button
-          onClick={() => onTabChange('dashboard')}
-          className="flex items-center gap-1.5 p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/[0.05] transition shrink-0 cursor-pointer"
-          title={t('nav:items.dashboard', 'Dashboard')}
-        >
-          <UpsedLogo size="xs" className="text-slate-200" />
-        </button>
-        <ChevronRight className="w-3 h-3 text-slate-700 shrink-0" />
+      {/* ── Left: Page Title ───────────────────────── */}
+      <div className="flex items-center text-sm min-w-0 shrink mr-2">
         <span className="text-slate-200 font-medium truncate">{pageLabel}</span>
       </div>
 
