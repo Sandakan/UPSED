@@ -89,20 +89,42 @@ export type VoltronicCommand =
   | { type: 'QueryGeneralStatus' }
   | { type: 'QueryWarningStatus' }
   | { type: 'QueryRatingInfo' }
+  | { type: 'QueryWorkingMode' }
+  | { type: 'QueryFlags' }
+  | { type: 'QueryDeviceId' }
+  | { type: 'QueryFirmwareVersion' }
+  | { type: 'QueryBatteryVoltage' }
+  | { type: 'QueryPStatus' }
+  | { type: 'QueryPWarning' }
+  | { type: 'QueryPRating' }
+  | { type: 'QueryModel' }
+  | { type: 'QueryFaultStatus' }
+  | { type: 'QueryEcoWindow' }
+  | { type: 'QueryBypassVoltage' }
+  | { type: 'QueryBypassFrequency' }
+  | { type: 'QueryBatteryCapacity' }
+  | { type: 'QueryOutletState'; payload: { group: number } }
   | { type: 'BuzzerToggle' }
   | { type: 'BuzzerOn' }
   | { type: 'BuzzerOff' }
   | { type: 'TenSecondTest' }
   | { type: 'CancelTest' }
   | { type: 'TestForMinutes'; payload: number }
-  | { type: 'SetChargeCurrentAmps'; payload: number }
+  | { type: 'TestUntilLow' }
   | { type: 'SetBypassHighVoltage'; payload: number }
   | { type: 'SetBypassLowVoltage'; payload: number }
-  | { type: 'SetBatteryLowShutdownVoltage'; payload: number }
+  | { type: 'SetBypassHighFrequency'; payload: number }
+  | { type: 'SetBypassLowFrequency'; payload: number }
+  | { type: 'SetEcoHigh'; payload: number }
+  | { type: 'SetEcoLow'; payload: number }
+  | { type: 'SetMaxBackupMinutes'; payload: number }
   | { type: 'ShutdownWithDelay'; payload: { minutes: number } }
+  | { type: 'ShutdownAndRestore'; payload: { minutes: number; restore_minutes: number } }
   | { type: 'CancelShutdown' }
-  | { type: 'OutletOn'; payload: { group: number; delay_minutes: number } }
-  | { type: 'OutletOff'; payload: { group: number; delay_minutes: number } };
+  | { type: 'OutputOn' }
+  | { type: 'OutputOff' }
+  | { type: 'OutletOn'; payload: { group: number } }
+  | { type: 'OutletOff'; payload: { group: number } };
 
 export type ThemeMode = 'system' | 'dark' | 'light';
 

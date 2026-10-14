@@ -22,7 +22,7 @@ fn sec_002_all_commands_strictly_typed_no_arbitrary_string_passthrough() {
     let cmd = VoltronicCommand::QueryProtocolId;
     assert!(cmd.is_read_only());
 
-    let write_cmd = VoltronicCommand::SetChargeCurrentAmps(30);
+    let write_cmd = VoltronicCommand::SetBypassHighVoltage(260);
     assert!(!write_cmd.is_read_only());
     assert_eq!(write_cmd.required_stage(), UnlockStage::T3ConfigWrite);
 }

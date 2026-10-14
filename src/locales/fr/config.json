@@ -3,25 +3,15 @@
     "lockedTitle": "Écritures de configuration verrouillées (Niveau {{stage}})",
     "lockedDesc": "La modification des paramètres écrit dans la mémoire flash/EEPROM de l'onduleur. Pour déverrouiller l'écriture, avancez la porte de sécurité au Niveau T3 (Écriture configuration) sur la page Contrôle matériel."
   },
-  "chargingSection": {
-    "title": "Paramètres de batterie & chargeur",
-    "desc": "Calibrez les limites de courant de charge et les tensions seuils de coupure batterie.",
-    "maxCurrentLabel": "Courant max de charge Solaire / Secteur CA",
-    "maxCurrentDesc": "Courant continu maximal admissible injecté dans le banc de batteries (ampères).",
-    "saveCurrentBtn": "Enregistrer le courant (MCHGC)",
-    "cutoffLabel": "Seuil de tension de coupure batterie",
-    "cutoffDesc": "Tension minimale avant que l'onduleur n'enclenche l'arrêt d'urgence critique.",
-    "saveCutoffBtn": "Enregistrer la coupure (PSDV)"
-  },
   "bypassSection": {
     "title": "Plages limites de dérivation réseau (Bypass)",
     "desc": "Définissez la plage de tension secteur tolérée pour la synchronisation de la ligne bypass statique.",
     "highLabel": "Seuil haut de transfert bypass",
     "highDesc": "Limite supérieure de tension pour le basculement vers la ligne bypass (volts).",
-    "saveHighBtn": "Enregistrer la limite haute (PBVH)",
+    "saveHighBtn": "Enregistrer la limite haute (PHV)",
     "lowLabel": "Seuil bas de transfert bypass",
     "lowDesc": "Limite inférieure de tension pour le basculement vers la ligne bypass (volts).",
-    "saveLowBtn": "Enregistrer la limite basse (PBVL)"
+    "saveLowBtn": "Enregistrer la limite basse (PLV)"
   },
   "feedback": {
     "success": "Succès : {{label}} enregistré dans l'EEPROM de l'onduleur (Réponse : {{resp}})",
@@ -29,4 +19,3 @@
     "noDevice": "Erreur : Aucun onduleur actif sélectionné"
   }
 }
-

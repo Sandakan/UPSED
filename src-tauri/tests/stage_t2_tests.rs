@@ -83,7 +83,7 @@ fn t2_003_t2_cannot_execute_t3_config_writes() {
     gate.set_test_passed(UnlockStage::T1ReadOnly);
     gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
 
-    let config_cmd = VoltronicCommand::SetChargeCurrentAmps(20);
+    let config_cmd = VoltronicCommand::SetBypassHighVoltage(260);
     assert!(matches!(
         gate.check_command(&config_cmd),
         Err(GateError::StageLocked {

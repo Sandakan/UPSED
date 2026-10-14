@@ -57,17 +57,46 @@ impl MockSerialPort {
         mock.responses.insert("BUZZER".into(), "(OK".into());
         mock.responses.insert("BZON".into(), "(ACK".into());
         mock.responses.insert("BZOFF".into(), "(ACK".into());
+        mock.responses.insert("TL".into(), "(ACK".into());
+        mock.responses.insert("QS".into(), "(238.0 50.0 238.0 50.0 023 0230 025.4 45 00110000".into());
+        mock.responses.insert("QMOD".into(), "(L".into());
+        mock.responses.insert("QFLAG".into(), "(EakxyDbjuv".into());
+        mock.responses.insert("QBV".into(), "(025.4 02 01 100 030".into());
+        // NOTE: the P-series payloads below are placeholders. The command
+        // mnemonics are verified, but their response layouts are not yet
+        // extracted (see docs/protocol-spec.md), so tests must not parse them.
         mock.responses.insert("T".into(), "(OK".into());
         mock.responses.insert("T05".into(), "(OK".into());
         mock.responses.insert("CT".into(), "(OK".into());
-        mock.responses.insert("MCHGC0020".into(), "(OK".into());
-        mock.responses.insert("PBVH260".into(), "(OK".into());
-        mock.responses.insert("PBVL190".into(), "(OK".into());
-        mock.responses.insert("PSDV20.0".into(), "(OK".into());
-        mock.responses.insert("S.3".into(), "(OK".into());
+        // P-series read-only queries
+        mock.responses.insert("QGS".into(), "(230.0 50.0 230.0 50.0 0230 000 000 380 25.4 000 100 0045".into());
+        mock.responses.insert("QWS".into(), "(00000000000000000000000000000000".into());
+        mock.responses.insert("QRI".into(), "(230 004 024.0 050.0 220".into());
+        mock.responses.insert("QMD".into(), "(#UPS-1000   001000 80 1/1 230 230 02 12.0".into());
+        mock.responses.insert("QFS".into(), "(OK".into());
+        mock.responses.insert("QHE".into(), "(253 190".into());
+        mock.responses.insert("QBYV".into(), "(264 170".into());
+        mock.responses.insert("QBYF".into(), "(53.0 47.0".into());
+        mock.responses.insert("QBTAH".into(), "(009".into());
+        mock.responses.insert("QSK1".into(), "(1".into());
+        mock.responses.insert("QSK2".into(), "(1".into());
+        // P-series config writes
+        mock.responses.insert("PHV260".into(), "(ACK".into());
+        mock.responses.insert("PLV190".into(), "(ACK".into());
+        mock.responses.insert("PGF53.0".into(), "(ACK".into());
+        mock.responses.insert("PSF47.0".into(), "(ACK".into());
+        mock.responses.insert("HEH253".into(), "(ACK".into());
+        mock.responses.insert("HEL190".into(), "(ACK".into());
+        mock.responses.insert("MD0030".into(), "(ACK".into());
+        // P-series power control
+        mock.responses.insert("S.3".into(), "(ACK".into());
+        mock.responses.insert("S05".into(), "(ACK".into());
+        mock.responses.insert("S.3R0002".into(), "(ACK".into());
         mock.responses.insert("CS".into(), "(OK".into());
-        mock.responses.insert("OLON1,1".into(), "(OK".into());
-        mock.responses.insert("OLOFF1,1".into(), "(OK".into());
+        mock.responses.insert("SON".into(), "(ACK".into());
+        mock.responses.insert("SOFF".into(), "(ACK".into());
+        mock.responses.insert("SKON1".into(), "(ACK".into());
+        mock.responses.insert("SKOFF1".into(), "(ACK".into());
         mock
     }
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Wrench, ShieldAlert, Check, XCircle, Sliders } from 'lucide-react';
+import { ShieldAlert, Check, XCircle, Sliders } from 'lucide-react';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -12,10 +12,8 @@ interface ConfigProps {
 
 export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
   const { t } = useTranslation(['config', 'common']);
-  const [chargeCurrent, setChargeCurrent] = useState<number>(20);
   const [bypassHigh, setBypassHigh] = useState<number>(260);
   const [bypassLow, setBypassLow] = useState<number>(190);
-  const [batteryCutoff, setBatteryCutoff] = useState<number>(21.0);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -76,97 +74,6 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
         </div>
       )}
 
-      {/* Battery Charger Parameters */}
-      <div
-        className="rounded-2xl p-5 shadow-sm border transition"
-        style={{
-          backgroundColor: 'var(--card-bg)',
-          borderColor: 'var(--card-border)',
-        }}
-      >
-        <div className="flex items-center space-x-2.5 mb-4">
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-            <Wrench className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-100">
-              {t('config:chargingSection.title', 'Battery & Charging Parameters')}
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {t('config:chargingSection.desc', 'Calibrate charging current limits and battery cutoff voltages.')}
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Max Charge Current */}
-          <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
-            <label className="text-xs font-semibold text-slate-200 block">
-              {t('config:chargingSection.maxCurrentLabel', 'Maximum Solar & Utility Charge Current (Amps)')}
-            </label>
-            <p className="text-[11px] text-slate-400">
-              {t('config:chargingSection.maxCurrentDesc', 'Valid range: 10A to 80A depending on inverter rating (MCHGC)')}
-            </p>
-            <div className="flex space-x-2 pt-1">
-              <input
-                type="number"
-                min="10"
-                max="80"
-                step="5"
-                value={chargeCurrent}
-                onChange={(e) => setChargeCurrent(Number(e.target.value))}
-                disabled={isLocked || isSaving}
-                className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
-              />
-              <PrimaryButton
-                onClick={() =>
-                  handleSaveParam(
-                    { type: 'SetChargeCurrentAmps', payload: chargeCurrent },
-                    `Charge Current ${chargeCurrent}A`
-                  )
-                }
-                disabled={isLocked || isSaving}
-              >
-                <span>{t('common:buttons.apply', 'Apply')}</span>
-              </PrimaryButton>
-            </div>
-          </div>
-
-          {/* Battery Low Cutoff Voltage */}
-          <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
-            <label className="text-xs font-semibold text-slate-200 block">
-              {t('config:chargingSection.cutoffLabel', 'Battery Low Shutdown Cutoff Voltage (Volts)')}
-            </label>
-            <p className="text-[11px] text-slate-400">
-              {t('config:chargingSection.cutoffDesc', 'Minimum battery cutoff threshold before power shutdown (PSDV)')}
-            </p>
-            <div className="flex space-x-2 pt-1">
-              <input
-                type="number"
-                min="18.0"
-                max="54.0"
-                step="0.5"
-                value={batteryCutoff}
-                onChange={(e) => setBatteryCutoff(Number(e.target.value))}
-                disabled={isLocked || isSaving}
-                className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-xl px-3.5 py-2 text-xs font-mono text-slate-100 disabled:opacity-40 focus:outline-none focus:border-emerald-500/60 transition"
-              />
-              <PrimaryButton
-                onClick={() =>
-                  handleSaveParam(
-                    { type: 'SetBatteryLowShutdownVoltage', payload: batteryCutoff },
-                    `Battery Cutoff ${batteryCutoff}V`
-                  )
-                }
-                disabled={isLocked || isSaving}
-              >
-                <span>{t('common:buttons.apply', 'Apply')}</span>
-              </PrimaryButton>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Bypass Window Parameters */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
@@ -193,7 +100,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Bypass High Voltage */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              {t('config:bypassSection.highLabel', 'Bypass High Voltage Limit (PBVH)')}
+              {t('config:bypassSection.highLabel', 'Bypass High Voltage Limit (PHV)')}
             </label>
             <p className="text-[11px] text-slate-400">{t('config:bypassSection.highDesc', 'Upper acceptable threshold (180V - 270V)')}</p>
             <div className="flex space-x-2 pt-1">
@@ -224,7 +131,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
           {/* Bypass Low Voltage */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-2">
             <label className="text-xs font-semibold text-slate-200 block">
-              {t('config:bypassSection.lowLabel', 'Bypass Low Voltage Limit (PBVL)')}
+              {t('config:bypassSection.lowLabel', 'Bypass Low Voltage Limit (PLV)')}
             </label>
             <p className="text-[11px] text-slate-400">{t('config:bypassSection.lowDesc', 'Lower acceptable threshold (170V - 220V)')}</p>
             <div className="flex space-x-2 pt-1">

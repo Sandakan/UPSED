@@ -204,7 +204,9 @@ impl MultiPortManager {
                     "BZON".to_string()
                 }
             }
-            _ => cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?,
+            _ => cmd
+                .as_cmd_str_for(&device.info.protocol_id)
+                .map_err(ProtocolError::EncodingError)?,
         };
 
         let res = device.transport.send_command(&cmd_str);
