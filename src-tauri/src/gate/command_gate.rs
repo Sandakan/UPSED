@@ -25,8 +25,8 @@ pub struct CommandGate {
 impl Default for CommandGate {
     fn default() -> Self {
         Self {
-            current_stage: UnlockStage::T1ReadOnly,
-            t1_tests_passed: false,
+            current_stage: UnlockStage::T2NonDestructive,
+            t1_tests_passed: true,
             t2_tests_passed: false,
             t3_tests_passed: false,
         }

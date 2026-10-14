@@ -91,6 +91,7 @@ export const History: React.FC<HistoryProps> = ({
   const [telemetrySortDirection, setTelemetrySortDirection] = useState<SortDirection>('desc');
   const [eventSortField, setEventSortField] = useState<EventSortField>('timestamp');
   const [eventSortDirection, setEventSortDirection] = useState<SortDirection>('desc');
+  const [eventFilterType, setEventFilterType] = useState<'all' | 'user' | 'system'>('all');
 
   const handleTelemetrySort = (field: TelemetrySortField) => {
     if (telemetrySortField === field) {
@@ -217,18 +218,28 @@ export const History: React.FC<HistoryProps> = ({
     );
   }, [activeTelemetry, searchQuery]);
 
+  const userActionCount = useMemo(() => events.filter((e) => e.event_type === 'USER_ACTION').length, [events]);
+  const systemEventCount = useMemo(() => events.filter((e) => e.event_type !== 'USER_ACTION').length, [events]);
+
   // Filtered Events
   const filteredEvents = useMemo(() => {
-    if (!searchQuery.trim()) return events;
+    let list = events;
+    if (eventFilterType === 'user') {
+      list = list.filter((e) => e.event_type === 'USER_ACTION');
+    } else if (eventFilterType === 'system') {
+      list = list.filter((e) => e.event_type !== 'USER_ACTION');
+    }
+
+    if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase();
-    return events.filter(
+    return list.filter(
       (e) =>
         e.port_name.toLowerCase().includes(q) ||
         e.event_type.toLowerCase().includes(q) ||
         e.message.toLowerCase().includes(q) ||
         e.timestamp.toLowerCase().includes(q)
     );
-  }, [events, searchQuery]);
+  }, [events, eventFilterType, searchQuery]);
 
   // Sorted Telemetry for DataTable (defaults to newest records first on top)
   const sortedTelemetry = useMemo(() => {
@@ -476,7 +487,7 @@ export const History: React.FC<HistoryProps> = ({
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>{t('history:tabs.events', 'Events Log')} ({events.length})</span>
+            <span>{t('history:tabs.events', 'Audit & Events Log')} ({events.length})</span>
           </button>
         </div>
 
@@ -1022,6 +1033,54 @@ export const History: React.FC<HistoryProps> = ({
         ) : (
           /* Events DataTable */
           <div>
+            {/* Events Sub-Filter Bar */}
+            <div
+              className="flex items-center space-x-2 px-4 py-2.5 border-b"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <span className="text-[11px] font-sans text-slate-400 font-medium mr-1">
+                {t('history:eventFilter.label', 'Filter:')}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setEventFilterType('all'); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                  eventFilterType === 'all'
+                    ? 'bg-white/[0.1] text-white border border-white/[0.15]'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                {t('history:eventFilter.all', 'All Entries')} ({events.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEventFilterType('user'); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer inline-flex items-center space-x-1.5 ${
+                  eventFilterType === 'user'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                <span>👤</span>
+                <span>{t('history:eventFilter.userActions', 'User Audit Log')} ({userActionCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEventFilterType('system'); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer inline-flex items-center space-x-1.5 ${
+                  eventFilterType === 'system'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                }`}
+              >
+                <span>⚡</span>
+                <span>{t('history:eventFilter.systemEvents', 'System Alarms & Hardware')} ({systemEventCount})</span>
+              </button>
+            </div>
+
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left text-xs font-mono">
                 <thead>
@@ -1081,7 +1140,9 @@ export const History: React.FC<HistoryProps> = ({
                   {paginatedEvents.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-12 text-center text-slate-500 font-sans">
-                        {t('history:noEvents', 'No system events logged yet.')}
+                        {eventFilterType === 'user'
+                          ? t('history:noUserActions', 'No user actions recorded in audit log yet.')
+                          : t('history:noEvents', 'No system events logged yet.')}
                       </td>
                     </tr>
                   ) : (
@@ -1103,12 +1164,33 @@ export const History: React.FC<HistoryProps> = ({
                           {evt.port_name}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded bg-white/[0.05] border border-white/[0.06] text-slate-300 text-[11px]">
-                            {evt.event_type}
-                          </span>
+                          {evt.event_type === 'USER_ACTION' ? (
+                            <span className="px-2 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[11px] font-semibold inline-flex items-center space-x-1">
+                              <span>👤</span>
+                              <span>User Audit Action</span>
+                            </span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded border text-[11px] font-semibold ${
+                              evt.severity === 'critical'
+                                ? 'bg-rose-950/60 border-rose-700/60 text-rose-300'
+                                : evt.severity === 'warning'
+                                ? 'bg-amber-950/60 border-amber-700/60 text-amber-300'
+                                : evt.severity === 'success'
+                                ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300'
+                                : 'bg-white/[0.05] border-white/[0.08] text-slate-300'
+                            }`}>
+                              {evt.event_type}
+                            </span>
+                          )}
                         </td>
-                        <td className="py-3 px-4 text-slate-200 font-sans max-w-xs sm:max-w-md truncate" title={evt.message}>
-                          {evt.message}
+                        <td className="py-3 px-4 text-slate-200 font-sans max-w-xs sm:max-w-md" title={evt.message}>
+                          {evt.event_type === 'USER_ACTION' ? (
+                            <span className="text-slate-100 font-medium">
+                              {evt.message}
+                            </span>
+                          ) : (
+                            evt.message
+                          )}
                         </td>
                       </tr>
                     ))

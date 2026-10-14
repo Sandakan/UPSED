@@ -91,6 +91,21 @@ export const EVENT_DETAILS: Record<
     defaultDescription:
       'Hardware telemetry query timed out or returned corrupted response packet.',
   },
+  BATTERY_TEST_STARTED: {
+    title: 'Battery Self-Test Active',
+    defaultDescription:
+      'UPS is performing an active battery discharge self-test under load.',
+  },
+  BATTERY_TEST_COMPLETED: {
+    title: 'Battery Self-Test Completed',
+    defaultDescription:
+      'Battery self-test finished successfully; normal AC line mode restored.',
+  },
+  USER_ACTION: {
+    title: 'User Action Audit Log',
+    defaultDescription:
+      'Manual command or state modification performed by user.',
+  },
 
   // ViewPower Warning Code mappings (QPIWS a0-a69)
   'warning.a0': {

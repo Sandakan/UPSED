@@ -38,6 +38,7 @@ export const Control: React.FC<ControlProps> = ({
   const [commandFeedback, setCommandFeedback] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [confirmShutdown, setConfirmShutdown] = useState(false);
+  const [timedDurationMinutes, setTimedDurationMinutes] = useState<number>(5);
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
@@ -50,9 +51,12 @@ export const Control: React.FC<ControlProps> = ({
 
     try {
       const resp = await api.sendCommand(portName, cmd);
-      setCommandFeedback(t('control:safetyGate.feedbackSuccess', { label, resp, defaultValue: `Success: ${label} returned '${resp}'` }));
+      const successMsg = t('control:safetyGate.feedbackSuccess', { label, resp, defaultValue: `Success: ${label} returned '${resp}'` });
+      setCommandFeedback(successMsg);
     } catch (err: any) {
-      setCommandFeedback(t('control:safetyGate.feedbackError', { error: err?.message || String(err), defaultValue: `Blocked or Failed: ${err?.message || String(err)}` }));
+      const errMsg = err?.message || String(err);
+      const fullError = t('control:safetyGate.feedbackError', { error: errMsg, defaultValue: `Blocked or Failed: ${errMsg}` });
+      setCommandFeedback(fullError);
     } finally {
       setIsExecuting(false);
     }
@@ -204,25 +208,79 @@ export const Control: React.FC<ControlProps> = ({
             </button>
           </div>
 
-          {/* 10-Second Battery Test */}
+          {/* Battery Self-Test */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col justify-between">
             <div>
               <div className="flex items-center space-x-2 text-slate-200 mb-1">
                 <Clock className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">{t('control:stageT2.test10sTitle', '10s Battery Test')}</span>
+                <span className="text-xs font-semibold">{t('control:stageT2.test10sTitle', 'Battery Self-Test')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT2.test10sDesc', 'Discharges battery for 10 seconds under load to verify battery health.')}
+                {t('control:stageT2.test10sDesc', 'Discharges battery under load to verify battery health and inverter transfer.')}
               </p>
             </div>
-            <PrimaryButton
-              onClick={() => handleSendCommand({ type: 'TenSecondTest' }, 'Start 10s Test')}
-              disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-              fullWidth
-              className="mt-4"
-            >
-              <span>{t('control:stageT2.test10sBtn', 'Start 10s Test (T)')}</span>
-            </PrimaryButton>
+
+            <div className="mt-3 space-y-2.5">
+              <PrimaryButton
+                onClick={() => handleSendCommand({ type: 'TenSecondTest' }, 'Start 10s Test')}
+                disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                fullWidth
+              >
+                <span>{t('control:stageT2.test10sBtn', 'Quick 10s Test (T)')}</span>
+              </PrimaryButton>
+
+              <div className="pt-2 border-t border-white/[0.06]">
+                <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+                  <span>{t('control:stageT2.timedDurationLabel', 'Timed Test Duration:')}</span>
+                  <span className="font-mono text-emerald-400 font-medium">{timedDurationMinutes} min</span>
+                </div>
+                <div className="flex items-center space-x-1.5 mb-2">
+                  {[1, 5, 10, 15].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setTimedDurationMinutes(preset)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition cursor-pointer ${
+                        timedDurationMinutes === preset
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-semibold'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {preset}m
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={timedDurationMinutes}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        setTimedDurationMinutes(Math.max(1, Math.min(99, val)));
+                      }
+                    }}
+                    className="w-12 text-center text-xs py-0.5 px-1 rounded bg-white/[0.05] border border-white/[0.1] text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSendCommand(
+                      { type: 'TestForMinutes', payload: timedDurationMinutes },
+                      `Start ${timedDurationMinutes}m Test`
+                    )
+                  }
+                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                  className="w-full py-1.5 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-emerald-300 border border-emerald-500/30 text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {t(
+                    'control:stageT2.startTimedBtn',
+                    `Start Timed Test (T${timedDurationMinutes.toString().padStart(2, '0')})`
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Cancel Running Test */}
@@ -233,14 +291,14 @@ export const Control: React.FC<ControlProps> = ({
                 <span className="text-xs font-semibold">{t('control:stageT2.cancelTestTitle', 'Cancel Self-Test')}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT2.cancelTestDesc', 'Immediately terminates any ongoing battery discharge test.')}
+                {t('control:stageT2.cancelTestDesc', 'Immediately terminates any ongoing battery discharge test and restores line mode.')}
               </p>
             </div>
             <button
               type="button"
               onClick={() => handleSendCommand({ type: 'CancelTest' }, 'Cancel Test')}
               disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/[0.08] text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 border border-white/[0.08] hover:border-rose-500/40 text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               {t('control:stageT2.cancelTestBtn', 'Cancel Test (CT)')}
             </button>

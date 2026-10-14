@@ -244,23 +244,87 @@ pub async fn get_device_status(
     .map_err(|e| e.to_string())?
 }
 
+fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> String {
+    let base = match cmd {
+        VoltronicCommand::BuzzerToggle => "User toggled hardware alarm beeper (BUZZER)".to_string(),
+        VoltronicCommand::TenSecondTest => "User initiated 10-second battery self-test (T)".to_string(),
+        VoltronicCommand::TestForMinutes(m) => format!("User initiated {}-minute battery self-test (T{:02})", m, m),
+        VoltronicCommand::CancelTest => "User canceled active battery self-test (CT)".to_string(),
+        VoltronicCommand::SetChargeCurrentAmps(a) => format!("User set charging current to {}A", a),
+        VoltronicCommand::SetBypassHighVoltage(v) => format!("User set bypass high voltage to {}V", v),
+        VoltronicCommand::SetBypassLowVoltage(v) => format!("User set bypass low voltage to {}V", v),
+        VoltronicCommand::SetBatteryLowShutdownVoltage(v) => format!("User set battery shutdown voltage to {:.1}V", v),
+        VoltronicCommand::ShutdownWithDelay { minutes } => format!("User initiated delayed shutdown ({:.1} min)", minutes),
+        VoltronicCommand::CancelShutdown => "User canceled delayed shutdown".to_string(),
+        VoltronicCommand::OutletOn { group, delay_minutes } => format!("User turned outlet group {} ON (delay: {}m)", group, delay_minutes),
+        VoltronicCommand::OutletOff { group, delay_minutes } => format!("User turned outlet group {} OFF (delay: {}m)", group, delay_minutes),
+        VoltronicCommand::QueryProtocolId => "User queried Protocol ID (QPI)".to_string(),
+        VoltronicCommand::QuickStatus => "User queried Quick Status (Q1)".to_string(),
+        VoltronicCommand::QueryStatusQs => "User queried Status (QS)".to_string(),
+        VoltronicCommand::QueryGeneralStatus => "User queried General Status (QPIGS)".to_string(),
+        VoltronicCommand::QueryWarningStatus => "User queried Warning Status (QPIWS)".to_string(),
+        VoltronicCommand::QueryRatingInfo => "User queried Rating Info (QPIRI)".to_string(),
+        VoltronicCommand::QueryWorkingMode => "User queried Working Mode (QMOD)".to_string(),
+        VoltronicCommand::QueryFlags => "User queried Flags (QFLAG)".to_string(),
+        VoltronicCommand::QueryDeviceId => "User queried Device ID (QID)".to_string(),
+        VoltronicCommand::QueryFirmwareVersion => "User queried Firmware Version (QVFW)".to_string(),
+        VoltronicCommand::QueryBatteryVoltage => "User queried Battery Voltage (QBV)".to_string(),
+    };
+
+    if let Some(r) = resp {
+        format!("{}: received response '{}'", base, r)
+    } else {
+        base
+    }
+}
+
 #[tauri::command]
 pub async fn send_command(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: String,
     command: VoltronicCommand,
 ) -> Result<String, String> {
     let state_clone = state.inner().clone();
+    let app_clone = app.clone();
+    let port = port_name.clone();
+    let cmd_clone = command.clone();
     tokio::task::spawn_blocking(move || {
-        if !state_clone.manager.is_connected(&port_name) {
-            let _ = connect_device_internal(&state_clone, &port_name, None);
+        if !state_clone.manager.is_connected(&port) {
+            let _ = connect_device_internal(&state_clone, &port, None);
         }
 
         let gate = state_clone.gate.lock().unwrap();
-        state_clone
+        let result = state_clone
             .manager
-            .execute_gated_command(&port_name, &command, &gate)
-            .map_err(|e| e.to_string())
+            .execute_gated_command(&port, &cmd_clone, &gate)
+            .map_err(|e| e.to_string());
+        drop(gate);
+
+        // Record audit log for user action
+        let now = chrono::Utc::now().to_rfc3339();
+        let (action_desc, is_success) = match &result {
+            Ok(resp) => (format_command_audit_msg(&cmd_clone, Some(resp)), true),
+            Err(err) => (
+                format!("{} (Blocked/Failed: {})", format_command_audit_msg(&cmd_clone, None), err),
+                false,
+            ),
+        };
+
+        let audit_event = EventLogRecord {
+            id: None,
+            timestamp: now,
+            port_name: port.clone(),
+            event_type: "USER_ACTION".into(),
+            severity: if is_success { "info".into() } else { "warning".into() },
+            message: action_desc,
+            acknowledged: true,
+        };
+
+        let _ = state_clone.db.insert_event(&audit_event);
+        let _ = app_clone.emit("ups-event", &audit_event);
+
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -274,11 +338,32 @@ pub fn get_safety_stage(state: State<AppState>) -> UnlockStage {
 
 #[tauri::command]
 pub fn unlock_safety_stage(
+    app: tauri::AppHandle,
     state: State<AppState>,
     target_stage: UnlockStage,
 ) -> Result<(), String> {
     let mut gate = state.gate.lock().unwrap();
-    gate.unlock_stage(target_stage).map_err(|e| e.to_string())
+    let prev_stage = gate.current_stage();
+    gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
+    drop(gate);
+
+    let audit_event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        port_name: "SYSTEM".into(),
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User Action: Changed firmware safety gate from {:?} to {:?}.",
+            prev_stage, target_stage
+        ),
+        acknowledged: true,
+    };
+
+    let _ = state.db.insert_event(&audit_event);
+    let _ = app.emit("ups-event", &audit_event);
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -709,6 +794,29 @@ pub fn detect_status_events(
             event_type: "UPS_FAULT".into(),
             severity: "critical".into(),
             message: "UPS Hardware Fault: Internal inverter or component failure detected.".into(),
+            acknowledged: false,
+        });
+    }
+
+    // 5. Battery Self-Test Lifecycle
+    if !prev.test_in_progress && curr.test_in_progress {
+        events.push(EventLogRecord {
+            id: None,
+            timestamp: now.clone(),
+            port_name: port.to_string(),
+            event_type: "BATTERY_TEST_STARTED".into(),
+            severity: "info".into(),
+            message: "Battery Self-Test Active: UPS is executing a battery discharge self-test under load.".into(),
+            acknowledged: false,
+        });
+    } else if prev.test_in_progress && !curr.test_in_progress {
+        events.push(EventLogRecord {
+            id: None,
+            timestamp: now.clone(),
+            port_name: port.to_string(),
+            event_type: "BATTERY_TEST_COMPLETED".into(),
+            severity: "info".into(),
+            message: "Battery Self-Test Completed: Self-test completed; normal AC line mode restored.".into(),
             acknowledged: false,
         });
     }

@@ -28,6 +28,7 @@ pub enum VoltronicCommand {
     BuzzerToggle,
     TenSecondTest,
     CancelTest,
+    TestForMinutes(u32),
 
     // Stage T3: Configuration Writes (Medium risk, alters persistent flash/EEPROM)
     SetChargeCurrentAmps(u32),
@@ -58,9 +59,10 @@ impl VoltronicCommand {
             | Self::QueryFirmwareVersion
             | Self::QueryBatteryVoltage => UnlockStage::T1ReadOnly,
 
-            Self::BuzzerToggle | Self::TenSecondTest | Self::CancelTest => {
-                UnlockStage::T2NonDestructive
-            }
+            Self::BuzzerToggle
+            | Self::TenSecondTest
+            | Self::CancelTest
+            | Self::TestForMinutes(_) => UnlockStage::T2NonDestructive,
 
             Self::SetChargeCurrentAmps(_)
             | Self::SetBypassHighVoltage(_)
@@ -92,6 +94,15 @@ impl VoltronicCommand {
             Self::BuzzerToggle => Ok("BUZZER".to_string()),
             Self::TenSecondTest => Ok("T".to_string()),
             Self::CancelTest => Ok("CT".to_string()),
+            Self::TestForMinutes(minutes) => {
+                if *minutes < 1 || *minutes > 99 {
+                    return Err(format!(
+                        "Test duration {} minutes out of valid range (1-99m)",
+                        minutes
+                    ));
+                }
+                Ok(format!("T{:02}", minutes))
+            }
 
             Self::SetChargeCurrentAmps(amps) => {
                 if *amps == 0 || *amps > 200 {

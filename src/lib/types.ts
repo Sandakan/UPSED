@@ -51,6 +51,8 @@ export interface Q1Status {
   battery_low: boolean;
   bypass_active: boolean;
   ups_failed: boolean;
+  test_in_progress?: boolean;
+  beeper_on?: boolean;
   raw_status_bits: string;
 }
 
@@ -90,6 +92,7 @@ export type VoltronicCommand =
   | { type: 'BuzzerToggle' }
   | { type: 'TenSecondTest' }
   | { type: 'CancelTest' }
+  | { type: 'TestForMinutes'; payload: number }
   | { type: 'SetChargeCurrentAmps'; payload: number }
   | { type: 'SetBypassHighVoltage'; payload: number }
   | { type: 'SetBypassLowVoltage'; payload: number }

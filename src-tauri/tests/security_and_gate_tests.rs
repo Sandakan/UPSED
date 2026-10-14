@@ -192,6 +192,8 @@ fn sec_007_hardware_event_transition_detection() {
         battery_low: false,
         bypass_active: false,
         ups_failed: false,
+        test_in_progress: false,
+        beeper_on: false,
         raw_status_bits: "00000000".into(),
     };
 

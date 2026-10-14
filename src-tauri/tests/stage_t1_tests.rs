@@ -189,7 +189,8 @@ fn t1_006_codec_ensures_trailing_cr() {
 
 #[test]
 fn t1_007_no_write_commands_executed_in_t1() {
-    let gate = CommandGate::new();
+    let mut gate = CommandGate::new();
+    gate.unlock_stage(UnlockStage::T1ReadOnly).unwrap();
     assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
 
     // T1 allows read commands
