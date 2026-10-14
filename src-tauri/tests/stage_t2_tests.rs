@@ -14,11 +14,22 @@ fn t2_001_buzzer_toggle_encodes_and_executes_in_t2() {
     assert!(gate.check_command(&cmd).is_ok());
 
     let cmd_str = cmd.as_cmd_str().unwrap();
-    assert_eq!(cmd_str, "Q");
+    assert_eq!(cmd_str, "BZOFF");
 
     let mut port = MockSerialPort::with_axpert_golden_responses("COM1");
     let resp = port.send_command(&cmd_str).unwrap();
-    assert_eq!(resp, "(OK");
+    assert_eq!(resp, "(ACK");
+
+    // Also test explicit BuzzerOn and BuzzerOff
+    let cmd_on = VoltronicCommand::BuzzerOn;
+    assert_eq!(cmd_on.as_cmd_str().unwrap(), "BZON");
+    let resp_on = port.send_command("BZON").unwrap();
+    assert_eq!(resp_on, "(ACK");
+
+    let cmd_off = VoltronicCommand::BuzzerOff;
+    assert_eq!(cmd_off.as_cmd_str().unwrap(), "BZOFF");
+    let resp_off = port.send_command("BZOFF").unwrap();
+    assert_eq!(resp_off, "(ACK");
 }
 
 #[test]

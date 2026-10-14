@@ -188,15 +188,37 @@ impl MultiPortManager {
         gate.check_command(cmd)
             .map_err(|e| ProtocolError::DeviceError(e.to_string()))?;
 
-        // Step 2: Validate command payload
-        let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
-
-        // Step 3: Dispatch to specific hardware port
+        // Step 2: Dispatch to specific hardware port
         let mut devs = self.devices.lock().unwrap();
         let device = devs.get_mut(port_name).ok_or_else(|| {
             ProtocolError::DeviceError(format!("Device on {} not found", port_name))
         })?;
 
-        device.transport.send_command(&cmd_str)
+        // Determine effective command string (with smart buzzer toggle if applicable)
+        let cmd_str = match cmd {
+            VoltronicCommand::BuzzerToggle => {
+                let is_beeper_on = device.last_status.as_ref().map(|s| s.beeper_on).unwrap_or(true);
+                if is_beeper_on {
+                    "BZOFF".to_string()
+                } else {
+                    "BZON".to_string()
+                }
+            }
+            _ => cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?,
+        };
+
+        let res = device.transport.send_command(&cmd_str);
+        if let Err(ProtocolError::CommandNak) = &res {
+            // If BZOFF/BZON is rejected with NAK on a legacy 1994 Megatec unit, fallback to Q
+            if cmd_str == "BZOFF" || cmd_str == "BZON" {
+                tracing::info!(
+                    "Hardware rejected {:?}, attempting legacy fallback 'Q' on {}",
+                    cmd_str,
+                    port_name
+                );
+                return device.transport.send_command("Q");
+            }
+        }
+        res
     }
 }

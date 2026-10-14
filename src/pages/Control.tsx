@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Volume2,
+  VolumeX,
   Clock,
   Power,
   XCircle,
@@ -10,7 +11,7 @@ import {
   AlertOctagon,
   Check,
 } from 'lucide-react';
-import { UnlockStage, VoltronicCommand } from '../lib/types';
+import { UnlockStage, VoltronicCommand, Q1Status } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -18,6 +19,7 @@ interface ControlProps {
   portName: string | null;
   safetyStage: UnlockStage;
   onRefreshStage: () => void;
+  status?: Q1Status | null;
 }
 
 const getStagePillStyle = (stage: UnlockStage) => {
@@ -33,6 +35,7 @@ export const Control: React.FC<ControlProps> = ({
   portName,
   safetyStage,
   onRefreshStage,
+  status,
 }) => {
   const { t } = useTranslation(['control', 'common']);
   const [commandFeedback, setCommandFeedback] = useState<string | null>(null);
@@ -187,25 +190,65 @@ export const Control: React.FC<ControlProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Buzzer Toggle */}
+          {/* Buzzer Control */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col justify-between">
             <div>
-              <div className="flex items-center space-x-2 text-slate-200 mb-1">
-                <Volume2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">{t('control:stageT2.buzzerTitle', 'Alarm Buzzer')}</span>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center space-x-2 text-slate-200">
+                  {status?.beeper_on === false ? (
+                    <VolumeX className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span className="text-xs font-semibold">{t('control:stageT2.buzzerTitle', 'Alarm Buzzer')}</span>
+                </div>
+                {status?.beeper_on !== undefined && (
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                    status.beeper_on
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                  }`}>
+                    {status.beeper_on ? 'Active' : 'Muted'}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT2.buzzerDesc', 'Toggles the internal hardware alarm beeper on or off.')}
+                {t('control:stageT2.buzzerDesc', 'Controls internal alarm buzzer state (Voltronic BZON / BZOFF protocol).')}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleSendCommand({ type: 'BuzzerToggle' }, 'Toggle Buzzer')}
-              disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/[0.08] text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {t('control:stageT2.buzzerBtn', 'Toggle Buzzer (Q)')}
-            </button>
+
+            <div className="mt-4 space-y-2">
+              <PrimaryButton
+                onClick={() => handleSendCommand({ type: 'BuzzerToggle' }, 'Toggle Buzzer')}
+                disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                fullWidth
+              >
+                <span>
+                  {status?.beeper_on === false
+                    ? 'Unmute Buzzer (BZON)'
+                    : 'Mute Buzzer (BZOFF)'}
+                </span>
+              </PrimaryButton>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSendCommand({ type: 'BuzzerOff' }, 'Mute Buzzer')}
+                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                  className="py-1.5 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.06] text-[11px] font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Mute (BZOFF)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendCommand({ type: 'BuzzerOn' }, 'Unmute Buzzer')}
+                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                  className="py-1.5 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.06] text-[11px] font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Unmute (BZON)
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Battery Self-Test */}

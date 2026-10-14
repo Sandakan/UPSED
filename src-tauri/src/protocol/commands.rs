@@ -26,6 +26,8 @@ pub enum VoltronicCommand {
 
     // Stage T2: Non-Destructive Actions (Low risk, temporary observable state)
     BuzzerToggle,
+    BuzzerOn,
+    BuzzerOff,
     TenSecondTest,
     CancelTest,
     TestForMinutes(u32),
@@ -60,6 +62,8 @@ impl VoltronicCommand {
             | Self::QueryBatteryVoltage => UnlockStage::T1ReadOnly,
 
             Self::BuzzerToggle
+            | Self::BuzzerOn
+            | Self::BuzzerOff
             | Self::TenSecondTest
             | Self::CancelTest
             | Self::TestForMinutes(_) => UnlockStage::T2NonDestructive,
@@ -91,7 +95,9 @@ impl VoltronicCommand {
             Self::QueryFirmwareVersion => Ok("QVFW".to_string()),
             Self::QueryBatteryVoltage => Ok("QBV".to_string()),
 
-            Self::BuzzerToggle => Ok("Q".to_string()),
+            Self::BuzzerToggle => Ok("BZOFF".to_string()),
+            Self::BuzzerOn => Ok("BZON".to_string()),
+            Self::BuzzerOff => Ok("BZOFF".to_string()),
             Self::TenSecondTest => Ok("T".to_string()),
             Self::CancelTest => Ok("CT".to_string()),
             Self::TestForMinutes(minutes) => {

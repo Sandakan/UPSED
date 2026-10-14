@@ -90,6 +90,8 @@ export type VoltronicCommand =
   | { type: 'QueryWarningStatus' }
   | { type: 'QueryRatingInfo' }
   | { type: 'BuzzerToggle' }
+  | { type: 'BuzzerOn' }
+  | { type: 'BuzzerOff' }
   | { type: 'TenSecondTest' }
   | { type: 'CancelTest' }
   | { type: 'TestForMinutes'; payload: number }

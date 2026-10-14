@@ -482,6 +482,7 @@ export function App() {
               portName={selectedDevice}
               safetyStage={safetyStage}
               onRefreshStage={refreshMetadata}
+              status={status}
             />
           )}
 

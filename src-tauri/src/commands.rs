@@ -246,7 +246,9 @@ pub async fn get_device_status(
 
 fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> String {
     let base = match cmd {
-        VoltronicCommand::BuzzerToggle => "User toggled hardware alarm beeper (Q)".to_string(),
+        VoltronicCommand::BuzzerToggle => "User toggled hardware alarm buzzer".to_string(),
+        VoltronicCommand::BuzzerOn => "User enabled hardware alarm buzzer (BZON)".to_string(),
+        VoltronicCommand::BuzzerOff => "User muted hardware alarm buzzer (BZOFF)".to_string(),
         VoltronicCommand::TenSecondTest => "User initiated 10-second battery self-test (T)".to_string(),
         VoltronicCommand::TestForMinutes(m) => format!("User initiated {}-minute battery self-test (T{:02})", m, m),
         VoltronicCommand::CancelTest => "User canceled active battery self-test (CT)".to_string(),

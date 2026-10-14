@@ -75,7 +75,7 @@ fn multi_002_commands_isolated_per_port() {
     let resp = manager
         .execute_gated_command("COM1", &VoltronicCommand::BuzzerToggle, &gate)
         .unwrap();
-    assert_eq!(resp, "(OK");
+    assert_eq!(resp, "(ACK");
 }
 
 #[test]
