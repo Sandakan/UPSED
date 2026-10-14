@@ -9,7 +9,7 @@ This document establishes the universal rules, safety constraints, and architect
 - **NEVER bypass the CommandGate:** Every command dispatched to a serial transport or hardware port MUST flow through `CommandGate::check_command`.
 - **Incremental Safety Progression:** Commands must strictly obey the four-tier hierarchy:
   - `T1ReadOnly`: Non-modifying queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`, `QPIRI`, `QID`, `QVFW`).
-  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`BUZZER`, `T`, `CT`).
+  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`Q`, `T`, `CT`).
   - `T3ConfigWrite`: Persistent parameters (`MCHGC`, `PBVH`, `PBVL`, `PSDV`).
   - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`).
 - **NO Raw Command Injection:** Never implement or expose raw string command endpoints (such as ViewPower's vulnerable `controlNew` method). All hardware interactions must be strongly typed variants of the `VoltronicCommand` enum.

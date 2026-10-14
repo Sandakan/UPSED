@@ -161,7 +161,7 @@ To safeguard connected equipment and prevent persistent EEPROM corruption or uni
 | Stage | Risk Level | Allowed Commands | Unlock Condition & Invariants |
 | --- | --- | --- | --- |
 | **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.) | **Default at startup.** Automated hardware scans and live probing MUST strictly and exclusively use T1 commands. |
-| **Stage T2 (Non-Destructive)** | Low | `BUZZER` (Toggle beeper), `T` (10s battery test), `CT` (Cancel battery test) | Unlocks after automated T1 queries verify protocol compatibility. Does not modify non-volatile memory or drop load. |
+| **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | Unlocks after automated T1 queries verify protocol compatibility. Does not modify non-volatile memory or drop load. |
 | **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | Requires parameter pre-validation against physical equipment safety limits in Rust before transmission. |
 | **Stage T4 (Power Control)** | High | `S.3` (Delayed shutdown), `CS` (Cancel shutdown), `OLON`/`OLOFF` (Outlet group control) | Requires explicit user confirmation dialogs with countdown verification to prevent accidental power drops. |
 
@@ -280,8 +280,8 @@ Ensure the following are installed:
 ### 4. Diagnostics & Hardware Control (Stage T2 & T4)
 
 - Switch to the **Hardware Control** tab.
-- **Toggle Buzzer (T2):** Mute or unmute the internal UPS beeper (`BUZZER`).
-- **10-Second Battery Test (T2):** Run a brief battery discharge diagnostic (`T`) or cancel an active test (`CT`).
+- **Toggle Buzzer (T2):** Mute or unmute the internal UPS beeper (`Q`).
+- **Battery Self-Test (T2):** Run a 10s battery discharge diagnostic (`T`), custom timed test (`T<n>`), or cancel an active test (`CT`).
 - **Emergency Shutdown (T4):** Delayed output shutdown with dual-confirmation countdown dialogs to prevent accidental power loss.
 
 ### 5. Hardware Configurations (Stage T3)

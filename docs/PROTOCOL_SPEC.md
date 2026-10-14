@@ -133,9 +133,10 @@ This document provides a comprehensive technical reference for the ASCII line-or
 
 | Command | Action | Description | Expected Response |
 |---|---|---|---|
-| `BUZZER\r` | Toggle Beeper | Toggles the internal audible alarm beeper on or off. | `(OK\r` |
+| `Q\r` | Toggle Beeper | Toggles the internal audible alarm beeper on or off (standard Megatec/Voltronic protocol). | `(OK\r` or silent ack |
 | `T\r` | 10s Self Test | Initiates a temporary 10-second battery health discharge test. Automatically returns to AC line. | `(OK\r` |
-| `CT\r` | Cancel Test | Immediately cancels any active battery discharge test. | `(OK\r` |
+| `T<n>\r` | Timed Self Test | Initiates a battery discharge test for n minutes (1–99 mins, e.g. `T05\r`). | `(OK\r` |
+| `CT\r` | Cancel Test | Immediately cancels any active battery discharge test. | `(OK\r` or silent ack |
 
 ---
 

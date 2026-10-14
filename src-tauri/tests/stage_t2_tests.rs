@@ -14,7 +14,7 @@ fn t2_001_buzzer_toggle_encodes_and_executes_in_t2() {
     assert!(gate.check_command(&cmd).is_ok());
 
     let cmd_str = cmd.as_cmd_str().unwrap();
-    assert_eq!(cmd_str, "BUZZER");
+    assert_eq!(cmd_str, "Q");
 
     let mut port = MockSerialPort::with_axpert_golden_responses("COM1");
     let resp = port.send_command(&cmd_str).unwrap();

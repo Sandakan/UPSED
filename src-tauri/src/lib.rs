@@ -2,6 +2,7 @@ pub mod battery_bridge;
 pub mod commands;
 pub mod db;
 pub mod gate;
+pub mod logging;
 pub mod monitor;
 pub mod multi_port;
 pub mod protocol;
@@ -21,17 +22,37 @@ use tauri_plugin_window_state::{Builder as WindowStateBuilder, StateFlags};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let log_dir = logging::get_log_dir();
+    let daily_writer = logging::DailyRotatingFile::new(log_dir);
+    let file_dispatch = tauri_plugin_log::fern::Dispatch::new()
+        .chain(tauri_plugin_log::fern::Output::writer(Box::new(daily_writer), "\n"));
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
                     Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::LogDir {
-                        file_name: Some("upsed".into()),
-                    }),
+                    Target::new(TargetKind::Dispatch(file_dispatch)),
                     Target::new(TargetKind::Webview),
                 ])
-                .level(log::LevelFilter::Debug)
+                .format(|out, message, record| {
+                    let now = chrono::Local::now().format("%H:%M:%S");
+                    let tag = if record.target().starts_with("webview") {
+                        "RENDERER"
+                    } else {
+                        "MAIN"
+                    };
+                    out.finish(format_args!(
+                        "[{}] [{}] [{}] {}",
+                        now,
+                        tag,
+                        record.level(),
+                        message
+                    ))
+                })
+                .level(log::LevelFilter::Info)
+                .level_for("tao", log::LevelFilter::Warn)
+                .level_for("wry", log::LevelFilter::Warn)
                 .level_for("upsed_lib", log::LevelFilter::Trace)
                 .build(),
         )

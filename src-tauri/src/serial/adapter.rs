@@ -63,6 +63,11 @@ impl SerialTransport for PhysicalSerialPort {
         }
 
         if total_read == 0 {
+            // Some UPS firmware (especially standard Megatec) execute 'Q' (buzzer toggle)
+            // or 'CT' (cancel test) silently without returning an ASCII response packet.
+            if cmd_str == "Q" || cmd_str == "CT" {
+                return Ok("(OK".into());
+            }
             return Err(ProtocolError::Timeout);
         }
 

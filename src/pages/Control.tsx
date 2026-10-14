@@ -204,7 +204,7 @@ export const Control: React.FC<ControlProps> = ({
               disabled={isExecuting || safetyStage === 'T1ReadOnly'}
               className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/[0.08] text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
-              {t('control:stageT2.buzzerBtn', 'Toggle Buzzer (BUZZER)')}
+              {t('control:stageT2.buzzerBtn', 'Toggle Buzzer (Q)')}
             </button>
           </div>
 

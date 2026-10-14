@@ -202,6 +202,12 @@ impl SerialTransport for HidTransport {
         }
 
         if total_read == 0 {
+            // Some UPS firmware (especially standard Megatec) execute 'Q' (buzzer toggle)
+            // or 'CT' (cancel test) silently without returning an ASCII response packet.
+            if cmd_str == "Q" || cmd_str == "CT" {
+                tracing::info!("HID [{}] Command {:?} completed with silent hardware acknowledgment", self.port_name, cmd_str);
+                return Ok("(OK".into());
+            }
             tracing::warn!("HID [{}] Timeout waiting for response to {:?}", self.port_name, cmd_str);
             return Err(ProtocolError::Timeout);
         }

@@ -53,6 +53,7 @@ impl MockSerialPort {
         );
         mock.responses.insert("QID".into(), "(9293311030000".into());
         mock.responses.insert("QVFW".into(), "(VERFW:00072.10".into());
+        mock.responses.insert("Q".into(), "(OK".into());
         mock.responses.insert("BUZZER".into(), "(OK".into());
         mock.responses.insert("T".into(), "(OK".into());
         mock.responses.insert("T05".into(), "(OK".into());

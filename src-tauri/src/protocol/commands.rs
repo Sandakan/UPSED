@@ -91,7 +91,7 @@ impl VoltronicCommand {
             Self::QueryFirmwareVersion => Ok("QVFW".to_string()),
             Self::QueryBatteryVoltage => Ok("QBV".to_string()),
 
-            Self::BuzzerToggle => Ok("BUZZER".to_string()),
+            Self::BuzzerToggle => Ok("Q".to_string()),
             Self::TenSecondTest => Ok("T".to_string()),
             Self::CancelTest => Ok("CT".to_string()),
             Self::TestForMinutes(minutes) => {

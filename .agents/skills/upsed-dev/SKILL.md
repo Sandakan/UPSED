@@ -51,7 +51,7 @@ cargo test --test stage_t1_tests
 # Stage T1 (USB HID candidate detection & null-padded frame decode)
 cargo test --test stage_t1_hid_tests
 
-# Stage T2 (Non-Destructive actions: BUZZER, T 10s test, CT cancel test)
+# Stage T2 (Non-Destructive actions: Q buzzer toggle, T 10s test, T<n> timed test, CT cancel test)
 cargo test --test stage_t2_tests
 
 # Stage T3 (Configuration EEPROM writes: MCHGC, PBVH, PBVL, PSDV)

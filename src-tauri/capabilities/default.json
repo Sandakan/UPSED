@@ -8,6 +8,7 @@
     "opener:default",
     "notification:default",
     "window-state:default",
-    "autostart:default"
+    "autostart:default",
+    "log:default"
   ]
 }
