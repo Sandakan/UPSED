@@ -66,6 +66,8 @@ pub enum VoltronicCommand {
     SetEcoHigh(u32),
     SetEcoLow(u32),
     SetMaxBackupMinutes(u32),
+    /// Enables (`PEA`) or disables (`PDA`) the saved audible-alarm setting.
+    SetAlarmEnabled(bool),
 
     // Stage T4: Power Control (High risk, controls live load output & shutdown)
     ShutdownWithDelay { minutes: f32 },
@@ -147,7 +149,8 @@ impl VoltronicCommand {
             | Self::SetBypassLowFrequency(_)
             | Self::SetEcoHigh(_)
             | Self::SetEcoLow(_)
-            | Self::SetMaxBackupMinutes(_) => UnlockStage::T3ConfigWrite,
+            | Self::SetMaxBackupMinutes(_)
+            | Self::SetAlarmEnabled(_) => UnlockStage::T3ConfigWrite,
 
             Self::ShutdownWithDelay { .. }
             | Self::ShutdownAndRestore { .. }
@@ -183,6 +186,7 @@ impl VoltronicCommand {
                 | Self::SetEcoHigh(_)
                 | Self::SetEcoLow(_)
                 | Self::SetMaxBackupMinutes(_)
+                | Self::SetAlarmEnabled(_)
                 | Self::ShutdownAndRestore { .. }
                 | Self::OutputOn
                 | Self::OutputOff
@@ -295,6 +299,8 @@ impl VoltronicCommand {
                 }
                 Ok(format!("MD{:04}", minutes))
             }
+
+            Self::SetAlarmEnabled(on) => Ok(if *on { "PEA" } else { "PDA" }.to_string()),
 
             Self::ShutdownWithDelay { minutes } => {
                 Ok(format!("S{}", format_shutdown_delay(*minutes)?))

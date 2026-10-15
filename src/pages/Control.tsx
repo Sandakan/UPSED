@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Volume2,
@@ -11,7 +11,7 @@ import {
   AlertOctagon,
   Check,
 } from 'lucide-react';
-import { UnlockStage, VoltronicCommand, Q1Status } from '../lib/types';
+import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -19,7 +19,6 @@ interface ControlProps {
   portName: string | null;
   safetyStage: UnlockStage;
   onRefreshStage: () => void;
-  status?: Q1Status | null;
 }
 
 const getStagePillStyle = (stage: UnlockStage) => {
@@ -35,13 +34,13 @@ export const Control: React.FC<ControlProps> = ({
   portName,
   safetyStage,
   onRefreshStage,
-  status,
 }) => {
   const { t } = useTranslation(['control', 'common']);
   const [commandFeedback, setCommandFeedback] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [confirmShutdown, setConfirmShutdown] = useState(false);
   const [timedDurationMinutes, setTimedDurationMinutes] = useState<number>(5);
+  const [alarmEnabled, setAlarmEnabled] = useState<boolean | null>(null);
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
@@ -65,6 +64,43 @@ export const Control: React.FC<ControlProps> = ({
     }
   };
 
+  const canWriteConfig = safetyStage === 'T3ConfigWrite' || safetyStage === 'T4PowerControl';
+
+  // The audible-alarm flag is the lowercase 'a' in the QFLAG reply, e.g.
+  // "(EpbrsghczDoavefm": letters after 'E' are enabled, letters after 'D' disabled.
+  const refreshAlarmState = useCallback(async () => {
+    if (!portName) {
+      setAlarmEnabled(null);
+      return;
+    }
+    try {
+      const resp = await api.sendCommand(portName, { type: 'QueryFlags' });
+      const body = resp.trim().replace(/^\(/, '');
+      if (!body.startsWith('E')) {
+        setAlarmEnabled(null);
+        return;
+      }
+      const rest = body.slice(1);
+      const d = rest.indexOf('D');
+      const enabled = d === -1 ? rest : rest.slice(0, d);
+      setAlarmEnabled(enabled.toLowerCase().includes('a'));
+    } catch {
+      setAlarmEnabled(null);
+    }
+  }, [portName]);
+
+  useEffect(() => {
+    void refreshAlarmState();
+  }, [refreshAlarmState]);
+
+  const setAlarm = async (enable: boolean) => {
+    await handleSendCommand(
+      { type: 'SetAlarmEnabled', payload: enable },
+      enable ? 'Enable Alarm' : 'Disable Alarm'
+    );
+    await refreshAlarmState();
+  };
+
   const handleUnlockStage = async (target: UnlockStage) => {
     try {
       await api.unlockSafetyStage(target);
@@ -77,7 +113,7 @@ export const Control: React.FC<ControlProps> = ({
 
   return (
     <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
-      {/* ── Safety Gate Status Card ─────────────────────────── */}
+      {/*  Safety Gate Status Card  */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
         style={{
@@ -165,7 +201,7 @@ export const Control: React.FC<ControlProps> = ({
         )}
       </div>
 
-      {/* ── Stage T2: Non-Destructive Diagnostics Card ───────── */}
+      {/*  Stage T2: Non-Destructive Diagnostics Card  */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
         style={{
@@ -190,64 +226,50 @@ export const Control: React.FC<ControlProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Buzzer Control */}
+          {/* Audible Alarm (persistent setting, T3) */}
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center space-x-2 text-slate-200">
-                  {status?.beeper_on === false ? (
+                  {alarmEnabled === false ? (
                     <VolumeX className="w-4 h-4 text-slate-400" />
                   ) : (
                     <Volume2 className="w-4 h-4 text-emerald-400" />
                   )}
-                  <span className="text-xs font-semibold">{t('control:stageT2.buzzerTitle', 'Alarm Buzzer')}</span>
+                  <span className="text-xs font-semibold">{t('control:stageT2.buzzerTitle', 'Audible Alarm')}</span>
                 </div>
-                {status?.beeper_on !== undefined && (
+                {alarmEnabled !== null && (
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                    status.beeper_on
+                    alarmEnabled
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                       : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
                   }`}>
-                    {status.beeper_on ? 'Active' : 'Muted'}
+                    {alarmEnabled ? 'Enabled' : 'Disabled'}
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT2.buzzerDesc', 'Controls internal alarm buzzer state (Voltronic BZON / BZOFF protocol).')}
+                {t('control:stageT2.buzzerDesc', 'Saves the UPS audible-alarm setting (PEA / PDA). This is a persistent setting and requires Stage T3.')}
               </p>
             </div>
 
             <div className="mt-4 space-y-2">
               <PrimaryButton
-                onClick={() => handleSendCommand({ type: 'BuzzerToggle' }, 'Toggle Buzzer')}
-                disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                onClick={() => setAlarm(alarmEnabled === false)}
+                disabled={isExecuting || !canWriteConfig}
                 fullWidth
               >
                 <span>
-                  {status?.beeper_on === false
-                    ? 'Unmute Buzzer (BZON)'
-                    : 'Mute Buzzer (BZOFF)'}
+                  {alarmEnabled === false
+                    ? 'Enable Alarm (PEA)'
+                    : 'Disable Alarm (PDA)'}
                 </span>
               </PrimaryButton>
-
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => handleSendCommand({ type: 'BuzzerOff' }, 'Mute Buzzer')}
-                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-                  className="py-1.5 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.06] text-[11px] font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Mute (BZOFF)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSendCommand({ type: 'BuzzerOn' }, 'Unmute Buzzer')}
-                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
-                  className="py-1.5 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.06] text-[11px] font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Unmute (BZON)
-                </button>
-              </div>
+              {!canWriteConfig && (
+                <p className="text-[10px] text-amber-400/80">
+                  {t('control:stageT2.buzzerNeedsT3', 'Unlock Stage T3 to change this setting.')}
+                </p>
+              )}
             </div>
           </div>
 
@@ -349,7 +371,7 @@ export const Control: React.FC<ControlProps> = ({
         </div>
       </div>
 
-      {/* ── Stage T4: Live Power Control Card ────────────────── */}
+      {/*  Stage T4: Live Power Control Card  */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
         style={{

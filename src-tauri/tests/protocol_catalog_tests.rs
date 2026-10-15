@@ -49,6 +49,8 @@ fn catalog() -> Vec<(VoltronicCommand, &'static str, UnlockStage, bool)> {
         (C::SetEcoHigh(253), "HEH253", T3ConfigWrite, true),
         (C::SetEcoLow(190), "HEL190", T3ConfigWrite, true),
         (C::SetMaxBackupMinutes(30), "MD0030", T3ConfigWrite, true),
+        (C::SetAlarmEnabled(true), "PEA", T3ConfigWrite, true),
+        (C::SetAlarmEnabled(false), "PDA", T3ConfigWrite, true),
         // T4
         (C::ShutdownWithDelay { minutes: 0.3 }, "S.3", T4PowerControl, false),
         (C::ShutdownAndRestore { minutes: 0.3, restore_minutes: 2 }, "S.3R0002", T4PowerControl, true),

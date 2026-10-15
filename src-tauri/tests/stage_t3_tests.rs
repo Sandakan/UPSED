@@ -1,4 +1,4 @@
-﻿mod mock_serial;
+mod mock_serial;
 use mock_serial::MockSerialPort;
 use upsed_lib::gate::{CommandGate, GateError};
 use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
@@ -106,6 +106,8 @@ fn t3_003c_all_config_writes_require_t3_and_p_series() {
         VoltronicCommand::SetEcoHigh(253),
         VoltronicCommand::SetEcoLow(190),
         VoltronicCommand::SetMaxBackupMinutes(30),
+        VoltronicCommand::SetAlarmEnabled(true),
+        VoltronicCommand::SetAlarmEnabled(false),
     ];
     let mut t2_gate = CommandGate::new();
     t2_gate.set_test_passed(UnlockStage::T1ReadOnly);

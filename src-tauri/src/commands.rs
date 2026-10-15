@@ -260,6 +260,7 @@ fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> Strin
         VoltronicCommand::SetEcoHigh(v) => format!("User set ECO high threshold to {}V (HEH)", v),
         VoltronicCommand::SetEcoLow(v) => format!("User set ECO low threshold to {}V (HEL)", v),
         VoltronicCommand::SetMaxBackupMinutes(m) => format!("User set maximum backup time to {} min (MD)", m),
+        VoltronicCommand::SetAlarmEnabled(on) => if *on { "User enabled the audible alarm setting (PEA)".to_string() } else { "User disabled the audible alarm setting (PDA)".to_string() },
         VoltronicCommand::ShutdownWithDelay { minutes } => format!("User initiated delayed shutdown ({:.1} min)", minutes),
         VoltronicCommand::ShutdownAndRestore { minutes, restore_minutes } => format!("User initiated delayed shutdown ({:.1} min) with restore after {} min", minutes, restore_minutes),
         VoltronicCommand::CancelShutdown => "User canceled delayed shutdown".to_string(),

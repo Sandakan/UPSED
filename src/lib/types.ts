@@ -118,6 +118,7 @@ export type VoltronicCommand =
   | { type: 'SetEcoHigh'; payload: number }
   | { type: 'SetEcoLow'; payload: number }
   | { type: 'SetMaxBackupMinutes'; payload: number }
+  | { type: 'SetAlarmEnabled'; payload: boolean }
   | { type: 'ShutdownWithDelay'; payload: { minutes: number } }
   | { type: 'ShutdownAndRestore'; payload: { minutes: number; restore_minutes: number } }
   | { type: 'CancelShutdown' }
