@@ -138,6 +138,11 @@ body {
   animation: powerFlowReverse 1s linear infinite;
 }
 
+.flow-paused .flow-active,
+.flow-paused .flow-active-reverse {
+  animation-play-state: paused !important;
+}
+
 /* ─── Modal animations ──────────────────────────────────── */
 @keyframes backdropFadeIn {
   from { opacity: 0; }

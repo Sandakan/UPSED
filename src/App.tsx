@@ -19,9 +19,11 @@ import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
 import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord, ProbeStatusEvent } from './lib/types';
 import { useTheme } from './lib/theme';
+import { useWindowVisibility } from './lib/useWindowVisibility';
 
 export function App() {
   const { themeMode, setThemeMode } = useTheme();
+  const isWindowVisible = useWindowVisibility();
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
@@ -466,6 +468,7 @@ export function App() {
               showOutageHighlights={showOutageHighlights}
               downsamplingMaxPoints={downsamplingMaxPoints}
               onRescan={() => scanPorts()}
+              isWindowVisible={isWindowVisible}
             />
           )}
 

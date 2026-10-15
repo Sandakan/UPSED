@@ -16,15 +16,19 @@ import {
   calculateEstimatedRuntime,
   detectNominalVoltage,
 } from '../lib/battery';
+import { useWindowVisibility } from '../lib/useWindowVisibility';
 
 interface PowerFlowDiagramProps {
   status: Q1Status;
   portName?: string | null;
   metadata?: UpsMetadata | null;
+  isPaused?: boolean;
 }
 
-const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, metadata }) => {
+const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, metadata, isPaused }) => {
   const { t } = useTranslation(['dashboard', 'common']);
+  const isWindowVisible = useWindowVisibility();
+  const isAnimationPaused = isPaused !== undefined ? isPaused : !isWindowVisible;
   // Operational mode determination
   const isFault = status.ups_failed;
   const isBypass = !isFault && status.bypass_active;
@@ -130,7 +134,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
       </div>
 
       {/* SVG Topology Schematic */}
-      <div className="w-full overflow-x-auto py-2">
+      <div className={`w-full overflow-x-auto py-2 ${isAnimationPaused ? 'flow-paused' : ''}`}>
         <svg
           viewBox="0 0 940 290"
           className="w-full h-auto min-w-[720px] select-none"

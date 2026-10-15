@@ -16,7 +16,7 @@ use gate::CommandGate;
 use multi_port::MultiPortManager;
 use std::sync::{Arc, Mutex};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_window_state::{Builder as WindowStateBuilder, StateFlags};
 
@@ -129,10 +129,12 @@ pub fn run() {
 
                 if is_minimized_arg && start_minimized_pref {
                     let _ = window.hide();
+                    let _ = window.emit("app-window-visibility", false);
                 } else {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
+                    let _ = window.emit("app-window-visibility", true);
                 }
             }
 
@@ -147,20 +149,29 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<AppState>();
-                let close_to_minimize = state
-                    .db
-                    .get_setting("close_to_minimize")
-                    .ok()
-                    .flatten()
-                    .map(|v| v != "false")
-                    .unwrap_or(true);
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let state = window.state::<AppState>();
+                    let close_to_minimize = state
+                        .db
+                        .get_setting("close_to_minimize")
+                        .ok()
+                        .flatten()
+                        .map(|v| v != "false")
+                        .unwrap_or(true);
 
-                if close_to_minimize {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    if close_to_minimize {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        let _ = window.emit("app-window-visibility", false);
+                    }
                 }
+                tauri::WindowEvent::Resized(_) => {
+                    let is_visible = window.is_visible().unwrap_or(true);
+                    let is_minimized = window.is_minimized().unwrap_or(false);
+                    let _ = window.emit("app-window-visibility", is_visible && !is_minimized);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

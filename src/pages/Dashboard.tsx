@@ -33,6 +33,7 @@ interface DashboardProps {
   showOutageHighlights?: boolean;
   downsamplingMaxPoints?: number;
   onRescan?: () => void;
+  isWindowVisible?: boolean;
 }
 
 const DashboardComponent: React.FC<DashboardProps> = ({
@@ -49,6 +50,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   showOutageHighlights,
   downsamplingMaxPoints,
   onRescan,
+  isWindowVisible,
 }) => {
   const { t } = useTranslation(['dashboard', 'common']);
 
@@ -347,7 +349,12 @@ const DashboardComponent: React.FC<DashboardProps> = ({
       </div>
 
       {/* Modern UPS Single-Line Power Flow Topology Graphic */}
-      <PowerFlowDiagram status={status} portName={portName} metadata={metadata} />
+      <PowerFlowDiagram
+        status={status}
+        portName={portName}
+        metadata={metadata}
+        isPaused={isWindowVisible !== undefined ? !isWindowVisible : undefined}
+      />
 
       {/* Real-Time Telemetry & Multi-Metric Graphs Hub */}
       <MetricGraphsHub
