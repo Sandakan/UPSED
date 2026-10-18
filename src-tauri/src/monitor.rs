@@ -54,7 +54,8 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
         let last_port = state.db.get_setting("last_connected_port").unwrap_or(None);
         let last_device_id = state.db.get_setting("last_connected_device").unwrap_or(None);
 
-        if let Some(port) = last_port {
+        let mut reconnected = None;
+        if let Some(ref port) = last_port {
             let _ = app.emit(
                 "ups-probe-status",
                 ProbeStatusEvent {
@@ -64,11 +65,13 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                     device_name: None,
                 },
             );
-            if let Ok(dev) = connect_device_internal(state, &port, None) {
-                Some((port, dev.serial_number))
-            } else {
-                None
+            if let Ok(dev) = connect_device_internal(state, port, None) {
+                reconnected = Some((port.clone(), dev.serial_number));
             }
+        }
+
+        if reconnected.is_some() {
+            reconnected
         } else {
             let _ = app.emit(
                 "ups-probe-status",
@@ -177,6 +180,13 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
 
             // Update tray state (visible and active by default)
             crate::tray::update_tray_state(app, is_bridge_enabled, Some(&status));
+
+            // Sync active bridge transport state (USB vs Wi-Fi WebSocket)
+            if let Ok((medium, host, key)) = state.manager.with_bridge_transport(Some(&port_name), |b, k| {
+                Ok((b.active_medium().to_string(), b.ws_host(), k))
+            }) {
+                crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
+            }
         }
         Err(err) => {
             tracing::warn!("Background poll failed for {}: {}", port_name, err);

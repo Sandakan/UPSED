@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import './App.css';
 import { Sidebar } from './components/Sidebar';
@@ -18,7 +18,7 @@ import { AboutModal } from './components/AboutModal';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord, ProbeStatusEvent } from './lib/types';
+import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord, ProbeStatusEvent, TransportStatusEvent, DiscoveredDevice } from './lib/types';
 import { useTheme } from './lib/theme';
 import { useWindowVisibility } from './lib/useWindowVisibility';
 
@@ -49,6 +49,9 @@ export function App() {
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const settingsRef = useRef<SettingsHandle>(null);
 
+  const [activeTransport, setActiveTransport] = useState<'usb' | 'websocket' | null>(null);
+  const [transportIp, setTransportIp] = useState<string | null>(null);
+
   const handleShowOutageHighlightsChange = (val: boolean) => {
     setShowOutageHighlights(val);
     localStorage.setItem('upsed_show_outage_highlights', String(val));
@@ -70,7 +73,28 @@ export function App() {
     staleTime: 60000,
   });
 
-  // 1a. Query last connected device from DB on startup
+  // 1a. Query connected devices directly from multi-port manager
+  const { data: connectedDevices = [] } = useQuery({
+    queryKey: ['connectedDevices'],
+    queryFn: () => api.listConnectedDevices(),
+    refetchInterval: 5000,
+  });
+
+  // Combine discovered ports with currently connected devices so any active device is always listed
+  const allDevices: DiscoveredDevice[] = useMemo(() => {
+    const list = [...connectedDevices];
+    for (const dev of devices) {
+      const alreadyPresent = list.some(
+        (existing) => existing.port_name === dev.port_name || existing.unique_id === dev.unique_id
+      );
+      if (!alreadyPresent) {
+        list.push(dev);
+      }
+    }
+    return list;
+  }, [devices, connectedDevices]);
+
+  // 1b. Query last connected device from DB on startup
   const { data: lastSavedDeviceId = null } = useQuery({
     queryKey: ['lastConnectedDevice'],
     queryFn: () => api.getLastConnectedDevice(),
@@ -78,8 +102,9 @@ export function App() {
 
   // Active connected device info (or fallback to discovered device matching last saved id)
   const activeDevice =
-    devices.find((d) => d.port_name === selectedDevice) ||
-    devices.find((d) => d.unique_id === lastSavedDeviceId) ||
+    allDevices.find((d) => d.port_name === selectedDevice) ||
+    allDevices.find((d) => d.unique_id === lastSavedDeviceId) ||
+    allDevices[0] ||
     null;
 
   // Reset modal dismissed state when active unique_id changes
@@ -126,16 +151,16 @@ export function App() {
 
   // Auto-reconnect to saved device or intelligently match relocated USB port
   useEffect(() => {
-    if (devices.length === 0 || selectedDevice) return;
+    if (allDevices.length === 0 || selectedDevice) return;
 
     // 1. Try to find the device matching the last saved unique_id
     let target = lastSavedDeviceId
-      ? devices.find((d) => d.unique_id === lastSavedDeviceId)
+      ? allDevices.find((d) => d.unique_id === lastSavedDeviceId)
       : null;
 
     // 2. If not matched by unique_id, try matching by usb_uuid locator
     if (!target && upsMetadata?.usb_uuid) {
-      target = devices.find((d) => d.usb_uuid === upsMetadata.usb_uuid) || null;
+      target = allDevices.find((d) => d.usb_uuid === upsMetadata.usb_uuid) || null;
     }
 
     // 3. Dynamic USB port roaming check: if same physical UPS discovered on a new USB port/UUID, auto-update in SQLite!
@@ -158,9 +183,11 @@ export function App() {
     }
 
     // 4. Connect to matched device or fallback to first discovered
-    const finalDevice = target || devices[0];
-    handleSelectDevice(finalDevice.port_name);
-  }, [devices, selectedDevice, lastSavedDeviceId, upsMetadata, handleSelectDevice, queryClient]);
+    const finalDevice = target || allDevices[0];
+    if (finalDevice) {
+      handleSelectDevice(finalDevice.port_name);
+    }
+  }, [allDevices, selectedDevice, lastSavedDeviceId, upsMetadata, handleSelectDevice, queryClient]);
 
   // Load initial poll interval from backend settings
   useEffect(() => {
@@ -298,6 +325,58 @@ export function App() {
     };
   }, [selectedDevice]);
 
+  // Listen to real-time 'ups-transport-status' broadcast (USB CDC vs Wi-Fi WebSocket)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<TransportStatusEvent>('ups-transport-status', (tauriEvent) => {
+      const payload = tauriEvent.payload;
+      setActiveTransport(payload.active_transport);
+      if (payload.ip) {
+        setTransportIp(payload.ip);
+      }
+      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+      queryClient.invalidateQueries({ queryKey: ['ports'] });
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
+  // Synchronize transport state based on selected device identifier
+  useEffect(() => {
+    if (!selectedDevice) {
+      setActiveTransport(null);
+      setTransportIp(null);
+      return;
+    }
+
+    if (selectedDevice.startsWith('BRIDGE:WS:')) {
+      setActiveTransport('websocket');
+      const parts = selectedDevice.replace('BRIDGE:WS:', '').split(':');
+      if (parts[0]) setTransportIp(parts[0]);
+    } else if (selectedDevice.startsWith('BRIDGE:')) {
+      // Actively query backend bridge status so we know the true active transport (WebSocket vs USB)
+      api.getBridgeStatus(selectedDevice).then((st) => {
+        if (st) {
+          setActiveTransport(st.active_transport === 'websocket' ? 'websocket' : 'usb');
+          if (st.ip) setTransportIp(st.ip);
+        }
+      }).catch(() => {
+        if (!activeTransport) setActiveTransport('usb');
+      });
+    } else {
+      setActiveTransport(null);
+      setTransportIp(null);
+    }
+  }, [selectedDevice]);
+
   const criticalCount = events.filter((e) => !e.acknowledged && e.severity === 'critical').length;
   const warningCount = events.filter((e) => !e.acknowledged && e.severity === 'warning').length;
 
@@ -423,9 +502,11 @@ export function App() {
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}
-        devices={devices}
+        devices={allDevices}
         selectedDevice={selectedDevice}
         activeDeviceLabel={activeDeviceLabel}
+        activeTransport={activeTransport}
+        isStreaming={!!status}
         onSelectDevice={handleSelectDevice}
         onScan={handleScan}
         isScanning={isScanning}
@@ -446,6 +527,8 @@ export function App() {
         <Header
           currentTab={currentTab}
           selectedDevice={selectedDevice}
+          activeTransport={activeTransport}
+          transportIp={transportIp}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
           safetyStage={safetyStage}
@@ -557,7 +640,7 @@ export function App() {
       <DeviceConnectModal
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
-        devices={devices}
+        devices={allDevices}
         selectedDevice={selectedDevice}
         isScanning={isScanning}
         onScan={handleScan}

@@ -30,6 +30,7 @@ import {
   Globe,
   Share2,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../lib/tauri';
@@ -46,6 +47,7 @@ export interface IoTProps {
 }
 
 export const IoT: React.FC<IoTProps> = ({ portName }) => {
+  const queryClient = useQueryClient();
   // Status & Telemetry
   const [status, setStatus] = useState<BridgeStatus | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
@@ -193,6 +195,9 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
       setStatus(updated);
       if (updated.ip) {
         setFallbackHost(updated.ip);
+        await api.setBridgeFallbackHost(updated.ip).catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ['ports'] });
+        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
       }
       if (updated.wifi_connected) {
         toast.custom(
@@ -291,6 +296,9 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
       if (discovered && discovered.length > 0) {
         const [bestIp, bestStatus] = discovered[0];
         setFallbackHost(bestIp);
+        await api.setBridgeFallbackHost(bestIp).catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ['ports'] });
+        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
         toast.custom(
           JSON.stringify({
             title: 'ESP32 Bridge Discovered on LAN',
@@ -337,11 +345,14 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
   const handleSaveFallbackHost = async () => {
     setIsSavingHost(true);
     try {
-      await api.setBridgeFallbackHost(fallbackHost.trim() || 'upsed-bridge.local');
+      const cleanHost = fallbackHost.trim() || 'upsed-bridge.local';
+      await api.setBridgeFallbackHost(cleanHost);
+      queryClient.invalidateQueries({ queryKey: ['ports'] });
+      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
       toast.custom(
         JSON.stringify({
           title: 'Bridge Failover Host Saved',
-          description: `Dual-Mode WebSocket failover will target ws://${fallbackHost.trim() || 'upsed-bridge.local'}:81 when USB is unplugged.`,
+          description: `Dual-Mode WebSocket failover will target ws://${cleanHost}:81 when USB is unplugged.`,
           event: {
             severity: 'success',
             event_type: 'BRIDGE_HOST_SAVED',

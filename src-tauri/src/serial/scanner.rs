@@ -313,11 +313,23 @@ fn probe_via_bridge(bridge_port_id: &str, fallback_ws_host: Option<&str>) -> Opt
         .ok()
         .and_then(|r| parse_firmware_version(&r).ok());
 
-    let unique_id = generate_unique_id(
-        serial_number.as_deref(),
-        bridge_port_id,
-        firmware_version.as_deref(),
-    );
+    let unique_id = if let Some(sn) = serial_number.as_deref() {
+        generate_unique_id(Some(sn), bridge_port_id, firmware_version.as_deref())
+    } else if let Some(mac) = transport.bridge_mac() {
+        let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
+        let fw_part = firmware_version
+            .as_deref()
+            .map(|f| f.trim().replace(|c: char| !c.is_alphanumeric(), "_"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "GENERIC".to_string());
+        format!("BRIDGE-MAC-{}-FW-{}", clean_mac, fw_part)
+    } else {
+        generate_unique_id(
+            None,
+            bridge_port_id,
+            firmware_version.as_deref(),
+        )
+    };
 
     let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
     let raw_com = bridge_port_id.strip_prefix("BRIDGE:").unwrap_or(bridge_port_id);
@@ -530,9 +542,11 @@ pub fn scan_available_ports_with_context(
         }
         candidate_hosts.push(super::bridge_adapter::BRIDGE_DEFAULT_MDNS_HOST);
 
+        let mut found_ws = false;
         for host in candidate_hosts {
             let is_already_active = active_devices.iter().any(|d| d.port_name.contains(host));
             if is_already_active {
+                found_ws = true;
                 break;
             }
 
@@ -544,7 +558,26 @@ pub fn scan_available_ports_with_context(
                         dev.protocol_id
                     );
                     discovered.push(dev);
+                    found_ws = true;
                     break;
+                }
+            }
+        }
+
+        // Tier 3: If candidate hosts failed, do parallel LAN subnet sweep
+        if !found_ws {
+            for (ws_port_id, _status) in super::bridge_adapter::scan_lan_for_bridge() {
+                let is_already_active = active_devices.iter().any(|d| d.port_name == ws_port_id);
+                if !is_already_active {
+                    if let Some(dev) = probe_via_bridge(&ws_port_id, fallback_ws_host) {
+                        tracing::info!(
+                            "Discovered Wi-Fi WebSocket ESP32 Bridge via LAN sweep on {} with protocol ID: {}",
+                            dev.port_name,
+                            dev.protocol_id
+                        );
+                        discovered.push(dev);
+                        break;
+                    }
                 }
             }
         }

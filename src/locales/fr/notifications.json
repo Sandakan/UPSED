@@ -59,6 +59,18 @@
     "title": "Erreur d'interrogation télémétrie",
     "description": "La requête de télémétrie a expiré ou a retourné un paquet corrompu."
   },
+  "APP_START": {
+    "title": "Application UPSED démarrée",
+    "description": "Le moniteur en arrière-plan et les services UPSED ont démarré."
+  },
+  "APP_HIDE": {
+    "title": "Fenêtre UPSED masquée",
+    "description": "Fenêtre de l'application réduite ou masquée dans la barre d'état système."
+  },
+  "APP_EXIT": {
+    "title": "Application UPSED arrêtée",
+    "description": "Le processus de l'application UPSED s'est arrêté."
+  },
   "warning": {
     "a0": {
       "title": "Batterie déconnectée",

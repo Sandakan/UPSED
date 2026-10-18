@@ -194,11 +194,23 @@ pub fn connect_device_internal(
             .send_command("QVFW")
             .ok()
             .and_then(|r| protocol::parse_firmware_version(&r).ok());
-        let unique_id = crate::serial::generate_unique_id(
-            serial_number.as_deref(),
-            &normalized_bridge_port,
-            firmware_version.as_deref(),
-        );
+        let unique_id = if let Some(sn) = serial_number.as_deref() {
+            crate::serial::generate_unique_id(Some(sn), &normalized_bridge_port, firmware_version.as_deref())
+        } else if let Some(mac) = bridge_transport.bridge_mac() {
+            let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
+            let fw_part = firmware_version
+                .as_deref()
+                .map(|f| f.trim().replace(|c: char| !c.is_alphanumeric(), "_"))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "GENERIC".to_string());
+            format!("BRIDGE-MAC-{}-FW-{}", clean_mac, fw_part)
+        } else {
+            crate::serial::generate_unique_id(
+                None,
+                &normalized_bridge_port,
+                firmware_version.as_deref(),
+            )
+        };
         let capabilities = protocol::DeviceCapabilities::for_protocol(&proto);
         let raw_com = normalized_bridge_port.strip_prefix("BRIDGE:").unwrap_or(&normalized_bridge_port);
         let usb_uuid = crate::serial::get_port_usb_uuid(raw_com);
@@ -239,6 +251,13 @@ pub fn connect_device_internal(
     let effective_port = info.port_name.clone();
     state.manager.register_device(info.clone(), transport);
     let _ = state.db.set_setting("last_connected_port", &effective_port);
+
+    // Sync real-time transport status if registered device is an ESP32 Bridge
+    if let Ok((medium, host, key)) = state.manager.with_bridge_transport(Some(&effective_port), |b, k| {
+        Ok((b.active_medium().to_string(), b.ws_host(), k))
+    }) {
+        crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
+    }
 
     let _ = state.db.insert_event(&EventLogRecord {
         id: None,
@@ -380,6 +399,13 @@ pub async fn get_device_status(
 
                 if is_enabled {
                     crate::tray::update_tray_state(&app_clone, true, Some(&status));
+                }
+
+                // Sync real-time transport status if target is an ESP32 Bridge
+                if let Ok((medium, host, key)) = state_clone.manager.with_bridge_transport(Some(&port_name), |b, k| {
+                    Ok((b.active_medium().to_string(), b.ws_host(), k))
+                }) {
+                    crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
                 }
 
                 Ok(status)
@@ -1070,7 +1096,11 @@ pub async fn get_bridge_status(
         // 1. If a BridgeTransport is currently active in MultiPortManager, query it directly
         if let Ok(status) = state_clone
             .manager
-            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.ping())
+            .with_bridge_transport(port_name.as_deref(), |bridge, key| {
+                let st = bridge.ping()?;
+                crate::serial::bridge_adapter::emit_transport_status(&key, &st.active_transport, bridge.ws_host().as_deref());
+                Ok(st)
+            })
         {
             if status.wifi_connected && !status.ip.is_empty() {
                 let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);

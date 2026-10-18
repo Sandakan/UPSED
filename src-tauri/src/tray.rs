@@ -28,9 +28,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                     let _ = window.emit("app-window-visibility", true);
+                    tracing::info!("[LIFECYCLE] UPSED application window opened from system tray menu");
                 }
             }
             "quit" => {
+                tracing::info!("[LIFECYCLE] Quit action triggered from system tray menu");
                 app.exit(0);
             }
             _ => {}
@@ -48,6 +50,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                     let _ = window.emit("app-window-visibility", true);
+                    tracing::info!("[LIFECYCLE] UPSED application window restored via system tray click");
                 }
             }
         })

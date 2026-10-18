@@ -97,6 +97,29 @@ pub struct WsTestResult {
     pub error: Option<String>,
 }
 
+/// Real-time event broadcasting the active transport medium (USB CDC vs Wi-Fi WebSocket).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportStatusEvent {
+    pub port_name: String,
+    pub active_transport: String, // "usb" or "websocket"
+    pub ip: Option<String>,
+    pub host: Option<String>,
+}
+
+pub fn emit_transport_status(port_name: &str, active_transport: &str, ip: Option<&str>) {
+    if let Some(app) = get_bridge_app_handle() {
+        let _ = app.emit(
+            "ups-transport-status",
+            &TransportStatusEvent {
+                port_name: port_name.to_string(),
+                active_transport: active_transport.to_string(),
+                ip: ip.map(|s| s.to_string()),
+                host: ip.map(|s| s.to_string()),
+            },
+        );
+    }
+}
+
 // Global buffer for recent Bridge diagnostic logs (capacity: 250)
 static BRIDGE_LOG_BUFFER: OnceLock<Mutex<Vec<BridgeLogEntry>>> = OnceLock::new();
 static BRIDGE_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -210,6 +233,7 @@ impl BridgeTransport {
         };
 
         let status = transport.ping()?;
+        emit_transport_status(&transport.port_identifier, &status.active_transport, transport.ws_host.as_deref());
         push_bridge_log(BridgeLogEntry {
             seq: 0,
             ms: 0,
@@ -224,6 +248,18 @@ impl BridgeTransport {
 
     pub fn last_status_handle(&self) -> Arc<Mutex<Option<BridgeStatus>>> {
         self.last_status.clone()
+    }
+
+    pub fn bridge_mac(&self) -> Option<String> {
+        self.last_status.lock().ok()?.as_ref().map(|s| s.mac.clone())
+    }
+
+    pub fn active_medium(&self) -> &str {
+        &self.active_medium
+    }
+
+    pub fn ws_host(&self) -> Option<String> {
+        self.ws_host.clone()
     }
 
     pub fn ping(&mut self) -> Result<BridgeStatus, ProtocolError> {
@@ -392,6 +428,8 @@ impl BridgeTransport {
         let serialized_req = serde_json::to_string(&request_json)
             .map_err(|e| ProtocolError::IoError(e.to_string()))?;
 
+        let prev_medium = self.active_medium.clone();
+
         // 1. Primary Link: Check USB Serial
         if let Some(ref port_name) = self.serial_port_name {
             let mut should_try_usb = self.active_medium == "usb";
@@ -422,6 +460,9 @@ impl BridgeTransport {
                 match self.try_serial_rpc(rpc_id, &serialized_req, timeout) {
                     Ok(res_val) => {
                         self.active_medium = "usb".to_string();
+                        if prev_medium != self.active_medium {
+                            emit_transport_status(&self.port_identifier, "usb", self.ws_host.as_deref());
+                        }
                         self.update_cached_transport("usb", &res_val);
                         self.ws_socket = None;
                         return Ok((res_val, "usb".to_string()));
@@ -447,6 +488,9 @@ impl BridgeTransport {
         match self.try_ws_rpc(rpc_id, &serialized_req, timeout) {
             Ok(res_val) => {
                 self.active_medium = "websocket".to_string();
+                if prev_medium != self.active_medium {
+                    emit_transport_status(&self.port_identifier, "websocket", self.ws_host.as_deref());
+                }
                 self.update_cached_transport("websocket", &res_val);
                 Ok((res_val, "websocket".to_string()))
             }
@@ -879,47 +923,72 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
     }
 }
 
-/// Sweeps the local /24 subnet for listening UPSED WebSocket bridges on port 81.
+/// Detects candidate local network subnets (e.g. "192.168.0", "192.168.1").
+fn detect_local_subnets() -> Vec<String> {
+    let mut subnets = Vec::new();
+    for target in &["1.1.1.1:80", "8.8.8.8:80", "192.168.0.1:80", "192.168.1.1:80"] {
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect(target).is_ok() {
+                if let Ok(local_addr) = socket.local_addr() {
+                    if let std::net::IpAddr::V4(ipv4) = local_addr.ip() {
+                        let octets = ipv4.octets();
+                        if !ipv4.is_loopback() && !ipv4.is_unspecified() {
+                            let prefix = format!("{}.{}.{}", octets[0], octets[1], octets[2]);
+                            if !subnets.contains(&prefix) {
+                                subnets.push(prefix);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for fallback in &["192.168.0", "192.168.1", "10.0.0"] {
+        let s = fallback.to_string();
+        if !subnets.contains(&s) {
+            subnets.push(s);
+        }
+    }
+    subnets
+}
+
+/// Sweeps candidate local subnets in parallel for listening UPSED WebSocket bridges on port 81.
 pub fn scan_lan_for_bridge() -> Vec<(String, BridgeStatus)> {
+    let subnets = detect_local_subnets();
+    let primary_subnet = subnets.first().cloned().unwrap_or_else(|| "192.168.0".to_string());
+
+    let found_ips = Arc::new(Mutex::new(Vec::new()));
+    let timeout = Duration::from_millis(150);
+
+    // Parallel sweep of primary subnet (2..=254) in chunks across scoped threads
+    std::thread::scope(|s| {
+        let all_ips: Vec<u8> = (2..=254u8).collect();
+        for chunk in all_ips.chunks(32) {
+            let chunk_ips: Vec<String> = chunk.iter().map(|i| format!("{}.{}", primary_subnet, i)).collect();
+            let found_ref = Arc::clone(&found_ips);
+            s.spawn(move || {
+                for ip in chunk_ips {
+                    let addr = format!("{}:{}", ip, BRIDGE_DEFAULT_WS_PORT);
+                    if let Ok(mut addrs) = addr.to_socket_addrs() {
+                        if let Some(sock_addr) = addrs.next() {
+                            if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, timeout) {
+                                drop(stream);
+                                if let Ok(mut guard) = found_ref.lock() {
+                                    guard.push(ip);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
+
     let mut discovered = Vec::new();
-
-    // Determine candidate subnets
-    let mut candidate_ips: Vec<String> = Vec::new();
-    let local_subnets = ["192.168.1", "192.168.0", "192.168.8", "10.0.0"];
-
-    for subnet in local_subnets {
-        // Quick probe of gateway to see if subnet is present
-        let test_addr = format!("{}.1:{}", subnet, BRIDGE_DEFAULT_WS_PORT);
-        if let Ok(mut addrs) = test_addr.to_socket_addrs() {
-            if let Some(sock_addr) = addrs.next() {
-                if TcpStream::connect_timeout(&sock_addr, Duration::from_millis(50)).is_ok() {
-                    for i in 2..254 {
-                        candidate_ips.push(format!("{}.{}", subnet, i));
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    if candidate_ips.is_empty() {
-        for i in 2..254 {
-            candidate_ips.push(format!("192.168.1.{}", i));
-        }
-    }
-
-    // Sweep candidates with short timeout
-    for ip in candidate_ips {
-        let addr = format!("{}:{}", ip, BRIDGE_DEFAULT_WS_PORT);
-        if let Ok(mut addrs) = addr.to_socket_addrs() {
-            if let Some(sock_addr) = addrs.next() {
-                if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, Duration::from_millis(150)) {
-                    drop(stream);
-                    if let Some((port_name, status)) = probe_ws_bridge(&ip) {
-                        discovered.push((port_name, status));
-                    }
-                }
-            }
+    let candidates = found_ips.lock().map(|g| g.clone()).unwrap_or_default();
+    for ip in candidates {
+        if let Some((port_name, status)) = probe_ws_bridge(&ip) {
+            discovered.push((port_name, status));
         }
     }
 

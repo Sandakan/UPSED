@@ -112,6 +112,23 @@ pub fn run() {
                 poll_interval_tx: Arc::new(poll_interval_tx),
             };
 
+            // Log application startup
+            tracing::info!(
+                "[LIFECYCLE] UPSED application started (v{}, pid={})",
+                env!("CARGO_PKG_VERSION"),
+                std::process::id()
+            );
+            let start_event = db::EventLogRecord {
+                id: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                port_name: "SYSTEM".into(),
+                event_type: "APP_START".into(),
+                severity: "info".into(),
+                message: format!("UPSED application started (v{})", env!("CARGO_PKG_VERSION")),
+                acknowledged: true,
+            };
+            let _ = app_state.db.insert_event(&start_event);
+
             // Determine whether to show window or start minimized in tray
             let args: Vec<String> = std::env::args().collect();
             let is_minimized_arg = args.iter().any(|arg| arg == "--minimized");
@@ -130,11 +147,23 @@ pub fn run() {
                 if is_minimized_arg && start_minimized_pref {
                     let _ = window.hide();
                     let _ = window.emit("app-window-visibility", false);
+                    tracing::info!("[LIFECYCLE] UPSED application started minimized in system tray");
+                    let hide_event = db::EventLogRecord {
+                        id: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        port_name: "SYSTEM".into(),
+                        event_type: "APP_HIDE".into(),
+                        severity: "info".into(),
+                        message: "UPSED application started minimized in system tray".into(),
+                        acknowledged: true,
+                    };
+                    let _ = app_state.db.insert_event(&hide_event);
                 } else {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                     let _ = window.emit("app-window-visibility", true);
+                    tracing::info!("[LIFECYCLE] UPSED application window displayed on screen");
                 }
             }
 
@@ -167,12 +196,45 @@ pub fn run() {
                         api.prevent_close();
                         let _ = window.hide();
                         let _ = window.emit("app-window-visibility", false);
+                        tracing::info!("[LIFECYCLE] UPSED application window hidden to system tray");
+                        let hide_event = db::EventLogRecord {
+                            id: None,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            port_name: "SYSTEM".into(),
+                            event_type: "APP_HIDE".into(),
+                            severity: "info".into(),
+                            message: "UPSED application window hidden to system tray".into(),
+                            acknowledged: true,
+                        };
+                        let _ = state.db.insert_event(&hide_event);
                     }
                 }
                 tauri::WindowEvent::Resized(_) => {
                     let is_visible = window.is_visible().unwrap_or(true);
                     let is_minimized = window.is_minimized().unwrap_or(false);
-                    let _ = window.emit("app-window-visibility", is_visible && !is_minimized);
+                    let visible_on_screen = is_visible && !is_minimized;
+                    let _ = window.emit("app-window-visibility", visible_on_screen);
+
+                    static WAS_MINIMIZED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    let prev_minimized =
+                        WAS_MINIMIZED.swap(is_minimized, std::sync::atomic::Ordering::Relaxed);
+                    if !prev_minimized && is_minimized {
+                        tracing::info!("[LIFECYCLE] UPSED application window minimized to taskbar");
+                        let state = window.state::<AppState>();
+                        let hide_event = db::EventLogRecord {
+                            id: None,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            port_name: "SYSTEM".into(),
+                            event_type: "APP_HIDE".into(),
+                            severity: "info".into(),
+                            message: "UPSED application window minimized to taskbar".into(),
+                            acknowledged: true,
+                        };
+                        let _ = state.db.insert_event(&hide_event);
+                    } else if prev_minimized && !is_minimized {
+                        tracing::info!("[LIFECYCLE] UPSED application window unminimized / restored");
+                    }
                 }
                 _ => {}
             }
@@ -225,7 +287,28 @@ pub fn run() {
             commands::discover_bridge_on_lan,
             commands::get_bridge_log_history
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running UPSED application");
+        .build(tauri::generate_context!())
+        .expect("error while building UPSED application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                static EXIT_LOGGED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !EXIT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    tracing::info!("[LIFECYCLE] UPSED application is exiting...");
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        let exit_event = db::EventLogRecord {
+                            id: None,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            port_name: "SYSTEM".into(),
+                            event_type: "APP_EXIT".into(),
+                            severity: "info".into(),
+                            message: "UPSED application process exiting".into(),
+                            acknowledged: true,
+                        };
+                        let _ = state.db.insert_event(&exit_event);
+                    }
+                }
+            }
+        });
 }
 

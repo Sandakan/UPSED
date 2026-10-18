@@ -106,6 +106,21 @@ export const EVENT_DETAILS: Record<
     defaultDescription:
       'Manual command or state modification performed by user.',
   },
+  APP_START: {
+    title: 'UPSED Application Started',
+    defaultDescription:
+      'UPSED background monitor and system services started.',
+  },
+  APP_HIDE: {
+    title: 'UPSED Window Hidden',
+    defaultDescription:
+      'Application window minimized or hidden to system tray.',
+  },
+  APP_EXIT: {
+    title: 'UPSED Application Shut Down',
+    defaultDescription:
+      'UPSED application process terminated.',
+  },
 
   // ViewPower Warning Code mappings (QPIWS a0-a69)
   'warning.a0': {
@@ -256,6 +271,11 @@ export async function handleIncomingUpsEvent(
     inAppToastsEnabled?: boolean;
   }
 ) {
+  // Lifecycle events (APP_START, APP_HIDE, APP_EXIT) are logged only and do not trigger toasts or OS notifications
+  if (event.event_type.startsWith('APP_')) {
+    return;
+  }
+
   const osAllowed = options?.osNotificationsEnabled ?? true;
   const inAppAllowed = options?.inAppToastsEnabled ?? true;
 

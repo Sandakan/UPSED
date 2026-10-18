@@ -24,6 +24,8 @@ interface SidebarProps {
   devices: DiscoveredDevice[];
   selectedDevice: string | null;
   activeDeviceLabel: string | null;
+  activeTransport?: 'usb' | 'websocket' | null;
+  isStreaming?: boolean;
   onSelectDevice: (port: string) => void;
   onScan: () => void;
   isScanning: boolean;
@@ -68,6 +70,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   devices,
   selectedDevice,
   activeDeviceLabel,
+  activeTransport,
+  isStreaming,
   onSelectDevice,
   onScan,
   isScanning,
@@ -141,12 +145,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center space-x-2.5 min-w-0">
             <div
               className={`w-2 h-2 rounded-full shrink-0 transition ${
-                activeDevice ? 'bg-emerald-400' : 'bg-slate-600'
+                activeDevice || isStreaming ? 'bg-emerald-400' : 'bg-slate-600'
               }`}
             />
-            <span className="text-slate-200 font-medium text-xs truncate">
-              {activeDeviceLabel ?? t('nav:device.noDevice', 'No device connected')}
-            </span>
+            <div className="flex items-center space-x-1.5 min-w-0">
+              <span className="text-slate-200 font-medium text-xs truncate">
+                {activeDeviceLabel ?? t('nav:device.noDevice', 'No device connected')}
+              </span>
+              {activeTransport === 'websocket' && (
+                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-700/50 shrink-0">
+                  Wi-Fi
+                </span>
+              )}
+              {activeTransport === 'usb' && (
+                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/50 shrink-0">
+                  USB
+                </span>
+              )}
+            </div>
           </div>
           <ChevronDown
             className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform duration-200 ${
@@ -170,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-                {t('nav:device.discoveredPorts', 'Discovered Ports')}
+                {t('nav:device.discoveredPorts', 'Available Interfaces')}
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); onScan(); }}
@@ -192,28 +208,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {t('nav:device.noUpsFound', 'No UPS found. Click scan to discover.')}
                 </p>
               ) : (
-                devices.map((dev) => (
-                  <button
-                    key={dev.port_name}
-                    onClick={() => { onSelectDevice(dev.port_name); setDropdownOpen(false); }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition ${
-                      selectedDevice === dev.port_name
-                        ? 'bg-cyan-950/60 text-cyan-300'
-                        : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2 min-w-0">
-                      <Plug className="w-3 h-3 text-slate-500 shrink-0" />
-                      <span className="font-mono truncate">{dev.port_name}</span>
-                    </div>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ml-2 text-slate-400"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+                devices.map((dev) => {
+                  const isWs = dev.port_name.startsWith('BRIDGE:WS:') || (activeTransport === 'websocket' && selectedDevice === dev.port_name);
+                  const isBridge = dev.port_name.startsWith('BRIDGE:');
+                  return (
+                    <button
+                      key={dev.port_name}
+                      onClick={() => { onSelectDevice(dev.port_name); setDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition ${
+                        selectedDevice === dev.port_name
+                          ? 'bg-cyan-950/60 text-cyan-300'
+                          : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'
+                      }`}
                     >
-                      {dev.capabilities.protocol_id}
-                    </span>
-                  </button>
-                ))
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <Plug className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span className="font-mono truncate">{dev.port_name}</span>
+                        {isWs ? (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60 shrink-0 font-sans">
+                            Wi-Fi
+                          </span>
+                        ) : isBridge ? (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/50 shrink-0 font-sans font-bold uppercase">
+                            Bridge
+                          </span>
+                        ) : null}
+                      </div>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ml-2 text-slate-400"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+                      >
+                        {dev.capabilities.protocol_id}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>

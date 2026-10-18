@@ -201,5 +201,12 @@ export interface BridgeLogEntry {
   source: string;
 }
 
+export interface TransportStatusEvent {
+  port_name: string;
+  active_transport: 'usb' | 'websocket';
+  ip?: string | null;
+  host?: string | null;
+}
+
 
 

@@ -202,6 +202,15 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
                           <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-white/[0.06] border border-white/[0.08] text-slate-300">
                             {dev.capabilities.protocol_id || dev.protocol_id}
                           </span>
+                          {dev.port_name.startsWith('BRIDGE:WS:') ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded font-sans font-bold uppercase bg-cyan-950/80 border border-cyan-700/60 text-cyan-400">
+                              Wi-Fi
+                            </span>
+                          ) : dev.port_name.startsWith('BRIDGE:') ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded font-sans font-bold uppercase bg-emerald-950/80 border border-emerald-700/60 text-emerald-400">
+                              Bridge
+                            </span>
+                          ) : null}
                           {isCurrentlyActive && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-950 text-emerald-400 border border-emerald-700/50">
                               {t('common:status.connected', 'Connected')}

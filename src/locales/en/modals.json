@@ -5,20 +5,20 @@
     "defaultCancel": "Cancel"
   },
   "connect": {
-    "title": "Connect UPS Hardware Device",
-    "subtitle": "Select a communication port to start real-time telemetry",
-    "scanning": "Scanning serial ports (2400/9600 baud) and USB HID interfaces...",
+    "title": "Connect UPS Device",
+    "subtitle": "Select a communication interface to start real-time telemetry",
+    "scanning": "Scanning communication interfaces (USB, Serial, Wi-Fi WebSocket)...",
     "noDevices": "No devices detected yet",
     "detectedCount": "Detected {{count}} hardware interface",
     "detectedCount_other": "Detected {{count}} hardware interfaces",
     "discoveryStage": "Stage T1 Discovery",
     "noUpsFound": "No Voltronic UPS Found",
-    "noUpsDesc": "Ensure the USB or serial cable is connected securely and no third-party software (e.g. ViewPower) is locking the COM port.",
+    "noUpsDesc": "Ensure the UPS communication interface is active and no third-party software (e.g. ViewPower) is locking the port.",
     "scanAgain": "Scan Again",
     "activeBadge": "Active",
     "autoSwitch": "Auto-switches active telemetry to selected port upon connection.",
     "connectBtn": "Connect to {{port}}",
-    "selectPortFirst": "Select a port to connect"
+    "selectPortFirst": "Select an interface to connect"
   },
   "setup": {
     "title": "Configure Hardware Specifications",

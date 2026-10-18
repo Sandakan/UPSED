@@ -16,6 +16,8 @@ import { setAppLanguage } from '../lib/i18n';
 interface HeaderProps {
   currentTab: string;
   selectedDevice: string | null;
+  activeTransport?: 'usb' | 'websocket' | null;
+  transportIp?: string | null;
   onRefresh: () => void;
   isRefreshing: boolean;
   lastUpdatedAt?: number;
@@ -45,6 +47,8 @@ const getStagePillStyle = (stage: UnlockStage) => {
 export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
   selectedDevice,
+  activeTransport,
+  transportIp,
   onRefresh,
   isRefreshing,
   lastUpdatedAt,
@@ -102,6 +106,26 @@ export const Header: React.FC<HeaderProps> = React.memo(({
           {getStageBadgeText(safetyStage)}
         </span>
 
+        {/* Active Transport badge if connected */}
+        {selectedDevice && activeTransport === 'websocket' && (
+          <span
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-cyan-950/80 text-cyan-400 border-cyan-700/40"
+            title={transportIp ? `Connected wirelessly via WebSocket (${transportIp})` : 'Connected wirelessly via WebSocket'}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>Wi-Fi</span>
+          </span>
+        )}
+        {selectedDevice && activeTransport === 'usb' && (
+          <span
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-emerald-950/80 text-emerald-400 border-emerald-700/40"
+            title="Connected via USB CDC Serial"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>USB CDC</span>
+          </span>
+        )}
+
         {/* Last updated clock */}
         <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice} />
 
@@ -109,9 +133,9 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         <PrimaryButton
           onClick={onOpenAddDeviceModal}
           icon={<Plus className="w-3.5 h-3.5" />}
-          title={t('modals:connect.title', 'Add New UPS Device')}
+          title={t('modals:connect.title', 'Connect UPS Device')}
         >
-          <span className="hidden xl:inline">{t('modals:connect.title', 'Add New UPS Device')}</span>
+          <span className="hidden xl:inline">{t('modals:connect.title', 'Connect UPS Device')}</span>
           <span className="hidden sm:inline xl:hidden">{t('common:buttons.connect', 'Connect')}</span>
         </PrimaryButton>
 
