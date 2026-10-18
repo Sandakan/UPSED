@@ -11,6 +11,7 @@ import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Events } from './pages/Events';
+import { IoT } from './pages/IoT';
 import { Settings, SettingsHandle } from './pages/Settings';
 import { UpsedToaster } from './components/UpsedToaster';
 import { AboutModal } from './components/AboutModal';
@@ -502,6 +503,10 @@ export function App() {
               downsamplingMaxPoints={downsamplingMaxPoints}
               portName={selectedDevice}
             />
+          )}
+
+          {currentTab === 'iot' && (
+            <IoT portName={selectedDevice} />
           )}
 
           {currentTab === 'settings' && (

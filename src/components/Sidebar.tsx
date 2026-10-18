@@ -13,6 +13,7 @@ import {
   Plug,
   Loader2,
   Info,
+  Cpu,
 } from 'lucide-react';
 import { DiscoveredDevice, UnlockStage } from '../lib/types';
 import { UpsedLogo } from './UpsedLogo';
@@ -47,6 +48,7 @@ const NAV_GROUPS = [
     items: [
       { id: 'config',   label: 'Configuration',   icon: Wrench  },
       { id: 'history',  label: 'History & Graphs', icon: History },
+      { id: 'iot',      label: 'IoT Bridge',       icon: Cpu     },
     ],
   },
 ];

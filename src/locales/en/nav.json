@@ -8,6 +8,7 @@
     "control": "Hardware Control",
     "config": "Configuration",
     "history": "History & Graphs",
+    "iot": "IoT Bridge",
     "events": "Events",
     "settings": "Settings"
   },

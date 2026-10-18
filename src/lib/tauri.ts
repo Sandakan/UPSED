@@ -9,6 +9,10 @@ import {
   UpsMetadata,
   ThemeMode,
   DbStats,
+  BridgeStatus,
+  WifiScanNetwork,
+  WsTestResult,
+  BridgeLogEntry,
 } from './types';
 
 export const api = {
@@ -113,6 +117,36 @@ export const api = {
     invoke<number>('prune_telemetry', { olderThanDays }),
   clearTelemetry: () => invoke<number>('clear_telemetry'),
   vacuumDatabase: () => invoke<void>('vacuum_database'),
+
+  getBridgeStatus: (portName?: string) =>
+    invoke<BridgeStatus | null>('get_bridge_status', { portName }),
+
+  configureBridgeWifi: (ssid: string, password: string, portName?: string) =>
+    invoke<BridgeStatus>('configure_bridge_wifi', { portName, ssid, password }),
+
+  scanBridgeWifi: (portName?: string) =>
+    invoke<WifiScanNetwork[]>('scan_bridge_wifi', { portName }),
+
+  syncBridgeBacklog: (portName?: string) =>
+    invoke<number>('sync_bridge_backlog', { portName }),
+
+  clearBridgeBacklog: (portName?: string) =>
+    invoke<boolean>('clear_bridge_backlog', { portName }),
+
+  testBridgeWebsocket: (host: string) =>
+    invoke<WsTestResult>('test_bridge_websocket', { host }),
+
+  discoverBridgeOnLan: () =>
+    invoke<Array<[string, BridgeStatus]>>('discover_bridge_on_lan'),
+
+  getBridgeLogHistory: () =>
+    invoke<BridgeLogEntry[]>('get_bridge_log_history'),
+
+  getBridgeFallbackHost: () => invoke<string>('get_bridge_fallback_host'),
+
+  setBridgeFallbackHost: (host: string) =>
+    invoke<void>('set_bridge_fallback_host', { host }),
 };
+
 
 

@@ -6,6 +6,9 @@ use std::time::Duration;
 pub trait SerialTransport: Send {
     fn send_command(&mut self, cmd_str: &str) -> Result<String, ProtocolError>;
     fn port_name(&self) -> &str;
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
 }
 
 pub struct PhysicalSerialPort {

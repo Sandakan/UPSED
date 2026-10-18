@@ -155,4 +155,51 @@ export interface DbStats {
   newest_telemetry?: string | null;
 }
 
+export interface BridgeStatus {
+  bridge: string;
+  fw: string;
+  mac: string;
+  mode: 'proxy' | 'standalone' | string;
+  wifi_connected: boolean;
+  ssid: string;
+  ip: string;
+  hostname: string;
+  ws_port: number;
+  rssi: number;
+  wifi_last_error?: string;
+  log_seq?: number;
+  backlog_records: number;
+  backlog_capacity: number;
+  psram_active: boolean;
+  psram_free: number;
+  uptime_sec: number;
+  active_transport: 'usb' | 'websocket' | string;
+}
+
+export interface WifiScanNetwork {
+  ssid: string;
+  rssi: number;
+  open: boolean;
+  channel: number;
+}
+
+export interface WsTestResult {
+  reachable: boolean;
+  host: string;
+  port: number;
+  latency_ms: number;
+  status?: BridgeStatus | null;
+  error?: string | null;
+}
+
+export interface BridgeLogEntry {
+  seq: number;
+  ms: number;
+  level: string;
+  msg: string;
+  timestamp: string;
+  source: string;
+}
+
+
 

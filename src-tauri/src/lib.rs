@@ -138,6 +138,9 @@ pub fn run() {
                 }
             }
 
+            // Register AppHandle for bridge real-time event streaming
+            serial::bridge_adapter::set_bridge_app_handle(app.handle().clone());
+
             // Spawn background UPS monitor task
             let app_handle = app.handle().clone();
             let state_clone = app_state.clone();
@@ -210,8 +213,19 @@ pub fn run() {
             commands::get_db_stats,
             commands::prune_telemetry,
             commands::clear_telemetry,
-            commands::vacuum_database
+            commands::vacuum_database,
+            commands::get_bridge_status,
+            commands::configure_bridge_wifi,
+            commands::sync_bridge_backlog,
+            commands::get_bridge_fallback_host,
+            commands::set_bridge_fallback_host,
+            commands::scan_bridge_wifi,
+            commands::clear_bridge_backlog,
+            commands::test_bridge_websocket,
+            commands::discover_bridge_on_lan,
+            commands::get_bridge_log_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running UPSED application");
 }
+

@@ -13,7 +13,17 @@
     "app:build": "tauri build",
     "sync:logo": "node scripts/generate-logo.js",
     "logs": "node scripts/open-logs.js",
-    "logs:open": "node scripts/open-logs.js"
+    "logs:open": "node scripts/open-logs.js",
+    "bridge:build": "node scripts/pio.js run",
+    "bridge:compile": "node scripts/pio.js run",
+    "bridge:upload": "node scripts/pio.js run --target upload",
+    "bridge:clean": "node scripts/pio.js run --target clean",
+    "bridge:monitor": "node scripts/pio.js device monitor",
+    "pio:build": "node scripts/pio.js run",
+    "pio:compile": "node scripts/pio.js run",
+    "pio:upload": "node scripts/pio.js run --target upload",
+    "pio:clean": "node scripts/pio.js run --target clean",
+    "pio:monitor": "node scripts/pio.js device monitor"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.3.0",

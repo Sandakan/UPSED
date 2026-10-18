@@ -1,6 +1,6 @@
 use crate::commands::{connect_device_internal, detect_status_events, AppState, ProbeStatusEvent};
 use crate::db::TelemetryRecord;
-use crate::serial::scan_available_ports;
+use crate::serial::scan_available_ports_with_context;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
@@ -80,7 +80,9 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                 },
             );
             // Auto-discover available ports using Stage T1 Read-Only commands
-            let discovered = scan_available_ports();
+            let active = state.manager.list_devices();
+            let fallback = state.db.get_setting("bridge_fallback_host").ok().flatten();
+            let discovered = scan_available_ports_with_context(&active, fallback.as_deref());
             if let Some(dev) = discovered.iter().find(|d| {
                 last_device_id.as_ref() == Some(&d.unique_id)
             }).or_else(|| discovered.first()) {

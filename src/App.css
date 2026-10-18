@@ -119,28 +119,35 @@ body {
 
 /* ─── Power flow animations ─────────────────────────────── */
 @keyframes powerFlow {
-  from { stroke-dashoffset: 24; }
+  from { stroke-dashoffset: 28; }
   to   { stroke-dashoffset: 0;  }
 }
 
 @keyframes powerFlowReverse {
   from { stroke-dashoffset: 0;  }
-  to   { stroke-dashoffset: 24; }
+  to   { stroke-dashoffset: 28; }
 }
 
 .flow-active {
-  stroke-dasharray: 6 6;
-  animation: powerFlow 1s linear infinite;
+  stroke-dasharray: 6 8;
+  animation: powerFlow 1.6s linear infinite;
 }
 
 .flow-active-reverse {
-  stroke-dasharray: 6 6;
-  animation: powerFlowReverse 1s linear infinite;
+  stroke-dasharray: 6 8;
+  animation: powerFlowReverse 1.6s linear infinite;
 }
 
 .flow-paused .flow-active,
 .flow-paused .flow-active-reverse {
   animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-active,
+  .flow-active-reverse {
+    animation: none !important;
+  }
 }
 
 /* ─── Modal animations ──────────────────────────────────── */

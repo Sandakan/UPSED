@@ -30,6 +30,7 @@ log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
+tungstenite = "0.24"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

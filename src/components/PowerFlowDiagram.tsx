@@ -80,11 +80,6 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
   const batteryDischarging = isBatteryMode;
   const outputActive = isLineMode || isBatteryMode || isBypass;
 
-  const getPathClass = (active: boolean, colorClass: string, reverse: boolean = false) => {
-    if (!active) return 'stroke-slate-800 transition-colors duration-500';
-    return `${colorClass} ${reverse ? 'flow-active-reverse' : 'flow-active'} transition-colors duration-500`;
-  };
-
   return (
     <div className="rounded-2xl p-5 shadow-sm border" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
       {/* Top Header Summary */}
@@ -141,33 +136,107 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          {/* -------------------- CONDUIT PATHS -------------------- */}
+          {/* -------------------- LAYER 1: STATIC BASELINE WIRING (ZERO CPU) -------------------- */}
+          <g
+            stroke="#1e293b"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            shapeRendering="optimizeSpeed"
+          >
+            {/* Input & Main Path to Rectifier */}
+            <path d="M 50 140 L 85 140 M 135 140 L 285 140" />
+            {/* Rectifier through DC Bus to Inverter */}
+            <path d="M 355 140 L 585 140" />
+            {/* DC Bus down to Battery */}
+            <path d="M 470 140 L 470 223" />
+            {/* Inverter through Output Junction to Load */}
+            <path d="M 655 140 L 805 140 M 855 140 L 890 140" />
+            {/* Bypass Route */}
+            <path d="M 190 140 L 190 50 L 750 50 L 750 140" />
+          </g>
 
-          {/* 1. AC Input to Junction: X=50 to X=190, Y=140 */}
-          <line
-            x1="50"
-            y1="140"
-            x2="85"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(inputActive, 'stroke-emerald-400')}
-          />
-          <line
-            x1="135"
-            y1="140"
-            x2="190"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(inputActive, 'stroke-emerald-400')}
-          />
+          {/* -------------------- LAYER 2: ACTIVE ENERGIZED CONDUIT FLOWS (OPTIMIZED) -------------------- */}
+          {/* 1. AC Grid Input Conduit */}
+          {inputActive && (
+            <path
+              d="M 50 140 L 85 140 M 135 140 L 190 140"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className="stroke-emerald-400 flow-active"
+              shapeRendering="optimizeSpeed"
+            />
+          )}
 
-          {/* 2. Bypass Route:
-              From (190, 140) -> UP to (190, 50) -> ACROSS to (750, 50) -> DOWN to (750, 140) */}
-          <path
-            d="M 190 140 L 190 50 L 750 50 L 750 140"
-            strokeWidth="3"
-            className={getPathClass(isBypass, 'stroke-purple-400')}
-          />
+          {/* 2. Bypass Circuit Route */}
+          {isBypass && (
+            <path
+              d="M 190 140 L 190 50 L 750 50 L 750 140"
+              strokeWidth="3"
+              strokeLinejoin="round"
+              className="stroke-purple-400 flow-active"
+              shapeRendering="optimizeSpeed"
+            />
+          )}
+
+          {/* 3. Main Line: Junction to Rectifier */}
+          {inputActive && !isBypass && (
+            <path
+              d="M 190 140 L 285 140"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className="stroke-emerald-400 flow-active"
+              shapeRendering="optimizeSpeed"
+            />
+          )}
+
+          {/* 4. Rectifier Output to Central DC Bus */}
+          {rectifierActive && (
+            <path
+              d="M 355 140 L 470 140"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className="stroke-emerald-400 flow-active"
+              shapeRendering="optimizeSpeed"
+            />
+          )}
+
+          {/* 5. Inverter Stage: DC Bus to Inverter to Output */}
+          {inverterActive && (
+            <path
+              d="M 470 140 L 585 140 M 655 140 L 750 140"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className={`${isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'} flow-active`}
+              shapeRendering="optimizeSpeed"
+            />
+          )}
+
+          {/* 6. Battery Conduit: Charge (down) or Discharge (up) */}
+          {(batteryDischarging || batteryCharging) && (
+            <path
+              d="M 470 140 L 470 223"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className={
+                batteryDischarging
+                  ? 'stroke-amber-400 flow-active-reverse'
+                  : 'stroke-emerald-400 flow-active'
+              }
+              shapeRendering="optimizeSpeed"
+            />
+          )}
+
+          {/* 7. Output Stage to Critical Load */}
+          {outputActive && (
+            <path
+              d="M 750 140 L 805 140 M 855 140 L 890 140"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className={`${isBypass ? 'stroke-purple-400' : 'stroke-cyan-400'} flow-active`}
+              shapeRendering="optimizeSpeed"
+            />
+          )}
 
           {/* Bypass switch status badge in center of bypass line */}
           <g transform="translate(470, 50)">
@@ -195,80 +264,6 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               {isBypass ? 'BYPASS ON' : 'BYPASS OFF'}
             </text>
           </g>
-
-          {/* 3. Main Line: Junction (190, 140) to Rectifier (285, 140) */}
-          <line
-            x1="190"
-            y1="140"
-            x2="285"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(inputActive && !isBypass, 'stroke-emerald-400')}
-          />
-
-          {/* 4. Rectifier to Central DC Bus (355, 140) -> (470, 140) */}
-          <line
-            x1="355"
-            y1="140"
-            x2="470"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(rectifierActive, 'stroke-emerald-400')}
-          />
-
-          {/* 5. Central DC Bus to Inverter (470, 140) -> (585, 140) */}
-          <line
-            x1="470"
-            y1="140"
-            x2="585"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(inverterActive, isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400')}
-          />
-
-          {/* 6. DC Bus down to Battery (470, 140) -> (470, 225) */}
-          <line
-            x1="470"
-            y1="140"
-            x2="470"
-            y2="225"
-            strokeWidth="3"
-            className={
-              batteryDischarging
-                ? getPathClass(true, 'stroke-amber-400', true)
-                : batteryCharging
-                ? getPathClass(true, 'stroke-emerald-400', false)
-                : 'stroke-slate-800'
-            }
-          />
-
-          {/* 7. Inverter to Output Junction (655, 140) -> (750, 140) */}
-          <line
-            x1="655"
-            y1="140"
-            x2="750"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(inverterActive, isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400')}
-          />
-
-          {/* 8. Output Junction to Output Node (750, 140) -> (805, 140) & beyond */}
-          <line
-            x1="750"
-            y1="140"
-            x2="805"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(outputActive, isBypass ? 'stroke-purple-400' : 'stroke-cyan-400')}
-          />
-          <line
-            x1="855"
-            y1="140"
-            x2="890"
-            y2="140"
-            strokeWidth="3"
-            className={getPathClass(outputActive, isBypass ? 'stroke-purple-400' : 'stroke-cyan-400')}
-          />
 
           {/* Junction Dots */}
           <circle

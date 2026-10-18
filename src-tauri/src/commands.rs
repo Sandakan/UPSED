@@ -4,8 +4,10 @@ use crate::gate::CommandGate;
 use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
 use crate::serial::{
-    probe_port, scan_available_ports, DiscoveredDevice, HidTransport, PhysicalSerialPort,
-    SerialTransport,
+    get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge,
+    scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection, BridgeBacklogRecord,
+    BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice, HidTransport,
+    PhysicalSerialPort, SerialTransport, WifiScanNetwork, WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
@@ -28,7 +30,10 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub async fn scan_ports(app: tauri::AppHandle) -> Result<Vec<DiscoveredDevice>, String> {
+pub async fn scan_ports(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<DiscoveredDevice>, String> {
     let _ = app.emit(
         "ups-probe-status",
         ProbeStatusEvent {
@@ -38,9 +43,14 @@ pub async fn scan_ports(app: tauri::AppHandle) -> Result<Vec<DiscoveredDevice>, 
             device_name: None,
         },
     );
-    let devices = tokio::task::spawn_blocking(scan_available_ports)
-        .await
-        .map_err(|e| e.to_string())?;
+    let active_devices = state.manager.list_devices();
+    let fallback_ws_host = state.db.get_setting("bridge_fallback_host").ok().flatten();
+
+    let devices = tokio::task::spawn_blocking(move || {
+        scan_available_ports_with_context(&active_devices, fallback_ws_host.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     if devices.is_empty() {
         let _ = app.emit(
@@ -56,43 +66,193 @@ pub async fn scan_ports(app: tauri::AppHandle) -> Result<Vec<DiscoveredDevice>, 
     Ok(devices)
 }
 
+pub fn commit_bridge_backlog_to_db(
+    db: &Database,
+    port_name: &str,
+    records: &[BridgeBacklogRecord],
+    bridge_uptime_sec: u64,
+) -> usize {
+    let mut inserted = 0;
+    let now_epoch = chrono::Utc::now().timestamp() as u64;
+
+    for rec in records {
+        if let Ok(status) = Q1Status::parse(&rec.raw) {
+            let record_epoch = if rec.ts > 1_700_000_000 {
+                rec.ts as i64
+            } else {
+                let delta = bridge_uptime_sec.saturating_sub(rec.ts);
+                now_epoch.saturating_sub(delta) as i64
+            };
+
+            let ts_rfc3339 = chrono::DateTime::from_timestamp(record_epoch, 0)
+                .unwrap_or_else(chrono::Utc::now)
+                .to_rfc3339();
+
+            if db
+                .insert_telemetry(&TelemetryRecord {
+                    id: None,
+                    timestamp: ts_rfc3339,
+                    port_name: port_name.to_string(),
+                    grid_voltage: status.grid_voltage_v,
+                    output_voltage: status.output_voltage_v,
+                    grid_frequency: status.grid_frequency_hz,
+                    output_frequency: status.output_frequency_hz,
+                    load_pct: status.output_load_pct,
+                    output_watts: status.output_watts,
+                    battery_voltage: status.battery_voltage_v,
+                    temperature_c: status.temperature_c,
+                })
+                .is_ok()
+            {
+                inserted += 1;
+            }
+        }
+    }
+    inserted
+}
+
 pub fn connect_device_internal(
     state: &AppState,
     port_name: &str,
     baud_rate: Option<u32>,
 ) -> Result<DiscoveredDevice, String> {
-    let info = probe_port(port_name).unwrap_or_else(|| DiscoveredDevice {
-        port_name: port_name.to_string(),
-        protocol_id: "00".into(),
-        serial_number: None,
-        unique_id: format!("MANUAL-{}", port_name),
-        firmware_version: None,
-        usb_uuid: None,
-        capabilities: protocol::DeviceCapabilities::for_protocol("00"),
-    });
-
-    let transport: Box<dyn SerialTransport> = if port_name.starts_with("USB:") {
-        Box::new(HidTransport::open_by_port_name(port_name).map_err(|e| e.to_string())?)
+    // Idempotency: If this port is already registered and active in MultiPortManager, reuse it!
+    let alt_bridge_name = if port_name.starts_with("BRIDGE:") {
+        port_name.strip_prefix("BRIDGE:").unwrap_or(port_name).to_string()
     } else {
-        let baud = baud_rate.unwrap_or(2400);
-        Box::new(PhysicalSerialPort::open(port_name, baud).map_err(|e| e.to_string())?)
+        format!("BRIDGE:{}", port_name)
     };
 
+    if let Some(existing) = state.manager.list_devices().into_iter().find(|d| d.port_name == port_name || d.port_name == alt_bridge_name) {
+        tracing::info!("connect_device_internal: Port {} is already connected (as {}), reusing active connection", port_name, existing.port_name);
+        return Ok(existing);
+    }
+
+    let is_bridge = port_name.starts_with("BRIDGE:")
+        || (port_name.starts_with("COM") && probe_serial_bridge(port_name).is_some());
+    let normalized_bridge_port = if is_bridge && !port_name.starts_with("BRIDGE:") {
+        format!("BRIDGE:{}", port_name)
+    } else {
+        port_name.to_string()
+    };
+
+    let (info, transport): (DiscoveredDevice, Box<dyn SerialTransport>) = if is_bridge {
+        let fallback_host = state
+            .db
+            .get_setting("bridge_fallback_host")
+            .ok()
+            .flatten();
+        let mut bridge_transport =
+            BridgeTransport::open(&normalized_bridge_port, fallback_host).map_err(|e| e.to_string())?;
+
+        if let Ok(st) = bridge_transport.ping() {
+            if st.wifi_connected && !st.ip.is_empty() {
+                let _ = state.db.set_setting("bridge_fallback_host", &st.ip);
+            }
+            if st.backlog_records > 0 {
+                if let Ok(backlog) = bridge_transport.drain_backlog() {
+                    let count = commit_bridge_backlog_to_db(
+                        &state.db,
+                        &normalized_bridge_port,
+                        &backlog,
+                        st.uptime_sec,
+                    );
+                    if count > 0 {
+                        let _ = state.db.insert_event(&EventLogRecord {
+                            id: None,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            port_name: normalized_bridge_port.clone(),
+                            event_type: "BRIDGE_SYNC".into(),
+                            severity: "info".into(),
+                            message: format!(
+                                "ESP32 Bridge Backlog Synced: Imported {} offline MessagePack telemetry samples recorded while desktop was offline.",
+                                count
+                            ),
+                            acknowledged: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        let proto = match bridge_transport.send_command("QPI") {
+            Ok(resp) => protocol::parse_protocol_id(&resp).unwrap_or_else(|_| "00".to_string()),
+            Err(_) => {
+                if let Ok(q1) = bridge_transport.send_command("Q1") {
+                    if q1.starts_with('(') { "00".to_string() } else { "UNKNOWN".to_string() }
+                } else {
+                    "00".to_string()
+                }
+            }
+        };
+
+        let serial_number = bridge_transport
+            .send_command("QID")
+            .ok()
+            .and_then(|r| protocol::parse_device_id(&r).ok());
+        let firmware_version = bridge_transport
+            .send_command("QVFW")
+            .ok()
+            .and_then(|r| protocol::parse_firmware_version(&r).ok());
+        let unique_id = crate::serial::generate_unique_id(
+            serial_number.as_deref(),
+            &normalized_bridge_port,
+            firmware_version.as_deref(),
+        );
+        let capabilities = protocol::DeviceCapabilities::for_protocol(&proto);
+        let raw_com = normalized_bridge_port.strip_prefix("BRIDGE:").unwrap_or(&normalized_bridge_port);
+        let usb_uuid = crate::serial::get_port_usb_uuid(raw_com);
+
+        let dev_info = DiscoveredDevice {
+            port_name: normalized_bridge_port.clone(),
+            protocol_id: proto,
+            serial_number,
+            unique_id,
+            firmware_version,
+            usb_uuid,
+            capabilities,
+        };
+
+        (dev_info, Box::new(bridge_transport))
+    } else {
+        let info = probe_port(port_name).unwrap_or_else(|| DiscoveredDevice {
+            port_name: port_name.to_string(),
+            protocol_id: "00".into(),
+            serial_number: None,
+            unique_id: format!("MANUAL-{}", port_name),
+            firmware_version: None,
+            usb_uuid: None,
+            capabilities: protocol::DeviceCapabilities::for_protocol("00"),
+        });
+
+        let local_port = info.port_name.clone();
+        let transport: Box<dyn SerialTransport> = if local_port.starts_with("USB:") {
+            Box::new(HidTransport::open_by_port_name(&local_port).map_err(|e| e.to_string())?)
+        } else {
+            let baud = baud_rate.unwrap_or(2400);
+            Box::new(PhysicalSerialPort::open(&local_port, baud).map_err(|e| e.to_string())?)
+        };
+
+        (info, transport)
+    };
+
+    let effective_port = info.port_name.clone();
     state.manager.register_device(info.clone(), transport);
-    let _ = state.db.set_setting("last_connected_port", port_name);
+    let _ = state.db.set_setting("last_connected_port", &effective_port);
 
     let _ = state.db.insert_event(&EventLogRecord {
         id: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: port_name.to_string(),
+        port_name: effective_port.clone(),
         event_type: "CONNECT".into(),
         severity: "info".into(),
-        message: format!("Connected to UPS on {}", port_name),
+        message: format!("Connected to UPS on {}", effective_port),
         acknowledged: true,
     });
 
     Ok(info)
 }
+
 
 #[tauri::command]
 pub async fn connect_device(
@@ -895,3 +1055,225 @@ pub fn detect_status_events(
 
     events
 }
+
+// ============================================================================
+// ESP32 Hardware Bridge (IoT) Management Commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn get_bridge_status(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<Option<BridgeStatus>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // 1. If a BridgeTransport is currently active in MultiPortManager, query it directly
+        if let Ok(status) = state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.ping())
+        {
+            if status.wifi_connected && !status.ip.is_empty() {
+                let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
+            }
+            return Ok(Some(status));
+        }
+
+        // 2. Otherwise, check available serial ports for an un-connected ESP32 Bridge
+        if let Ok(ports) = serialport::available_ports() {
+            for p in ports {
+                if let Some(status) = probe_serial_bridge(&p.port_name) {
+                    return Ok(Some(status));
+                }
+            }
+        }
+
+        // 3. Finally, check saved fallback WebSocket host or mDNS `upsed-bridge.local`
+        let fallback_host = state_clone
+            .db
+            .get_setting("bridge_fallback_host")
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| BRIDGE_DEFAULT_MDNS_HOST.to_string());
+
+        if let Some((_ws_port_id, status)) = probe_ws_bridge(&fallback_host) {
+            return Ok(Some(status));
+        }
+
+        Ok(None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn configure_bridge_wifi(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    ssid: String,
+    password: String,
+) -> Result<BridgeStatus, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // 1. Try active BridgeTransport in MultiPortManager first
+        if let Ok(status) = state_clone.manager.with_bridge_transport(
+            port_name.as_deref(),
+            |bridge, _key| bridge.set_wifi(&ssid, &password),
+        ) {
+            if status.wifi_connected && !status.ip.is_empty() {
+                let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
+            }
+            return Ok(status);
+        }
+
+        // 2. Otherwise, scan serial ports to find the USB-connected ESP32 Bridge and push Wi-Fi config
+        if let Ok(ports) = serialport::available_ports() {
+            for p in ports {
+                if probe_serial_bridge(&p.port_name).is_some() {
+                    let bridge_id = format!("BRIDGE:{}", p.port_name);
+                    let mut temp_bridge =
+                        BridgeTransport::open(&bridge_id, None).map_err(|e| e.to_string())?;
+                    let status = temp_bridge
+                        .set_wifi(&ssid, &password)
+                        .map_err(|e| e.to_string())?;
+                    if status.wifi_connected && !status.ip.is_empty() {
+                        let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
+                    }
+                    return Ok(status);
+                }
+            }
+        }
+
+        Err("No connected ESP32 Hardware Bridge found over USB or Wi-Fi".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn sync_bridge_backlog(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let (key, status, records) = state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, key| {
+                let st = bridge.ping()?;
+                let recs = bridge.drain_backlog()?;
+                Ok((key, st, recs))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let count = commit_bridge_backlog_to_db(&state_clone.db, &key, &records, status.uptime_sec);
+        if count > 0 {
+            let _ = state_clone.db.insert_event(&EventLogRecord {
+                id: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                port_name: key,
+                event_type: "BRIDGE_SYNC".into(),
+                severity: "info".into(),
+                message: format!(
+                    "ESP32 Bridge Backlog Synced: Imported {} offline MessagePack telemetry samples.",
+                    count
+                ),
+                acknowledged: true,
+            });
+        }
+        Ok(count)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_bridge_fallback_host(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state
+        .db
+        .get_setting("bridge_fallback_host")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| BRIDGE_DEFAULT_MDNS_HOST.to_string()))
+}
+
+#[tauri::command]
+pub fn set_bridge_fallback_host(state: State<'_, AppState>, host: String) -> Result<(), String> {
+    state
+        .db
+        .set_setting("bridge_fallback_host", host.trim())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn scan_bridge_wifi(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<Vec<WifiScanNetwork>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // 1. Try active BridgeTransport
+        if let Ok(networks) = state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.scan_wifi())
+        {
+            return Ok(networks);
+        }
+
+        // 2. Scan serial ports for bridge
+        if let Ok(ports) = serialport::available_ports() {
+            for p in ports {
+                if probe_serial_bridge(&p.port_name).is_some() {
+                    let bridge_id = format!("BRIDGE:{}", p.port_name);
+                    let mut temp_bridge =
+                        BridgeTransport::open(&bridge_id, None).map_err(|e| e.to_string())?;
+                    return temp_bridge.scan_wifi().map_err(|e| e.to_string());
+                }
+            }
+        }
+
+        Err("No connected ESP32 Hardware Bridge available for Wi-Fi scan".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clear_bridge_backlog(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.clear_backlog())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn test_bridge_websocket(host: String) -> Result<WsTestResult, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(test_ws_connection(&host, 81))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn discover_bridge_on_lan() -> Result<Vec<(String, BridgeStatus)>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(scan_lan_for_bridge())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_bridge_log_history() -> Result<Vec<BridgeLogEntry>, String> {
+    Ok(get_all_bridge_logs())
+}
+
+

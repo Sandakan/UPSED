@@ -81,20 +81,16 @@ impl MultiPortManager {
         // Universal Megatec / Voltronic Online P01 units support "Q1" directly
         // Axpert / InfiniSolar P30/P31 units use "QPIGS"
         // Legacy Megatec P00 units use "Q1"
-        let query_order = if proto == "01" || proto == "P01" {
-            [
-                VoltronicCommand::QuickStatus,
-                VoltronicCommand::QueryStatusQs,
-                VoltronicCommand::QueryGeneralStatus,
-            ]
+        let query_order: Vec<VoltronicCommand> = if proto == "01" || proto == "P01" || proto == "00" {
+            vec![VoltronicCommand::QuickStatus]
         } else if proto == "30" || proto == "31" || proto == "P30" || proto == "P31" {
-            [
+            vec![
                 VoltronicCommand::QueryGeneralStatus,
                 VoltronicCommand::QuickStatus,
                 VoltronicCommand::QueryStatusQs,
             ]
         } else {
-            [
+            vec![
                 VoltronicCommand::QuickStatus,
                 VoltronicCommand::QueryStatusQs,
                 VoltronicCommand::QueryGeneralStatus,
@@ -222,5 +218,45 @@ impl MultiPortManager {
             }
         }
         res
+    }
+
+    /// Access an active `BridgeTransport` instance (or the first active bridge if `port_name` is empty).
+    pub fn with_bridge_transport<F, R>(
+        &self,
+        port_name: Option<&str>,
+        f: F,
+    ) -> Result<R, ProtocolError>
+    where
+        F: FnOnce(&mut crate::serial::BridgeTransport, String) -> Result<R, ProtocolError>,
+    {
+        let mut devs = self.devices.lock().unwrap();
+        let target_key = if let Some(p) = port_name.filter(|s| !s.is_empty()) {
+            Some(p.to_string())
+        } else {
+            devs.keys()
+                .find(|k| k.starts_with("BRIDGE:"))
+                .cloned()
+        };
+
+        let key = target_key.ok_or_else(|| {
+            ProtocolError::DeviceError("No active ESP32 Bridge connected".into())
+        })?;
+
+        let device = devs.get_mut(&key).ok_or_else(|| {
+            ProtocolError::DeviceError(format!("Bridge device on {} not found", key))
+        })?;
+
+        let bridge = device
+            .transport
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<crate::serial::BridgeTransport>())
+            .ok_or_else(|| {
+                ProtocolError::DeviceError(format!(
+                    "Port {} is not an ESP32 Bridge transport",
+                    key
+                ))
+            })?;
+
+        f(bridge, key)
     }
 }
