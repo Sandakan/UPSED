@@ -208,5 +208,12 @@ export interface TransportStatusEvent {
   host?: string | null;
 }
 
+export interface WifiProvisionStatusEvent {
+  phase: 'saving' | 'reconnecting' | 'connected' | 'rollback' | 'failed';
+  ssid: string;
+  ip?: string | null;
+  error?: string | null;
+}
+
 
 

@@ -33,6 +33,12 @@ static bool wsServerStarted = false;
 static bool mdnsStarted = false;
 static String savedSsid = "";
 static String savedPass = "";
+static bool pendingWifiSwitch = false;
+static unsigned long pendingWifiSwitchMs = 0;
+static String targetSsid = "";
+static String targetPass = "";
+static String rollbackSsid = "";
+static String rollbackPass = "";
 static String serialLineBuf = "";
 static String lastWifiError = "None";
 
@@ -217,6 +223,89 @@ bool connectToWifi(const String& ssid, const String& pass, uint32_t timeoutMs) {
 }
 
 // ============================================================================
+// Helper: Connect to Wi-Fi with Automatic Rollback on Failure
+// ============================================================================
+bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
+                               const String& prevSsid, const String& prevPass,
+                               uint32_t timeoutMs = 12000) {
+    if (newSsid.length() == 0) {
+        return false;
+    }
+
+    diagLog.info("[WIFI] Associating with 2.4GHz network '%s' (timeout %u ms)...", newSsid.c_str(), timeoutMs);
+    setBridgeLed(50, 25, 0); // Amber indication during transition
+
+    WiFi.disconnect(false, true);
+    delay(50);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setHostname(BRIDGE_MDNS_HOSTNAME);
+    WiFi.begin(newSsid.c_str(), newPass.c_str());
+
+    unsigned long startMs = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < timeoutMs) {
+        delay(100);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        lastWifiError = "None";
+        diagLog.info("[WIFI] Successfully associated with '%s'! IP: %s",
+                     newSsid.c_str(), WiFi.localIP().toString().c_str());
+        // Cleanly re-announce mDNS responder on the newly acquired IP address
+        if (mdnsStarted) {
+            MDNS.end();
+            mdnsStarted = false;
+        }
+        ensureNetworkServicesStarted();
+        setBridgeLed(0, 50, 0); // Green
+        return true;
+    }
+
+    // Association failed! Rollback if we have previous working credentials
+    diagLog.warn("[WIFI] Connection to '%s' failed (error: %s). Initiating automatic rollback...",
+                 newSsid.c_str(), lastWifiError.c_str());
+    setBridgeLed(60, 0, 0); // Red indication of failed attempt
+
+    if (prevSsid.length() > 0 && prevSsid != newSsid) {
+        diagLog.info("[WIFI] Restoring previous network credentials for '%s' in NVS Flash...", prevSsid.c_str());
+        prefs.begin("upsed-wifi", false);
+        prefs.putString("ssid", prevSsid);
+        prefs.putString("pass", prevPass);
+        prefs.end();
+        savedSsid = prevSsid;
+        savedPass = prevPass;
+
+        WiFi.disconnect(false, true);
+        delay(50);
+        WiFi.begin(prevSsid.c_str(), prevPass.c_str());
+
+        startMs = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < 10000) {
+            delay(100);
+        }
+
+        if (WiFi.status() == WL_CONNECTED) {
+            diagLog.info("[WIFI] Rollback successful! Reconnected to '%s' (IP: %s)",
+                         prevSsid.c_str(), WiFi.localIP().toString().c_str());
+            if (mdnsStarted) {
+                MDNS.end();
+                mdnsStarted = false;
+            }
+            ensureNetworkServicesStarted();
+            setBridgeLed(35, 0, 50); // Purple indication
+            return false;
+        } else {
+            diagLog.error("[WIFI] Rollback connection to '%s' also failed! (error: %s)",
+                          prevSsid.c_str(), lastWifiError.c_str());
+        }
+    } else {
+        diagLog.warn("[WIFI] No previous rollback credentials available.");
+    }
+
+    return false;
+}
+
+// ============================================================================
 // Helper: Populate Bridge Status Object
 // ============================================================================
 void populateStatusObject(JsonObject& res) {
@@ -343,20 +432,35 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
             errObj["code"] = -32602;
             errObj["message"] = "SSID cannot be empty";
         } else {
-            savedSsid = String(ssid);
-            savedPass = String(pass);
+            // Stage target credentials and preserve current working credentials as rollback buffer
+            rollbackSsid = savedSsid;
+            rollbackPass = savedPass;
+            targetSsid = String(ssid);
+            targetPass = String(pass);
 
+            // Persist target credentials to NVS Flash
             prefs.begin("upsed-wifi", false);
-            prefs.putString("ssid", savedSsid);
-            prefs.putString("pass", savedPass);
+            prefs.putString("ssid", targetSsid);
+            prefs.putString("pass", targetPass);
             prefs.end();
+            savedSsid = targetSsid;
+            savedPass = targetPass;
 
-            diagLog.info("[WIFI] Saved credentials for '%s' to NVS Flash", savedSsid.c_str());
-            bool connected = connectToWifi(savedSsid, savedPass, 10000);
+            diagLog.info("[WIFI] Staged new credentials for '%s' to NVS Flash", targetSsid.c_str());
 
+            // Prepare immediate JSON-RPC ACK so WebSocket client receives confirmation before Wi-Fi resets
             JsonObject result = resDoc["result"].to<JsonObject>();
             populateStatusObject(result);
-            result["connected"] = connected;
+            result["saved"] = true;
+            result["reconnecting"] = true;
+            result["target_ssid"] = targetSsid;
+            result["rollback_ssid"] = rollbackSsid;
+            result["current_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+
+            // Arm deferred switch: wait 250ms in loop() before disconnecting Wi-Fi
+            // to allow TCP buffers to flush the JSON-RPC response over WebSocket or USB
+            pendingWifiSwitch = true;
+            pendingWifiSwitchMs = millis() + 250;
         }
     }
     else if (strcmp(method, "bridge.getBacklog") == 0) {
@@ -499,19 +603,26 @@ void loop() {
         }
     }
 
-    // 2. Maintain Wi-Fi & WebSocket Server
+    // 2. Process Deferred Wi-Fi Transition
+    if (pendingWifiSwitch && (millis() >= pendingWifiSwitchMs)) {
+        pendingWifiSwitch = false;
+        diagLog.info("[WIFI] Commencing deferred network switch to '%s'...", targetSsid.c_str());
+        connectToWifiWithRollback(targetSsid, targetPass, rollbackSsid, rollbackPass, 12000);
+    }
+
+    // 3. Maintain Wi-Fi & WebSocket Server
     if (WiFi.status() == WL_CONNECTED) {
         ensureNetworkServicesStarted();
         if (wsServerStarted) {
             wsServer.loop();
         }
-    } else if (savedSsid.length() > 0 && (millis() - lastWifiRetryMs >= WIFI_RETRY_INTERVAL_MS)) {
+    } else if (!pendingWifiSwitch && savedSsid.length() > 0 && (millis() - lastWifiRetryMs >= WIFI_RETRY_INTERVAL_MS)) {
         lastWifiRetryMs = millis();
         diagLog.info("[WIFI] Periodic reconnect attempt to '%s'...", savedSsid.c_str());
         WiFi.reconnect();
     }
 
-    // 3. 15-Second Heartbeat Watchdog: Handoff to Standalone Mode if Desktop is offline
+    // 4. 15-Second Heartbeat Watchdog: Handoff to Standalone Mode if Desktop is offline
     unsigned long nowMs = millis();
     if (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS) {
         if (currentMode != MODE_STANDALONE) {

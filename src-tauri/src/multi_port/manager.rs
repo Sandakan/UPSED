@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct ConnectedUps {
     pub info: DiscoveredDevice,
-    pub transport: Box<dyn SerialTransport>,
+    pub transport: Arc<Mutex<Box<dyn SerialTransport>>>,
     pub last_status: Option<Q1Status>,
 }
 
@@ -34,7 +34,7 @@ impl MultiPortManager {
             port_name,
             ConnectedUps {
                 info,
-                transport,
+                transport: Arc::new(Mutex::new(transport)),
                 last_status: None,
             },
         );
@@ -61,16 +61,18 @@ impl MultiPortManager {
     }
 
     pub fn poll_device(&self, port_name: &str) -> Result<Q1Status, ProtocolError> {
-        let mut devs = self.devices.lock().unwrap();
-        let device = devs.get_mut(port_name).ok_or_else(|| {
-            tracing::error!(
-                "Device on {} not found in active manager registry",
-                port_name
-            );
-            ProtocolError::DeviceError(format!("Device on {} not found", port_name))
-        })?;
+        let (proto, transport_arc) = {
+            let devs = self.devices.lock().unwrap();
+            let device = devs.get(port_name).ok_or_else(|| {
+                tracing::error!(
+                    "Device on {} not found in active manager registry",
+                    port_name
+                );
+                ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+            })?;
+            (device.info.protocol_id.clone(), Arc::clone(&device.transport))
+        };
 
-        let proto = device.info.protocol_id.as_str();
         tracing::info!(
             "Polling telemetry for device {} (protocol: {})",
             port_name,
@@ -97,9 +99,13 @@ impl MultiPortManager {
             ]
         };
 
+        let mut transport = transport_arc.lock().map_err(|_| {
+            ProtocolError::DeviceError("Transport lock poisoned".into())
+        })?;
+
         for cmd in query_order {
             let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
-            match device.transport.send_command(&cmd_str) {
+            match transport.send_command(&cmd_str) {
                 Ok(raw_resp) => {
                     tracing::debug!(
                         "Query {:?} raw response for {}: {:?}",
@@ -143,7 +149,11 @@ impl MultiPortManager {
                                 status.output_load_pct,
                                 status.battery_voltage_v
                             );
-                            device.last_status = Some(status.clone());
+                            if let Ok(mut devs) = self.devices.lock() {
+                                if let Some(device) = devs.get_mut(port_name) {
+                                    device.last_status = Some(status.clone());
+                                }
+                            }
                             return Ok(status);
                         }
                         Err(parse_err) => {
@@ -184,28 +194,36 @@ impl MultiPortManager {
         gate.check_command(cmd)
             .map_err(|e| ProtocolError::DeviceError(e.to_string()))?;
 
-        // Step 2: Dispatch to specific hardware port
-        let mut devs = self.devices.lock().unwrap();
-        let device = devs.get_mut(port_name).ok_or_else(|| {
-            ProtocolError::DeviceError(format!("Device on {} not found", port_name))
-        })?;
+        // Step 2: Determine effective command string and acquire transport Arc
+        let (cmd_str, transport_arc) = {
+            let devs = self.devices.lock().unwrap();
+            let device = devs.get(port_name).ok_or_else(|| {
+                ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+            })?;
 
-        // Determine effective command string (with smart buzzer toggle if applicable)
-        let cmd_str = match cmd {
-            VoltronicCommand::BuzzerToggle => {
-                let is_beeper_on = device.last_status.as_ref().map(|s| s.beeper_on).unwrap_or(true);
-                if is_beeper_on {
-                    "BZOFF".to_string()
-                } else {
-                    "BZON".to_string()
+            // Determine effective command string (with smart buzzer toggle if applicable)
+            let cmd_str = match cmd {
+                VoltronicCommand::BuzzerToggle => {
+                    let is_beeper_on = device.last_status.as_ref().map(|s| s.beeper_on).unwrap_or(true);
+                    if is_beeper_on {
+                        "BZOFF".to_string()
+                    } else {
+                        "BZON".to_string()
+                    }
                 }
-            }
-            _ => cmd
-                .as_cmd_str_for(&device.info.protocol_id)
-                .map_err(ProtocolError::EncodingError)?,
+                _ => cmd
+                    .as_cmd_str_for(&device.info.protocol_id)
+                    .map_err(ProtocolError::EncodingError)?,
+            };
+
+            (cmd_str, Arc::clone(&device.transport))
         };
 
-        let res = device.transport.send_command(&cmd_str);
+        let mut transport = transport_arc.lock().map_err(|_| {
+            ProtocolError::DeviceError("Transport lock poisoned".into())
+        })?;
+
+        let res = transport.send_command(&cmd_str);
         if let Err(ProtocolError::CommandNak) = &res {
             // If BZOFF/BZON is rejected with NAK on a legacy 1994 Megatec unit, fallback to Q
             if cmd_str == "BZOFF" || cmd_str == "BZON" {
@@ -214,7 +232,7 @@ impl MultiPortManager {
                     cmd_str,
                     port_name
                 );
-                return device.transport.send_command("Q");
+                return transport.send_command("Q");
             }
         }
         res
@@ -229,25 +247,32 @@ impl MultiPortManager {
     where
         F: FnOnce(&mut crate::serial::BridgeTransport, String) -> Result<R, ProtocolError>,
     {
-        let mut devs = self.devices.lock().unwrap();
-        let target_key = if let Some(p) = port_name.filter(|s| !s.is_empty()) {
-            Some(p.to_string())
-        } else {
-            devs.keys()
-                .find(|k| k.starts_with("BRIDGE:"))
-                .cloned()
+        let (key, transport_arc) = {
+            let devs = self.devices.lock().unwrap();
+            let target_key = if let Some(p) = port_name.filter(|s| !s.is_empty()) {
+                Some(p.to_string())
+            } else {
+                devs.keys()
+                    .find(|k| k.starts_with("BRIDGE:"))
+                    .cloned()
+            };
+
+            let key = target_key.ok_or_else(|| {
+                ProtocolError::DeviceError("No active ESP32 Bridge connected".into())
+            })?;
+
+            let device = devs.get(&key).ok_or_else(|| {
+                ProtocolError::DeviceError(format!("Bridge device on {} not found", key))
+            })?;
+
+            (key, Arc::clone(&device.transport))
         };
 
-        let key = target_key.ok_or_else(|| {
-            ProtocolError::DeviceError("No active ESP32 Bridge connected".into())
+        let mut transport = transport_arc.lock().map_err(|_| {
+            ProtocolError::DeviceError("Transport lock poisoned".into())
         })?;
 
-        let device = devs.get_mut(&key).ok_or_else(|| {
-            ProtocolError::DeviceError(format!("Bridge device on {} not found", key))
-        })?;
-
-        let bridge = device
-            .transport
+        let bridge = transport
             .as_any_mut()
             .and_then(|any| any.downcast_mut::<crate::serial::BridgeTransport>())
             .ok_or_else(|| {

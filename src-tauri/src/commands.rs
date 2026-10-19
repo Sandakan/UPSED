@@ -10,6 +10,7 @@ use crate::serial::{
     PhysicalSerialPort, SerialTransport, WifiScanNetwork, WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
 };
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -18,6 +19,14 @@ pub struct ProbeStatusEvent {
     pub message: String,
     pub port_name: Option<String>,
     pub device_name: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WifiProvisionStatusEvent {
+    pub phase: String,
+    pub ssid: String,
+    pub ip: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1138,21 +1147,34 @@ pub async fn get_bridge_status(
 
 #[tauri::command]
 pub async fn configure_bridge_wifi(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: Option<String>,
     ssid: String,
     password: String,
 ) -> Result<BridgeStatus, String> {
+    let _ = app.emit(
+        "ups-wifi-provision-status",
+        WifiProvisionStatusEvent {
+            phase: "saving".into(),
+            ssid: ssid.clone(),
+            ip: None,
+            error: None,
+        },
+    );
+
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
+    let ssid_clone = ssid.clone();
+    let pass_clone = password.clone();
+    let port_clone = port_name.clone();
+
+    // Perform the immediate provisioning push in a blocking task (returns in <100ms)
+    let status = tokio::task::spawn_blocking(move || -> Result<BridgeStatus, String> {
         // 1. Try active BridgeTransport in MultiPortManager first
         if let Ok(status) = state_clone.manager.with_bridge_transport(
-            port_name.as_deref(),
-            |bridge, _key| bridge.set_wifi(&ssid, &password),
+            port_clone.as_deref(),
+            |bridge, _key| bridge.set_wifi(&ssid_clone, &pass_clone),
         ) {
-            if status.wifi_connected && !status.ip.is_empty() {
-                let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
-            }
             return Ok(status);
         }
 
@@ -1164,11 +1186,8 @@ pub async fn configure_bridge_wifi(
                     let mut temp_bridge =
                         BridgeTransport::open(&bridge_id, None).map_err(|e| e.to_string())?;
                     let status = temp_bridge
-                        .set_wifi(&ssid, &password)
+                        .set_wifi(&ssid_clone, &pass_clone)
                         .map_err(|e| e.to_string())?;
-                    if status.wifi_connected && !status.ip.is_empty() {
-                        let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
-                    }
                     return Ok(status);
                 }
             }
@@ -1177,7 +1196,111 @@ pub async fn configure_bridge_wifi(
         Err("No connected ESP32 Hardware Bridge found over USB or Wi-Fi".into())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    let _ = app.emit(
+        "ups-wifi-provision-status",
+        WifiProvisionStatusEvent {
+            phase: "reconnecting".into(),
+            ssid: ssid.clone(),
+            ip: if status.ip.is_empty() { None } else { Some(status.ip.clone()) },
+            error: None,
+        },
+    );
+
+    // Spawn async background monitor to track Wi-Fi association and verify connection or rollback
+    let app_handle = app.clone();
+    let target_ssid = ssid.clone();
+    let state_bg = state.inner().clone();
+    let port_bg = port_name.clone();
+
+    tauri::async_runtime::spawn(async move {
+        // Grace period for ESP32 to disconnect and initiate association
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        let start_time = Instant::now();
+        let max_wait = Duration::from_secs(18);
+
+        while start_time.elapsed() < max_wait {
+            // Check 1: Query active bridge via MultiPortManager
+            let query_res = state_bg.manager.with_bridge_transport(
+                port_bg.as_deref(),
+                |bridge, _key| bridge.ping(),
+            );
+
+            let status_opt = match query_res {
+                Ok(st) => Some(st),
+                Err(_) => {
+                    // Check 2: Try probing mDNS
+                    let mdns_probe = tokio::task::spawn_blocking(|| {
+                        crate::serial::bridge_adapter::probe_ws_bridge("upsed-bridge.local")
+                    }).await.ok().flatten();
+
+                    if let Some((_, st)) = mdns_probe {
+                        Some(st)
+                    } else {
+                        // Check fallback IP if stored
+                        if let Ok(Some(saved_ip)) = state_bg.db.get_setting("bridge_fallback_host") {
+                            let ip_probe = tokio::task::spawn_blocking(move || {
+                                crate::serial::bridge_adapter::probe_ws_bridge(&saved_ip)
+                            }).await.ok().flatten();
+                            ip_probe.map(|(_, st)| st)
+                        } else {
+                            None
+                        }
+                    }
+                }
+            };
+
+            if let Some(st) = status_opt {
+                if st.wifi_connected {
+                    if st.ssid == target_ssid {
+                        // Success: Bridge associated with the new target Wi-Fi!
+                        if !st.ip.is_empty() {
+                            let _ = state_bg.db.set_setting("bridge_fallback_host", &st.ip);
+                        }
+                        let _ = app_handle.emit(
+                            "ups-wifi-provision-status",
+                            WifiProvisionStatusEvent {
+                                phase: "connected".into(),
+                                ssid: target_ssid.clone(),
+                                ip: Some(st.ip.clone()),
+                                error: None,
+                            },
+                        );
+                        return;
+                    } else if !st.ssid.is_empty() {
+                        // Rollback: Bridge restored its previous working network
+                        let _ = app_handle.emit(
+                            "ups-wifi-provision-status",
+                            WifiProvisionStatusEvent {
+                                phase: "rollback".into(),
+                                ssid: st.ssid.clone(),
+                                ip: Some(st.ip.clone()),
+                                error: Some(st.wifi_last_error.clone()),
+                            },
+                        );
+                        return;
+                    }
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        }
+
+        // Timed out waiting for bridge to associate or rollback
+        let _ = app_handle.emit(
+            "ups-wifi-provision-status",
+            WifiProvisionStatusEvent {
+                phase: "failed".into(),
+                ssid: target_ssid,
+                ip: None,
+                error: Some("Bridge did not reappear on network after 18 seconds".into()),
+            },
+        );
+    });
+
+    Ok(status)
 }
 
 #[tauri::command]

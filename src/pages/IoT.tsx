@@ -29,6 +29,7 @@ import {
   Zap,
   Globe,
   Share2,
+  RotateCcw,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -39,6 +40,7 @@ import {
   BridgeLogEntry,
   WifiScanNetwork,
   WsTestResult,
+  WifiProvisionStatusEvent,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -58,6 +60,14 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isConfiguringWifi, setIsConfiguringWifi] = useState(false);
+  const [provisioningStep, setProvisioningStep] = useState<
+    'idle' | 'saving' | 'reconnecting' | 'connected' | 'rollback' | 'failed'
+  >('idle');
+  const [provisioningTargetSsid, setProvisioningTargetSsid] = useState('');
+  const [provisioningResult, setProvisioningResult] = useState<{
+    ip?: string | null;
+    error?: string | null;
+  } | null>(null);
   const [scannedNetworks, setScannedNetworks] = useState<WifiScanNetwork[]>([]);
   const [isScanningWifi, setIsScanningWifi] = useState(false);
 
@@ -144,6 +154,77 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
     };
   }, []);
 
+  // Real-time Wi-Fi Provisioning Status Listener
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+
+    listen<WifiProvisionStatusEvent>('ups-wifi-provision-status', (event) => {
+      if (!isMounted) return;
+      const { phase, ssid: evSsid, ip: evIp, error: evError } = event.payload;
+
+      setProvisioningStep(phase);
+      setProvisioningTargetSsid(evSsid);
+      setProvisioningResult({ ip: evIp, error: evError });
+
+      if (phase === 'connected') {
+        setIsConfiguringWifi(false);
+        refreshStatus();
+        queryClient.invalidateQueries({ queryKey: ['ports'] });
+        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+        toast.custom(
+          JSON.stringify({
+            title: 'ESP32 Bridge Connected to Wi-Fi',
+            description: `Successfully associated with "${evSsid}". IP assigned: ${evIp || 'N/A'}.`,
+            event: {
+              severity: 'success',
+              event_type: 'BRIDGE_WIFI_OK',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } else if (phase === 'rollback') {
+        setIsConfiguringWifi(false);
+        refreshStatus();
+        toast.custom(
+          JSON.stringify({
+            title: 'Wi-Fi Connection Rolled Back',
+            description: `Could not connect to "${evSsid}" (${evError || 'Auth error/timeout'}). Bridge safely restored previous working network to prevent lockout.`,
+            event: {
+              severity: 'warning',
+              event_type: 'BRIDGE_WIFI_ROLLBACK',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } else if (phase === 'failed') {
+        setIsConfiguringWifi(false);
+        toast.custom(
+          JSON.stringify({
+            title: 'Wi-Fi Transition Timed Out',
+            description: `ESP32 did not report back after 18s. Check 2.4GHz network status or reconnect via USB.`,
+            event: {
+              severity: 'error',
+              event_type: 'BRIDGE_WIFI_ERR',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      }
+    }).then((unlisten) => {
+      if (!isMounted) {
+        unlisten();
+      } else {
+        unlistenFn = unlisten;
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, [refreshStatus, queryClient]);
+
   // Auto-scroll log console
   useEffect(() => {
     if (autoScroll && activeTab === 'logs') {
@@ -190,42 +271,20 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
   const handleConfigureWifi = async () => {
     if (!ssid.trim()) return;
     setIsConfiguringWifi(true);
+    setProvisioningStep('saving');
+    setProvisioningTargetSsid(ssid.trim());
+    setProvisioningResult(null);
+
     try {
       const updated = await api.configureBridgeWifi(ssid.trim(), password, portName ?? undefined);
       setStatus(updated);
-      if (updated.ip) {
-        setFallbackHost(updated.ip);
-        await api.setBridgeFallbackHost(updated.ip).catch(() => {});
-        queryClient.invalidateQueries({ queryKey: ['ports'] });
-        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
-      }
-      if (updated.wifi_connected) {
-        toast.custom(
-          JSON.stringify({
-            title: 'ESP32 Bridge Connected to Wi-Fi',
-            description: `Saved "${updated.ssid}" to NVS Flash. WebSocket server active at ws://${updated.ip}:${updated.ws_port} (${updated.hostname}).`,
-            event: {
-              severity: 'success',
-              event_type: 'BRIDGE_WIFI_OK',
-              timestamp: new Date().toISOString(),
-            },
-          })
-        );
-      } else {
-        toast.custom(
-          JSON.stringify({
-            title: 'Wi-Fi Credentials Saved to ESP32',
-            description: `Credentials saved to NVS Flash, but Wi-Fi did not connect within 8s. Reason: ${updated.wifi_last_error || 'Association timeout'}. Please verify SSID/password or 2.4GHz band.`,
-            event: {
-              severity: 'warning',
-              event_type: 'BRIDGE_WIFI_WARN',
-              timestamp: new Date().toISOString(),
-            },
-          })
-        );
-      }
+      setProvisioningStep('reconnecting');
+      // Background 'ups-wifi-provision-status' event listener finalizes 'connected', 'rollback', or 'failed'
     } catch (e: unknown) {
+      setIsConfiguringWifi(false);
+      setProvisioningStep('failed');
       const msg = e instanceof Error ? e.message : String(e);
+      setProvisioningResult({ error: msg });
       toast.custom(
         JSON.stringify({
           title: 'ESP32 Wi-Fi Provisioning Failed',
@@ -237,8 +296,6 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
           },
         })
       );
-    } finally {
-      setIsConfiguringWifi(false);
     }
   };
 
@@ -814,6 +871,106 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
                         Verify WPA passphrase or ensure access point operates on 20MHz channel width.
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* 3-Step Live Provisioning Progress Stepper */}
+                {provisioningStep !== 'idle' && (
+                  <div className="p-4 rounded-xl bg-slate-900/90 border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                      <span>Provisioning Progress</span>
+                      <span className="text-slate-400 font-mono text-[11px] capitalize">{provisioningStep}</span>
+                    </div>
+
+                    <div className="space-y-2.5 text-xs">
+                      {/* Step 1: NVS Flash Write */}
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-emerald-500/20 text-emerald-400">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-slate-200">
+                          Credentials Staged & Written to NVS Flash
+                        </span>
+                      </div>
+
+                      {/* Step 2: Associating with AP */}
+                      <div className="flex items-center gap-2.5">
+                        {provisioningStep === 'saving' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-slate-800 text-slate-500">
+                            <span className="text-[10px]">2</span>
+                          </div>
+                        ) : provisioningStep === 'reconnecting' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-cyan-500/20 text-cyan-400">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          </div>
+                        ) : provisioningStep === 'connected' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-emerald-500/20 text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </div>
+                        ) : provisioningStep === 'rollback' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-amber-500/20 text-amber-400">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-red-500/20 text-red-400">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                        <span className={provisioningStep === 'reconnecting' ? 'text-cyan-300 font-medium' : provisioningStep === 'rollback' ? 'text-amber-300' : 'text-slate-300'}>
+                          {provisioningStep === 'saving'
+                            ? `Preparing association with "${provisioningTargetSsid}"`
+                            : provisioningStep === 'reconnecting'
+                            ? `Associating with "${provisioningTargetSsid}" (up to 12s)...`
+                            : provisioningStep === 'connected'
+                            ? `Successfully associated with "${provisioningTargetSsid}"`
+                            : provisioningStep === 'rollback'
+                            ? `Failed to associate (${provisioningResult?.error || 'Auth error/timeout'})`
+                            : `Association failed`}
+                        </span>
+                      </div>
+
+                      {/* Step 3: Link Verification & Status */}
+                      <div className="flex items-center gap-2.5">
+                        {provisioningStep === 'connected' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-emerald-500/20 text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </div>
+                        ) : provisioningStep === 'rollback' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-amber-500/20 text-amber-400">
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </div>
+                        ) : provisioningStep === 'failed' ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-red-500/20 text-red-400">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-slate-800 text-slate-500">
+                            <span className="text-[10px]">3</span>
+                          </div>
+                        )}
+                        <span className={provisioningStep === 'connected' ? 'text-emerald-400 font-medium' : provisioningStep === 'rollback' ? 'text-amber-400 font-medium' : 'text-slate-400'}>
+                          {provisioningStep === 'connected'
+                            ? `Connected & Verified (IP: ${provisioningResult?.ip || 'Assigned'})`
+                            : provisioningStep === 'rollback'
+                            ? `Safely restored previous connection (No lockout)`
+                            : provisioningStep === 'failed'
+                            ? `Connection timed out`
+                            : `Awaiting link verification...`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {(provisioningStep === 'connected' || provisioningStep === 'rollback' || provisioningStep === 'failed') && (
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setProvisioningStep('idle')}
+                          className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
