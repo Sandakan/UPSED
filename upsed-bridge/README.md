@@ -46,19 +46,44 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 
 ---
 
+## 🔑 Environment Configuration (`.env`)
+
+Wireless OTA firmware updates and PlatformIO builds require an authentication secret configured in the root `.env` file:
+
+```bash
+# Copy template from example
+cp .env.example .env
+```
+
+Ensure `UPSED_OTA_SECRET` is set in your `.env`:
+```env
+UPSED_OTA_SECRET="ChangeThisToAStrongSecretKey123!"
+```
+
+> [!IMPORTANT]
+> The build script (`scripts/pio.js`) and Tauri desktop backend enforce that `UPSED_OTA_SECRET` is strictly present. If `.env` or the secret is missing, builds and OTA operations halt with an actionable error. Never commit your `.env` file to version control.
+
+---
+
 ## 🚀 Quick Management via NPM (Recommended)
 
-From the UPSED repository root directory, you can manage the bridge using these `npm run` scripts:
+From the UPSED repository root directory, you can manage and flash the bridge using these `npm run` scripts:
 
 ```bash
 # Compile the firmware in release mode
 npm run bridge:build
 
-# Flash firmware to the connected ESP32-S3 (auto-detects COM port)
+# Flash firmware via USB Serial CDC (auto-detects COM port)
 npm run bridge:upload
 
 # Target a specific COM port when multiple devices are connected
 npm run bridge:upload -- --upload-port COM3
+
+# Flash firmware wirelessly over Wi-Fi (PlatformIO espota via mDNS or IP)
+npm run bridge:ota
+
+# Target a specific IP address for wireless OTA flashing
+npm run bridge:ota -- --upload-port 192.168.0.59
 
 # Open serial monitor at 115,200 baud
 npm run bridge:monitor
@@ -67,7 +92,22 @@ npm run bridge:monitor
 npm run bridge:clean
 ```
 
-*(Note: `npm run pio:*` scripts like `npm run pio:build` and `npm run pio:upload` are also available as identical aliases).*
+*(Note: `npm run pio:*` scripts like `npm run pio:build`, `npm run pio:upload`, and `npm run pio:ota` are also available as identical aliases).*
+
+---
+
+## 📶 In-App Wireless Desktop OTA
+
+You can also update the ESP32-S3 firmware directly from the **UPSED Desktop Application**:
+
+1. Open UPSED and navigate to the **ESP32 Bridge (IoT)** tab.
+2. Click on the **Firmware & OTA** sub-tab.
+3. Select your desired firmware source:
+   - **Official GitHub Release:** Downloads and flashes the latest verified release from `Sandakan/UPSED`.
+   - **Local PlatformIO Build:** Uses your locally compiled `firmware.bin` from `npm run bridge:build`.
+   - **Custom Binary File:** Select any custom `.bin` image from your disk.
+4. Click **Flash Firmware Wirelessly**.
+5. The application requests a secure 90-second lease from the bridge, streams the binary over HTTP port 8080 with byte-level progress reporting, and the ESP32 automatically reboots into the new partition.
 
 ---
 
@@ -218,7 +258,34 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
   }
   ```
 
-### 6. `bridge.log` — Real-Time Push Notification
+### 6. `bridge.startOta` — On-Demand Leased Wireless OTA Mode
+- **Request:**
+  ```json
+  {"jsonrpc": "2.0", "id": 6, "method": "bridge.startOta", "params": {"token": "YourOtaSecret123!"}}
+  ```
+- **Response:**
+  ```json
+  {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+      "status": "OTA_READY",
+      "port": 8080,
+      "lease_ms": 90000,
+      "ip": "192.168.0.59"
+    }
+  }
+  ```
+- **Description:** Opens HTTP server on port 8080 and PlatformIO `ArduinoOTA` listener on port 3232 for 90 seconds. Suspends RS-232 telemetry and switches LED to pulsing Magenta.
+
+### 7. `bridge.abortOta` — Cancel Leased OTA Mode
+- **Request:**
+  ```json
+  {"jsonrpc": "2.0", "id": 7, "method": "bridge.abortOta", "params": {}}
+  ```
+- **Description:** Immediately terminates the HTTP server and ArduinoOTA listeners, releasing the lease and returning to normal mode.
+
+### 8. `bridge.log` — Real-Time Push Notification
 Unprompted notification pushed to all connected clients:
 ```json
 {

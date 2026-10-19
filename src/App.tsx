@@ -51,6 +51,35 @@ export function App() {
 
   const [activeTransport, setActiveTransport] = useState<'usb' | 'websocket' | null>(null);
   const [transportIp, setTransportIp] = useState<string | null>(null);
+  const [bridgeUpdateAvailable, setBridgeUpdateAvailable] = useState(false);
+  const [bridgeCompatible, setBridgeCompatible] = useState(true);
+
+  // Check for ESP32 Bridge firmware updates periodically
+  useEffect(() => {
+    let isMounted = true;
+    const checkUpdate = async () => {
+      try {
+        const st = await api.getBridgeStatus().catch(() => null);
+        if (st && st.is_compatible !== undefined) {
+          setBridgeCompatible(st.is_compatible);
+        }
+        const fw = st?.fw || '1.0.0';
+        const res = await api.checkBridgeFirmwareUpdate(fw);
+        if (isMounted) {
+          setBridgeUpdateAvailable(res.update_available);
+        }
+      } catch {
+        // Ignore offline / network check failures
+      }
+    };
+
+    checkUpdate();
+    const interval = setInterval(checkUpdate, 5 * 60 * 1000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleShowOutageHighlightsChange = (val: boolean) => {
     setShowOutageHighlights(val);
@@ -367,6 +396,7 @@ export function App() {
         if (st) {
           setActiveTransport(st.active_transport === 'websocket' ? 'websocket' : 'usb');
           if (st.ip) setTransportIp(st.ip);
+          if (st.is_compatible !== undefined) setBridgeCompatible(st.is_compatible);
         }
       }).catch(() => {
         if (!activeTransport) setActiveTransport('usb');
@@ -529,6 +559,8 @@ export function App() {
           selectedDevice={selectedDevice}
           activeTransport={activeTransport}
           transportIp={transportIp}
+          bridgeUpdateAvailable={bridgeUpdateAvailable}
+          bridgeCompatible={bridgeCompatible}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
           safetyStage={safetyStage}

@@ -30,6 +30,11 @@ import {
   Globe,
   Share2,
   RotateCcw,
+  Download,
+  UploadCloud,
+  FileCode,
+  ShieldCheck,
+  Check,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -41,6 +46,8 @@ import {
   WifiScanNetwork,
   WsTestResult,
   WifiProvisionStatusEvent,
+  BridgeFirmwareCheckResult,
+  OtaProgressEvent,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -53,7 +60,15 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
   // Status & Telemetry
   const [status, setStatus] = useState<BridgeStatus | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
-  const [activeTab, setActiveTab] = useState<'wifi' | 'ws' | 'backlog' | 'logs' | 'smart-home'>('wifi');
+  const [activeTab, setActiveTab] = useState<'wifi' | 'ws' | 'backlog' | 'ota' | 'logs' | 'smart-home'>('wifi');
+
+  // Firmware & Wireless OTA
+  const [firmwareCheck, setFirmwareCheck] = useState<BridgeFirmwareCheckResult | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isFlashingOta, setIsFlashingOta] = useState(false);
+  const [otaProgress, setOtaProgress] = useState<OtaProgressEvent | null>(null);
+  const [otaSource, setOtaSource] = useState<'github' | 'local' | 'file'>('github');
+  const [customBinaryPath, setCustomBinaryPath] = useState('');
 
   // Wi-Fi Scanner & Provisioning
   const [ssid, setSsid] = useState('');
@@ -231,6 +246,142 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
       consoleBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoScroll, activeTab]);
+
+  // Real-time OTA Progress Listener
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+
+    listen<OtaProgressEvent>('ups-ota-progress', (event) => {
+      if (!isMounted) return;
+      const progress = event.payload;
+      setOtaProgress(progress);
+      if (progress.phase === 'success') {
+        setIsFlashingOta(false);
+        refreshStatus();
+        queryClient.invalidateQueries({ queryKey: ['device_status'] });
+      } else if (progress.phase === 'error') {
+        setIsFlashingOta(false);
+      }
+    }).then((unlisten) => {
+      if (!isMounted) {
+        unlisten();
+      } else {
+        unlistenFn = unlisten;
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, [refreshStatus, queryClient]);
+
+  // Initial firmware check when status loads
+  useEffect(() => {
+    if (status?.fw && !firmwareCheck) {
+      api.checkBridgeFirmwareUpdate(status.fw)
+        .then(setFirmwareCheck)
+        .catch(() => {});
+    }
+  }, [status?.fw, firmwareCheck]);
+
+  // Manual check for firmware updates
+  const handleCheckUpdate = useCallback(async (currentFw?: string) => {
+    setIsCheckingUpdate(true);
+    try {
+      const fwVersion = currentFw || status?.fw || '1.0.0';
+      const result = await api.checkBridgeFirmwareUpdate(fwVersion);
+      setFirmwareCheck(result);
+      if (result.update_available) {
+        toast.custom(
+          JSON.stringify({
+            title: 'Bridge Update Available',
+            description: `New firmware ${result.latest_version} is available on GitHub.`,
+            event: {
+              severity: 'info',
+              event_type: 'BRIDGE_OTA_AVAILABLE',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } else {
+        toast.success('Bridge firmware is up to date.');
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Update check failed: ${msg}`);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }, [status?.fw]);
+
+  // Wireless OTA Flash
+  const handleFlashOta = async () => {
+    if (!window.confirm(
+      'Proceed with wireless firmware update?\n\n' +
+      'During this process:\n' +
+      '• The ESP32 will open an on-demand leased OTA server on port 8080.\n' +
+      '• RS-232 telemetry polling will be paused.\n' +
+      '• The onboard LED will pulse magenta.\n' +
+      '• Upon completion, the bridge will reboot and automatically reconnect.'
+    )) {
+      return;
+    }
+
+    setIsFlashingOta(true);
+    setOtaProgress({
+      phase: 'leasing',
+      percentage: 5,
+      bytes_transferred: 0,
+      total_bytes: 0,
+      message: 'Requesting on-demand OTA lease from ESP32...',
+    });
+
+    try {
+      const res = await api.flashBridgeFirmware({
+        portName: portName ?? undefined,
+        source: otaSource,
+        customPath: otaSource === 'file' ? customBinaryPath : undefined,
+        downloadUrl: otaSource === 'github' ? firmwareCheck?.download_url ?? undefined : undefined,
+      });
+
+      toast.custom(
+        JSON.stringify({
+          title: 'Bridge Firmware Flashed',
+          description: res || 'ESP32 successfully updated and rebooted.',
+          event: {
+            severity: 'info',
+            event_type: 'BRIDGE_OTA_SUCCESS',
+            timestamp: new Date().toISOString(),
+          },
+        })
+      );
+      await refreshStatus();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.custom(
+        JSON.stringify({
+          title: 'OTA Flash Failed',
+          description: msg,
+          event: {
+            severity: 'critical',
+            event_type: 'BRIDGE_OTA_ERR',
+            timestamp: new Date().toISOString(),
+          },
+        })
+      );
+      setOtaProgress({
+        phase: 'error',
+        percentage: 0,
+        bytes_transferred: 0,
+        total_bytes: 0,
+        message: msg,
+      });
+    } finally {
+      setIsFlashingOta(false);
+    }
+  };
 
   // Wi-Fi Scan
   const handleScanWifi = async () => {
@@ -560,6 +711,35 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
         </div>
       </div>
 
+      {/* ── Incompatible Firmware Alert Banner (Hard-Block) ──────────── */}
+      {status && status.is_compatible === false && (
+        <div className="rounded-2xl p-4 border border-rose-500/40 bg-rose-500/10 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-rose-300 flex items-center gap-2">
+                <span>Incompatible ESP32 Bridge Firmware</span>
+                <span className="px-2 py-0.2 rounded text-[10px] font-mono bg-rose-500/30 text-rose-200">
+                  Installed: v{status.fw} • Required: &gt;= v{status.min_supported_fw || '1.0.0'}
+                </span>
+              </h3>
+              <p className="text-xs text-rose-300/80 mt-1 leading-relaxed">
+                Hardware telemetry commands are suspended to prevent protocol errors and serial data corruption.
+                Please update your bridge firmware to version {status.min_supported_fw || '1.0.0'} or newer using the <strong>Firmware &amp; OTA</strong> panel below.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('ota')}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 transition shrink-0 cursor-pointer shadow-lg shadow-rose-950/40"
+          >
+            Update Firmware Now
+          </button>
+        </div>
+      )}
+
       {/* ── Status Banner & Health Hero Grid ────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Active Transport & Hardware Mode */}
@@ -587,7 +767,24 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
               {status ? status.bridge : 'Bridge Not Detected'}
             </div>
             <div className="text-xs text-slate-400 flex items-center gap-2 mt-1">
-              <span>FW: <strong className="text-slate-200">{status?.fw || '—'}</strong></span>
+              <span>FW: <strong className={status?.is_compatible === false ? 'text-rose-400 font-bold' : 'text-slate-200'}>{status?.fw || '—'}</strong></span>
+              {status?.is_compatible === false ? (
+                <button
+                  onClick={() => setActiveTab('ota')}
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition cursor-pointer flex items-center gap-1"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                  Incompatible
+                </button>
+              ) : firmwareCheck?.update_available ? (
+                <button
+                  onClick={() => setActiveTab('ota')}
+                  className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition cursor-pointer flex items-center gap-1"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Update
+                </button>
+              ) : null}
               <span>•</span>
               <span className="truncate">MAC: <strong className="text-slate-200 font-mono">{status?.mac || '—'}</strong></span>
             </div>
@@ -713,6 +910,29 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
               {status?.backlog_records}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('ota')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+            activeTab === 'ota'
+              ? status?.is_compatible === false
+                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5" />
+          <span>Firmware & OTA</span>
+          {status?.is_compatible === false ? (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold animate-pulse">
+              INCOMPATIBLE
+            </span>
+          ) : firmwareCheck?.update_available ? (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500 text-black font-bold">
+              UPDATE
+            </span>
+          ) : null}
         </button>
 
         <button
@@ -1446,6 +1666,401 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
             <div className="pt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>Built on the same JSON-RPC 2.0 and PSRAM ring-buffer architecture.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Firmware & Wireless OTA Tab */}
+      {activeTab === 'ota' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column: Firmware Overview & Release Status */}
+          <div className="space-y-6">
+            {/* Card 1: Active Firmware & Version Checker */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <Cpu className="w-5 h-5 text-emerald-400" />
+                  <h3 className="text-base font-semibold text-white">Bridge Firmware Version</h3>
+                </div>
+                {firmwareCheck?.update_available ? (
+                  <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Update Available
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-white/5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Up To Date
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
+                  <div className="text-slate-400 text-[11px]">Installed on ESP32</div>
+                  <div className="text-base font-bold text-white font-mono">
+                    {status?.fw || '1.0.0'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate">
+                    Target: ESP32-S3 DevKitC-1
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-1">
+                  <div className="text-slate-400 text-[11px]">Latest Release (GitHub)</div>
+                  <div className="text-base font-bold text-emerald-400 font-mono">
+                    {firmwareCheck?.latest_version || status?.fw || 'v1.0.0'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {firmwareCheck?.published_at
+                      ? new Date(firmwareCheck.published_at).toLocaleDateString()
+                      : 'Sandakan/UPSED'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Release Notes */}
+              {firmwareCheck?.release_notes && (
+                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-1.5 text-xs">
+                  <div className="font-semibold text-slate-300 flex items-center justify-between">
+                    <span>Release Notes ({firmwareCheck.latest_version})</span>
+                    {firmwareCheck.binary_size && (
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {Math.round(firmwareCheck.binary_size / 1024)} KB
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-400 text-[11px] leading-relaxed max-h-32 overflow-y-auto custom-scrollbar whitespace-pre-line">
+                    {firmwareCheck.release_notes}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={() => handleCheckUpdate()}
+                  disabled={isCheckingUpdate}
+                  className="flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition cursor-pointer border border-white/[0.06] disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-emerald-400' : ''}`} />
+                  <span>{isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates'}</span>
+                </button>
+
+                {firmwareCheck?.download_url && (
+                  <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                    <Download className="w-3 h-3 text-emerald-400" />
+                    Asset Verified
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Local Developer Binary */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <FileCode className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-base font-semibold text-white">Local PlatformIO Build</h3>
+                </div>
+                {firmwareCheck?.local_binary_path ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    Compiled Binary Ready
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-white/5">
+                    Not Found
+                  </span>
+                )}
+              </div>
+
+              {firmwareCheck?.local_binary_path ? (
+                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 text-[11px]">Artifact:</span>
+                    <span className="text-white font-mono font-medium">firmware.bin</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 text-[11px]">Size:</span>
+                    <span className="text-cyan-400 font-mono font-semibold">
+                      {Math.round((firmwareCheck.local_binary_size || 0) / 1024)} KB
+                    </span>
+                  </div>
+                  {firmwareCheck.local_binary_modified && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-[11px]">Last Built:</span>
+                      <span className="text-slate-300 font-mono text-[11px]">
+                        {firmwareCheck.local_binary_modified}
+                      </span>
+                    </div>
+                  )}
+                  <div className="text-[10px] text-slate-500 font-mono truncate pt-1 border-t border-white/[0.04]">
+                    {firmwareCheck.local_binary_path}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] text-xs text-slate-400 space-y-1">
+                  <div>No local PlatformIO build detected at:</div>
+                  <div className="text-[11px] font-mono text-slate-300">
+                    upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin
+                  </div>
+                  <div className="text-[11px] text-slate-500 pt-1">
+                    Run <code className="text-cyan-300">npm run bridge:build</code> in terminal to compile locally.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Card 3: Safety & Invariant Guarantees */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
+              <div className="flex items-center space-x-2 text-emerald-400">
+                <ShieldCheck className="w-5 h-5 shrink-0" />
+                <h4 className="text-sm font-semibold text-white">Hardware Safety & Security Guarantees</h4>
+              </div>
+              <ul className="text-xs text-slate-400 space-y-2 leading-relaxed">
+                <li className="flex items-start gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-slate-200">On-Demand Port 8080 Lease:</strong> The HTTP OTA server is closed by default. It opens strictly for 90 seconds upon authenticated command and auto-closes on timeout or reboot.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-slate-200">Strict Secret Enforcement:</strong> Transfers require <code className="text-cyan-300">UPSED_OTA_SECRET</code> matching between desktop and bridge via <code className="text-slate-300">X-UPSED-OTA-TOKEN</code>.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-slate-200">RS-232 Telemetry Isolation:</strong> UPS communication is safely suspended during flash to eliminate hardware UART collisions and flash writes contention.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-slate-200">Visual Status Indication:</strong> Onboard RGB LED transitions to pulsing Magenta while flashing, restoring normal operational mode upon reboot.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Right Column: Wireless Flashing Controls & Live Progress */}
+          <div className="space-y-6">
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <UploadCloud className="w-5 h-5 text-emerald-400" />
+                  <h3 className="text-base font-semibold text-white">Wireless Firmware Flashing</h3>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Dual-OTA Engine
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                Flash pre-compiled firmware binaries directly to the ESP32-S3 over local Wi-Fi without attaching physical USB cables.
+              </p>
+
+              {/* Source Selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-300 block">Firmware Source</label>
+                <div className="space-y-2">
+                  {/* GitHub option */}
+                  <label
+                    className={`flex items-start space-x-3 p-3 rounded-xl border transition cursor-pointer ${
+                      otaSource === 'github'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                        : 'bg-black/20 border-white/[0.06] text-slate-400 hover:bg-white/[0.03]'
+                    } ${!firmwareCheck?.download_url ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="otaSource"
+                      value="github"
+                      checked={otaSource === 'github'}
+                      onChange={() => setOtaSource('github')}
+                      disabled={!firmwareCheck?.download_url || isFlashingOta}
+                      className="mt-0.5 accent-emerald-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-semibold text-white flex items-center gap-2">
+                        <span>Official GitHub Release</span>
+                        {firmwareCheck?.latest_version && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                            {firmwareCheck.latest_version}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-slate-400 text-[11px] mt-0.5">
+                        {firmwareCheck?.download_url
+                          ? 'Automated download from Sandakan/UPSED releases'
+                          : 'No remote release binary currently published on GitHub'}
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Local build option */}
+                  <label
+                    className={`flex items-start space-x-3 p-3 rounded-xl border transition cursor-pointer ${
+                      otaSource === 'local'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                        : 'bg-black/20 border-white/[0.06] text-slate-400 hover:bg-white/[0.03]'
+                    } ${!firmwareCheck?.local_binary_path ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="otaSource"
+                      value="local"
+                      checked={otaSource === 'local'}
+                      onChange={() => setOtaSource('local')}
+                      disabled={!firmwareCheck?.local_binary_path || isFlashingOta}
+                      className="mt-0.5 accent-emerald-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-semibold text-white flex items-center gap-2">
+                        <span>Local PlatformIO Build</span>
+                        {firmwareCheck?.local_binary_size && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">
+                            {Math.round(firmwareCheck.local_binary_size / 1024)} KB
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-slate-400 text-[11px] mt-0.5">
+                        {firmwareCheck?.local_binary_path
+                          ? 'Flash latest locally compiled firmware.bin'
+                          : 'Run npm run bridge:build to generate local binary'}
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Custom file option */}
+                  <label
+                    className={`flex items-start space-x-3 p-3 rounded-xl border transition cursor-pointer ${
+                      otaSource === 'file'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                        : 'bg-black/20 border-white/[0.06] text-slate-400 hover:bg-white/[0.03]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="otaSource"
+                      value="file"
+                      checked={otaSource === 'file'}
+                      onChange={() => setOtaSource('file')}
+                      disabled={isFlashingOta}
+                      className="mt-0.5 accent-emerald-500"
+                    />
+                    <div className="text-xs w-full">
+                      <div className="font-semibold text-white">Custom Binary File (.bin)</div>
+                      <div className="text-slate-400 text-[11px] mt-0.5">
+                        Select or enter path to an external ESP32-S3 firmware image
+                      </div>
+                      {otaSource === 'file' && (
+                        <div className="mt-2">
+                          <input
+                            type="text"
+                            placeholder="C:\path\to\firmware.bin"
+                            value={customBinaryPath}
+                            onChange={(e) => setCustomBinaryPath(e.target.value)}
+                            disabled={isFlashingOta}
+                            className="w-full px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="pt-2">
+                <PrimaryButton
+                  onClick={handleFlashOta}
+                  disabled={
+                    isFlashingOta ||
+                    (otaSource === 'github' && !firmwareCheck?.download_url) ||
+                    (otaSource === 'local' && !firmwareCheck?.local_binary_path) ||
+                    (otaSource === 'file' && !customBinaryPath)
+                  }
+                  icon={<Zap className={`w-4 h-4 ${isFlashingOta ? 'animate-pulse text-amber-400' : ''}`} />}
+                  className="w-full justify-center py-2.5"
+                >
+                  {isFlashingOta ? 'Flashing Bridge Wirelessly...' : 'Flash Firmware Wirelessly'}
+                </PrimaryButton>
+              </div>
+
+              {/* Live Multi-Stage Progress Visualizer */}
+              {(isFlashingOta || otaProgress) && (
+                <div className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-white flex items-center gap-2">
+                      {isFlashingOta && <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />}
+                      <span className="capitalize">{otaProgress?.phase || 'Processing'}</span>
+                    </span>
+                    <span className="font-mono text-emerald-400 font-bold">
+                      {otaProgress?.percentage ?? 0}%
+                    </span>
+                  </div>
+
+                  {/* Multi-stage bar */}
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        otaProgress?.phase === 'error'
+                          ? 'bg-rose-500'
+                          : otaProgress?.phase === 'success'
+                          ? 'bg-emerald-400'
+                          : 'bg-gradient-to-r from-emerald-500 to-cyan-400'
+                      }`}
+                      style={{ width: `${Math.min(100, Math.max(0, otaProgress?.percentage ?? 0))}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="truncate pr-2">
+                      {otaProgress?.message || 'Executing wireless update pipeline...'}
+                    </span>
+                    {otaProgress?.total_bytes ? (
+                      <span className="font-mono shrink-0">
+                        {Math.round((otaProgress.bytes_transferred || 0) / 1024)} /{' '}
+                        {Math.round(otaProgress.total_bytes / 1024)} KB
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Card: PlatformIO CLI Alternative */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Terminal className="w-4 h-4 text-cyan-400" />
+                  <h4 className="text-sm font-semibold text-white">PlatformIO CLI Flashing Alternative</h4>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400">Port 3232</span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Developers can also flash wireless updates directly from terminal using PlatformIO's <code className="text-cyan-300">espota</code> protocol:
+              </p>
+              <div className="p-3 rounded-xl bg-black/50 border border-white/[0.06] font-mono text-xs text-emerald-400 flex items-center justify-between">
+                <span>npm run bridge:ota</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText('npm run bridge:ota');
+                    toast.success('Copied CLI command to clipboard');
+                  }}
+                  className="p-1 hover:text-white transition cursor-pointer text-slate-400"
+                  title="Copy command"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Uses authentication token configured in <code className="text-slate-400">.env</code>.
+              </div>
             </div>
           </div>
         </div>

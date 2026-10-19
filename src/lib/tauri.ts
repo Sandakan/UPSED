@@ -13,6 +13,7 @@ import {
   WifiScanNetwork,
   WsTestResult,
   BridgeLogEntry,
+  BridgeFirmwareCheckResult,
 } from './types';
 
 export const api = {
@@ -146,6 +147,22 @@ export const api = {
 
   setBridgeFallbackHost: (host: string) =>
     invoke<void>('set_bridge_fallback_host', { host }),
+
+  checkBridgeFirmwareUpdate: (currentVersion: string) =>
+    invoke<BridgeFirmwareCheckResult>('check_bridge_firmware_update', { currentVersion }),
+
+  flashBridgeFirmware: (args: {
+    portName?: string;
+    source: 'github' | 'local' | 'file';
+    customPath?: string;
+    downloadUrl?: string;
+  }) =>
+    invoke<string>('flash_bridge_firmware', {
+      portName: args.portName,
+      source: args.source,
+      customPath: args.customPath,
+      downloadUrl: args.downloadUrl,
+    }),
 };
 
 

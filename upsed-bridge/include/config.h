@@ -10,6 +10,12 @@
 #define BRIDGE_FIRMWARE_VER    "1.0.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
+#define BRIDGE_OTA_PORT        8080
+#define BRIDGE_OTA_LEASE_MS    90000UL   // 90s auto-abort lease for on-demand HTTP OTA
+
+#ifndef BRIDGE_OTA_SECRET
+#define BRIDGE_OTA_SECRET      "upsed-ota-default-secret"
+#endif
 
 // UART0 (USB Serial Bridge to Desktop PC)
 #define PC_SERIAL_BAUD         115200

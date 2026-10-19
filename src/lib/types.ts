@@ -174,6 +174,8 @@ export interface BridgeStatus {
   psram_free: number;
   uptime_sec: number;
   active_transport: 'usb' | 'websocket' | string;
+  min_supported_fw?: string;
+  is_compatible?: boolean;
 }
 
 export interface WifiScanNetwork {
@@ -213,6 +215,27 @@ export interface WifiProvisionStatusEvent {
   ssid: string;
   ip?: string | null;
   error?: string | null;
+}
+
+export interface BridgeFirmwareCheckResult {
+  current_version: string;
+  latest_version?: string | null;
+  update_available: boolean;
+  release_notes?: string | null;
+  published_at?: string | null;
+  download_url?: string | null;
+  binary_size?: number | null;
+  local_binary_path?: string | null;
+  local_binary_size?: number | null;
+  local_binary_modified?: string | null;
+}
+
+export interface OtaProgressEvent {
+  phase: 'downloading' | 'leasing' | 'uploading' | 'rebooting' | 'success' | 'error';
+  percentage: number;
+  bytes_transferred: number;
+  total_bytes: number;
+  message: string;
 }
 
 

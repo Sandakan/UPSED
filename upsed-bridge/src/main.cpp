@@ -3,6 +3,9 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WebSocketsServer.h>
+#include <WebServer.h>
+#include <Update.h>
+#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <time.h>
 
@@ -16,13 +19,15 @@
 
 HardwareSerial UpsSerial(1);
 WebSocketsServer wsServer(BRIDGE_WS_PORT);
+WebServer otaServer(BRIDGE_OTA_PORT);
 Preferences prefs;
 BacklogStore backlogStore;
 DiagLogger diagLog;
 
 enum BridgeOperatingMode {
     MODE_PROXY = 0,
-    MODE_STANDALONE = 1
+    MODE_STANDALONE = 1,
+    MODE_OTA = 2
 };
 
 static BridgeOperatingMode currentMode = MODE_PROXY;
@@ -31,6 +36,10 @@ static unsigned long lastStandalonePollMs = 0;
 static unsigned long lastWifiRetryMs = 0;
 static bool wsServerStarted = false;
 static bool mdnsStarted = false;
+static bool arduinoOtaStarted = false;
+static bool otaServerActive = false;
+static bool otaUpdating = false;
+static unsigned long otaLeaseExpiryMs = 0;
 static String savedSsid = "";
 static String savedPass = "";
 static bool pendingWifiSwitch = false;
@@ -190,8 +199,125 @@ void ensureNetworkServicesStarted() {
             wsServerStarted = true;
             diagLog.info("[WS] WebSocket server listening on port %d", BRIDGE_WS_PORT);
         }
+        if (!arduinoOtaStarted) {
+            ArduinoOTA.setPort(3232);
+            ArduinoOTA.setHostname(BRIDGE_MDNS_HOSTNAME);
+            ArduinoOTA.setPassword(BRIDGE_OTA_SECRET);
+            ArduinoOTA.onStart([]() {
+                currentMode = MODE_OTA;
+                diagLog.info("[OTA] ArduinoOTA flashing started over Wi-Fi...");
+                setBridgeLed(70, 0, 70);
+            });
+            ArduinoOTA.onEnd([]() {
+                diagLog.info("[OTA] ArduinoOTA flashing completed! Rebooting...");
+                setBridgeLed(0, 80, 0);
+            });
+            ArduinoOTA.onError([](ota_error_t error) {
+                diagLog.error("[OTA] ArduinoOTA error [%u]", error);
+                setBridgeLed(80, 0, 0);
+            });
+            ArduinoOTA.begin();
+            arduinoOtaStarted = true;
+            diagLog.info("[OTA] ArduinoOTA listener started on port 3232");
+        }
         configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     }
+}
+
+// ============================================================================
+// On-Demand Leased OTA HTTP Server Implementation (Port 8080)
+// ============================================================================
+void stopOtaMode() {
+    if (otaServerActive) {
+        otaServer.stop();
+        otaServerActive = false;
+        otaUpdating = false;
+        diagLog.info("[OTA] Leased OTA HTTP server stopped. Resuming normal proxy monitoring.");
+    }
+    if (currentMode == MODE_OTA) {
+        currentMode = MODE_PROXY;
+        lastDesktopContactMs = millis();
+        setBridgeLed(0, 50, 0); // Green
+    }
+}
+
+void setupOtaHttpEndpoints() {
+    otaServer.on("/update", HTTP_POST, []() {
+        if (!otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != BRIDGE_OTA_SECRET) {
+            otaServer.send(401, "application/json", "{\"error\":\"Unauthorized: Invalid OTA token\"}");
+            return;
+        }
+
+        bool success = !Update.hasError();
+        String jsonReply = String("{\"success\":") + (success ? "true" : "false") +
+                           ",\"rebooting\":" + (success ? "true" : "false") +
+                           ",\"error\":\"" + (success ? "" : String(Update.errorString())) + "\"}";
+        otaServer.send(success ? 200 : 500, "application/json", jsonReply);
+
+        if (success) {
+            diagLog.info("[OTA] Firmware flashing succeeded! Scheduling restart in 250ms...");
+            setBridgeLed(0, 80, 0); // Bright green
+            delay(250);
+            ESP.restart();
+        } else {
+            diagLog.error("[OTA] Firmware update failed: %s", Update.errorString());
+            setBridgeLed(80, 0, 0); // Red
+            stopOtaMode();
+        }
+    }, []() {
+        HTTPUpload& upload = otaServer.upload();
+        if (upload.status == UPLOAD_FILE_START) {
+            if (!otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != BRIDGE_OTA_SECRET) {
+                diagLog.warn("[OTA] Unauthorized upload attempt rejected (invalid header token).");
+                return;
+            }
+
+            otaUpdating = true;
+            otaLeaseExpiryMs = millis() + 120000UL; // Extend lease during upload
+            diagLog.info("[OTA] Commencing firmware stream: %s", upload.filename.c_str());
+            setBridgeLed(70, 0, 70); // Magenta
+
+            if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+                diagLog.error("[OTA] Update.begin failed: %s", Update.errorString());
+            }
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+            if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+                diagLog.error("[OTA] Update.write failed: %s", Update.errorString());
+            }
+        } else if (upload.status == UPLOAD_FILE_END) {
+            if (Update.end(true)) {
+                diagLog.info("[OTA] Flash written cleanly: %u bytes committed", upload.totalSize);
+            } else {
+                diagLog.error("[OTA] Update.end failed: %s", Update.errorString());
+            }
+            otaUpdating = false;
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+            Update.end();
+            otaUpdating = false;
+            diagLog.warn("[OTA] Firmware stream aborted by client.");
+            stopOtaMode();
+        }
+    });
+
+    otaServer.onNotFound([]() {
+        otaServer.send(404, "application/json", "{\"error\":\"Not Found\"}");
+    });
+
+    const char* headerkeys[] = {"X-UPSED-OTA-TOKEN"};
+    size_t headerkeyssize = sizeof(headerkeys) / sizeof(char*);
+    otaServer.collectHeaders(headerkeys, headerkeyssize);
+}
+
+void startOtaMode() {
+    currentMode = MODE_OTA;
+    setupOtaHttpEndpoints();
+    otaServer.begin();
+    otaServerActive = true;
+    otaUpdating = false;
+    otaLeaseExpiryMs = millis() + BRIDGE_OTA_LEASE_MS;
+    setBridgeLed(70, 0, 70); // Magenta
+    diagLog.info("[OTA] Leased OTA HTTP server active on port %d (Lease %u sec)",
+                 BRIDGE_OTA_PORT, BRIDGE_OTA_LEASE_MS / 1000UL);
 }
 
 // ============================================================================
@@ -312,13 +438,15 @@ void populateStatusObject(JsonObject& res) {
     res["bridge"] = BRIDGE_MAGIC_ID;
     res["fw"] = BRIDGE_FIRMWARE_VER;
     res["mac"] = WiFi.macAddress();
-    res["mode"] = (currentMode == MODE_PROXY) ? "proxy" : "standalone";
+    res["mode"] = (currentMode == MODE_OTA) ? "ota" : (currentMode == MODE_PROXY) ? "proxy" : "standalone";
     bool wifiConn = (WiFi.status() == WL_CONNECTED);
     res["wifi_connected"] = wifiConn;
     res["ssid"] = wifiConn ? WiFi.SSID() : savedSsid;
     res["ip"] = wifiConn ? WiFi.localIP().toString() : "";
     res["hostname"] = String(BRIDGE_MDNS_HOSTNAME) + ".local";
     res["ws_port"] = BRIDGE_WS_PORT;
+    res["ota_port"] = BRIDGE_OTA_PORT;
+    res["ota_active"] = otaServerActive;
     res["rssi"] = wifiConn ? WiFi.RSSI() : 0;
     res["wifi_last_error"] = lastWifiError;
     res["log_seq"] = diagLog.latestSeq();
@@ -480,6 +608,27 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
         JsonObject result = resDoc["result"].to<JsonObject>();
         result["remaining"] = backlogStore.count();
     }
+    else if (strcmp(method, "bridge.startOta") == 0) {
+        const char* token = reqDoc["params"]["token"] | "";
+        if (strcmp(token, BRIDGE_OTA_SECRET) != 0) {
+            JsonObject errObj = resDoc["error"].to<JsonObject>();
+            errObj["code"] = -32602;
+            errObj["message"] = "Invalid OTA authentication token";
+            diagLog.warn("[OTA] Rejected bridge.startOta: invalid token");
+        } else {
+            startOtaMode();
+            JsonObject result = resDoc["result"].to<JsonObject>();
+            result["ota_ready"] = true;
+            result["port"] = BRIDGE_OTA_PORT;
+            result["lease_sec"] = BRIDGE_OTA_LEASE_MS / 1000UL;
+            result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+        }
+    }
+    else if (strcmp(method, "bridge.abortOta") == 0) {
+        stopOtaMode();
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        result["aborted"] = true;
+    }
     else {
         JsonObject errObj = resDoc["error"].to<JsonObject>();
         errObj["code"] = -32601;
@@ -622,9 +771,21 @@ void loop() {
         WiFi.reconnect();
     }
 
-    // 4. 15-Second Heartbeat Watchdog: Handoff to Standalone Mode if Desktop is offline
+    // 4. Maintain OTA Services (ArduinoOTA & Leased HTTP Server)
+    if (arduinoOtaStarted) {
+        ArduinoOTA.handle();
+    }
+    if (otaServerActive) {
+        otaServer.handleClient();
+        if (!otaUpdating && millis() > otaLeaseExpiryMs) {
+            diagLog.warn("[OTA] 90s OTA lease expired without upload. Halting OTA server.");
+            stopOtaMode();
+        }
+    }
+
+    // 5. 15-Second Heartbeat Watchdog: Handoff to Standalone Mode if Desktop is offline (Skip during active OTA)
     unsigned long nowMs = millis();
-    if (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS) {
+    if (currentMode != MODE_OTA && (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS)) {
         if (currentMode != MODE_STANDALONE) {
             currentMode = MODE_STANDALONE;
             diagLog.warn("[MODE] Switched to STANDALONE mode (15s desktop silence). Standalone logging active.");

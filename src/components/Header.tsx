@@ -18,6 +18,8 @@ interface HeaderProps {
   selectedDevice: string | null;
   activeTransport?: 'usb' | 'websocket' | null;
   transportIp?: string | null;
+  bridgeUpdateAvailable?: boolean;
+  bridgeCompatible?: boolean;
   onRefresh: () => void;
   isRefreshing: boolean;
   lastUpdatedAt?: number;
@@ -49,10 +51,13 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   selectedDevice,
   activeTransport,
   transportIp,
+  bridgeUpdateAvailable,
+  bridgeCompatible = true,
   onRefresh,
   isRefreshing,
   lastUpdatedAt,
   safetyStage,
+  onTabChange,
   onOpenAddDeviceModal,
 }) => {
   const { t, i18n } = useTranslation(['common', 'nav', 'modals']);
@@ -124,6 +129,30 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             <span>USB CDC</span>
           </span>
+        )}
+
+        {/* Bridge Firmware Update Available Pill */}
+        {bridgeUpdateAvailable && (
+          <button
+            onClick={() => onTabChange('iot')}
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-emerald-950/80 text-emerald-300 border-emerald-600/50 hover:bg-emerald-900/60 transition cursor-pointer"
+            title="ESP32 Bridge firmware update available! Click to open IoT firmware panel."
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Bridge Update</span>
+          </button>
+        )}
+
+        {/* Bridge Firmware Incompatible Pill (Hard-Block Alert) */}
+        {bridgeCompatible === false && (
+          <button
+            onClick={() => onTabChange('iot')}
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-rose-950/80 text-rose-300 border-rose-600/50 hover:bg-rose-900/60 transition cursor-pointer"
+            title="ESP32 Bridge firmware is outdated and incompatible! Click to update."
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+            <span>Bridge Incompatible</span>
+          </button>
         )}
 
         {/* Last updated clock */}

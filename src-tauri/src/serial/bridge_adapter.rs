@@ -15,6 +15,24 @@ use tungstenite::Message;
 pub const BRIDGE_SERIAL_BAUD: u32 = 115200;
 pub const BRIDGE_DEFAULT_WS_PORT: u16 = 81;
 pub const BRIDGE_DEFAULT_MDNS_HOST: &str = "upsed-bridge.local";
+pub const MIN_SUPPORTED_BRIDGE_FW: &str = "1.0.0";
+
+pub fn parse_version_triplet(s: &str) -> Vec<u32> {
+    let clean = s.trim_start_matches(|c: char| !c.is_ascii_digit());
+    clean
+        .split('.')
+        .filter_map(|p| p.split('-').next().and_then(|num| num.parse().ok()))
+        .collect()
+}
+
+pub fn is_bridge_fw_compatible(fw: &str, min_supported: &str) -> bool {
+    let fw_parts = parse_version_triplet(fw);
+    let min_parts = parse_version_triplet(min_supported);
+    if fw_parts.is_empty() || min_parts.is_empty() {
+        return false;
+    }
+    fw_parts >= min_parts
+}
 
 /// Status snapshot returned by the ESP32-S3 Hardware Bridge (`bridge.ping` / `bridge.getStatus`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +67,25 @@ pub struct BridgeStatus {
     /// Populated by Rust to indicate whether the active link is `"usb"` or `"websocket"`.
     #[serde(default)]
     pub active_transport: String,
+    #[serde(default = "default_min_fw")]
+    pub min_supported_fw: String,
+    #[serde(default = "default_compatible")]
+    pub is_compatible: bool,
+}
+
+impl BridgeStatus {
+    pub fn enrich_compatibility(&mut self) {
+        self.min_supported_fw = MIN_SUPPORTED_BRIDGE_FW.to_string();
+        self.is_compatible = is_bridge_fw_compatible(&self.fw, MIN_SUPPORTED_BRIDGE_FW);
+    }
+}
+
+fn default_min_fw() -> String {
+    MIN_SUPPORTED_BRIDGE_FW.to_string()
+}
+
+fn default_compatible() -> bool {
+    true
 }
 
 fn default_hostname() -> String {
@@ -95,6 +132,14 @@ pub struct WsTestResult {
     pub latency_ms: u64,
     pub status: Option<BridgeStatus>,
     pub error: Option<String>,
+}
+
+/// Lease metadata returned when entering on-demand OTA mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtaLeaseInfo {
+    pub port: u16,
+    pub ip: String,
+    pub lease_ms: u64,
 }
 
 /// Real-time event broadcasting the active transport medium (USB CDC vs Wi-Fi WebSocket).
@@ -267,6 +312,7 @@ impl BridgeTransport {
         let mut status: BridgeStatus = serde_json::from_value(val)
             .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.ping payload: {}", e)))?;
         status.active_transport = medium;
+        status.enrich_compatibility();
 
         if status.wifi_connected && !status.ip.is_empty() {
             self.ws_host = Some(status.ip.clone());
@@ -298,6 +344,7 @@ impl BridgeTransport {
         let mut status: BridgeStatus = serde_json::from_value(val)
             .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.setWifi payload: {}", e)))?;
         status.active_transport = medium;
+        status.enrich_compatibility();
 
         if status.wifi_connected && !status.ip.is_empty() {
             self.ws_host = Some(status.ip.clone());
@@ -395,6 +442,49 @@ impl BridgeTransport {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
         Ok(remaining)
+    }
+
+    pub fn start_ota(&mut self, token: &str) -> Result<OtaLeaseInfo, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: "Activating on-demand OTA mode on ESP32 Bridge...".into(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.startOta",
+            json!({ "token": token }),
+            Duration::from_secs(5),
+        )?;
+
+        let port = val.get("port").and_then(|p| p.as_u64()).unwrap_or(8080) as u16;
+        let mut ip = val.get("ip").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        if ip.is_empty() {
+            if let Some(ref host) = self.ws_host {
+                ip = host.clone();
+            } else if let Ok(guard) = self.last_status.lock() {
+                if let Some(ref st) = *guard {
+                    if !st.ip.is_empty() {
+                        ip = st.ip.clone();
+                    }
+                }
+            }
+        }
+        if ip.is_empty() {
+            ip = BRIDGE_DEFAULT_MDNS_HOST.to_string();
+        }
+
+        let lease_ms = val.get("lease_ms").and_then(|m| m.as_u64()).unwrap_or(90000);
+
+        Ok(OtaLeaseInfo { port, ip, lease_ms })
+    }
+
+    pub fn abort_ota(&mut self) -> Result<(), ProtocolError> {
+        let _ = self.call_rpc("bridge.abortOta", json!({}))?;
+        Ok(())
     }
 
     pub fn call_rpc(
@@ -698,6 +788,18 @@ fn process_bridge_notification(doc: &Value) {
 
 impl SerialTransport for BridgeTransport {
     fn send_command(&mut self, cmd_str: &str) -> Result<String, ProtocolError> {
+        // Enforce minimum supported bridge firmware hard-block
+        if let Ok(guard) = self.last_status.lock() {
+            if let Some(ref st) = *guard {
+                if !st.is_compatible {
+                    return Err(ProtocolError::DeviceError(format!(
+                        "ESP32 Bridge firmware v{} is incompatible. Minimum required is v{}. Please update firmware.",
+                        st.fw, MIN_SUPPORTED_BRIDGE_FW
+                    )));
+                }
+            }
+        }
+
         let clean_cmd = cmd_str.trim_end_matches(['\r', '\n']);
         let (result, _) = match self.call_rpc("ups.cmd", json!({ "cmd": clean_cmd })) {
             Ok(res) => res,
@@ -828,6 +930,7 @@ pub fn probe_serial_bridge(port_name: &str) -> Option<BridgeStatus> {
         return None;
     }
     status.active_transport = "usb".to_string();
+    status.enrich_compatibility();
     Some(status)
 }
 
@@ -843,6 +946,7 @@ pub fn probe_ws_bridge(host_or_addr: &str) -> Option<(String, BridgeStatus)> {
         let mut status: BridgeStatus = serde_json::from_value(res_val).ok()?;
         if status.bridge == "UPSED_BRIDGE_V1" {
             status.active_transport = "websocket".to_string();
+            status.enrich_compatibility();
             let canonical_port_name = format!("BRIDGE:WS:{}:{}", host, port);
             return Some((canonical_port_name, status));
         }
@@ -875,6 +979,7 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
                     if let Ok(res_val) = parse_jsonrpc_response(txt.as_str().trim()) {
                         if let Ok(mut status) = serde_json::from_value::<BridgeStatus>(res_val) {
                             status.active_transport = "websocket".to_string();
+                            status.enrich_compatibility();
                             return WsTestResult {
                                 reachable: true,
                                 host: clean_host,
@@ -1042,5 +1147,55 @@ mod tests {
         let logs = get_all_bridge_logs();
         assert!(!logs.is_empty());
         assert_eq!(logs.last().unwrap().msg, "Test log message");
+    }
+
+    #[test]
+    fn test_is_bridge_fw_compatible() {
+        assert!(is_bridge_fw_compatible("1.0.0", "1.0.0"));
+        assert!(is_bridge_fw_compatible("1.0.1", "1.0.0"));
+        assert!(is_bridge_fw_compatible("1.1.0", "1.0.0"));
+        assert!(is_bridge_fw_compatible("2.0.0", "1.0.0"));
+        assert!(is_bridge_fw_compatible("v1.0.0", "1.0.0"));
+        assert!(is_bridge_fw_compatible("1.0.0-rc1", "1.0.0"));
+
+        assert!(!is_bridge_fw_compatible("0.9.9", "1.0.0"));
+        assert!(!is_bridge_fw_compatible("0.1.0", "1.0.0"));
+        assert!(!is_bridge_fw_compatible("", "1.0.0"));
+        assert!(!is_bridge_fw_compatible("invalid", "1.0.0"));
+    }
+
+    #[test]
+    fn test_bridge_status_enrich_compatibility() {
+        let mut valid_status = BridgeStatus {
+            bridge: "UPSED_BRIDGE_V1".into(),
+            fw: "1.0.0".into(),
+            mac: "AA:BB:CC:DD:EE:FF".into(),
+            mode: "proxy".into(),
+            wifi_connected: true,
+            ssid: "Test".into(),
+            ip: "192.168.1.50".into(),
+            hostname: "upsed-bridge.local".into(),
+            ws_port: 81,
+            rssi: -50,
+            wifi_last_error: "".into(),
+            log_seq: 1,
+            backlog_records: 0,
+            backlog_capacity: 8192,
+            psram_active: true,
+            psram_free: 1000000,
+            uptime_sec: 100,
+            active_transport: "usb".into(),
+            min_supported_fw: "".into(),
+            is_compatible: false,
+        };
+
+        valid_status.enrich_compatibility();
+        assert_eq!(valid_status.min_supported_fw, "1.0.0");
+        assert!(valid_status.is_compatible);
+
+        let mut outdated_status = valid_status.clone();
+        outdated_status.fw = "0.9.0".into();
+        outdated_status.enrich_compatibility();
+        assert!(!outdated_status.is_compatible);
     }
 }

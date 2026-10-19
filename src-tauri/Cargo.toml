@@ -31,6 +31,8 @@ tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
 tungstenite = "0.24"
+dotenvy = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

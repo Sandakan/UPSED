@@ -17,11 +17,13 @@
     "bridge:build": "node scripts/pio.js run",
     "bridge:compile": "node scripts/pio.js run",
     "bridge:upload": "node scripts/pio.js run --target upload",
+    "bridge:ota": "node scripts/pio.js run -e esp32-s3-ota --target upload",
     "bridge:clean": "node scripts/pio.js run --target clean",
     "bridge:monitor": "node scripts/pio.js device monitor",
     "pio:build": "node scripts/pio.js run",
     "pio:compile": "node scripts/pio.js run",
     "pio:upload": "node scripts/pio.js run --target upload",
+    "pio:ota": "node scripts/pio.js run -e esp32-s3-ota --target upload",
     "pio:clean": "node scripts/pio.js run --target clean",
     "pio:monitor": "node scripts/pio.js device monitor"
   },

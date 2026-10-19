@@ -5,9 +5,10 @@ use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
 use crate::serial::{
     get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge,
-    scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection, BridgeBacklogRecord,
-    BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice, HidTransport,
-    PhysicalSerialPort, SerialTransport, WifiScanNetwork, WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
+    push_bridge_log, scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection,
+    BridgeBacklogRecord, BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice,
+    HidTransport, PhysicalSerialPort, SerialTransport, WifiScanNetwork, WsTestResult,
+    BRIDGE_DEFAULT_MDNS_HOST,
 };
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,6 +28,29 @@ pub struct WifiProvisionStatusEvent {
     pub ssid: String,
     pub ip: Option<String>,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BridgeFirmwareCheckResult {
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+    pub release_notes: Option<String>,
+    pub published_at: Option<String>,
+    pub download_url: Option<String>,
+    pub binary_size: Option<u64>,
+    pub local_binary_path: Option<String>,
+    pub local_binary_size: Option<u64>,
+    pub local_binary_modified: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct OtaProgressEvent {
+    pub phase: String,
+    pub percentage: u32,
+    pub bytes_transferred: u64,
+    pub total_bytes: u64,
+    pub message: String,
 }
 
 #[derive(Clone)]
@@ -1427,6 +1451,314 @@ pub async fn discover_bridge_on_lan() -> Result<Vec<(String, BridgeStatus)>, Str
 #[tauri::command]
 pub fn get_bridge_log_history() -> Result<Vec<BridgeLogEntry>, String> {
     Ok(get_all_bridge_logs())
+}
+
+fn find_local_bridge_firmware() -> Option<std::path::PathBuf> {
+    let candidates = [
+        std::path::PathBuf::from("upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+        std::path::PathBuf::from("../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+        std::path::PathBuf::from("../../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+    ];
+
+    for path in &candidates {
+        if path.exists() && path.is_file() {
+            if let Ok(abs) = std::fs::canonicalize(path) {
+                return Some(abs);
+            }
+            return Some(path.clone());
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin");
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+
+    None
+}
+
+fn is_version_newer(latest: &str, current: &str) -> bool {
+    let parse_parts = |s: &str| -> Vec<u32> {
+        let clean = s.trim_start_matches(|c: char| !c.is_ascii_digit());
+        clean
+            .split('.')
+            .filter_map(|p| p.split('-').next().and_then(|num| num.parse().ok()))
+            .collect()
+    };
+    let l_parts = parse_parts(latest);
+    let c_parts = parse_parts(current);
+    if l_parts.is_empty() || c_parts.is_empty() {
+        return latest != current && !latest.is_empty();
+    }
+    l_parts > c_parts
+}
+
+#[tauri::command]
+pub async fn check_bridge_firmware_update(
+    current_version: String,
+) -> Result<BridgeFirmwareCheckResult, String> {
+    // 1. Check local build binary
+    let (local_path, local_size, local_mod) = if let Some(path) = find_local_bridge_firmware() {
+        let meta = std::fs::metadata(&path).ok();
+        let size = meta.as_ref().map(|m| m.len());
+        let modified = meta
+            .and_then(|m| m.modified().ok())
+            .map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d %H:%M:%S").to_string());
+        (Some(path.to_string_lossy().to_string()), size, modified)
+    } else {
+        (None, None, None)
+    };
+
+    // 2. Query GitHub Releases for Sandakan/UPSED
+    let mut latest_version: Option<String> = None;
+    let mut update_available = false;
+    let mut release_notes: Option<String> = None;
+    let mut published_at: Option<String> = None;
+    let mut download_url: Option<String> = None;
+    let mut binary_size: Option<u64> = None;
+
+    let client = reqwest::Client::builder()
+        .user_agent("UPSED-Desktop")
+        .timeout(Duration::from_secs(5))
+        .build();
+
+    if let Ok(client) = client {
+        let url = "https://api.github.com/repos/Sandakan/UPSED/releases/latest";
+        if let Ok(resp) = client.get(url).send().await {
+            if resp.status().is_success() {
+                if let Ok(release) = resp.json::<serde_json::Value>().await {
+                    if let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) {
+                        latest_version = Some(tag.to_string());
+                        release_notes = release.get("body").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        published_at = release.get("published_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                        if let Some(assets) = release.get("assets").and_then(|v| v.as_array()) {
+                            for asset in assets {
+                                let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                                if name.ends_with(".bin") {
+                                    download_url = asset.get("browser_download_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                    binary_size = asset.get("size").and_then(|v| v.as_u64());
+                                    break;
+                                }
+                            }
+                        }
+
+                        let clean_latest = tag.trim_start_matches(|c: char| !c.is_ascii_digit());
+                        let clean_current = current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
+                        update_available = is_version_newer(clean_latest, clean_current);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(BridgeFirmwareCheckResult {
+        current_version,
+        latest_version,
+        update_available,
+        release_notes,
+        published_at,
+        download_url,
+        binary_size,
+        local_binary_path: local_path,
+        local_binary_size: local_size,
+        local_binary_modified: local_mod,
+    })
+}
+
+#[tauri::command]
+pub async fn flash_bridge_firmware(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    source: String,
+    custom_path: Option<String>,
+    download_url: Option<String>,
+) -> Result<String, String> {
+    // 1. Strict secret verification
+    let _ = dotenvy::dotenv();
+    let secret = std::env::var("UPSED_OTA_SECRET").map_err(|_| {
+        "UPSED_OTA_SECRET is missing from environment. Please define UPSED_OTA_SECRET in your .env file.".to_string()
+    })?;
+    if secret.trim().is_empty() {
+        return Err("UPSED_OTA_SECRET is empty in .env. Please set a secure password.".into());
+    }
+
+    // 2. Binary retrieval
+    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+        phase: "downloading".into(),
+        percentage: 5,
+        bytes_transferred: 0,
+        total_bytes: 0,
+        message: "Resolving firmware binary...".into(),
+    });
+
+    let binary_bytes: Vec<u8> = match source.as_str() {
+        "github" => {
+            let url = download_url.ok_or_else(|| "No download_url provided for GitHub update".to_string())?;
+            let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+                phase: "downloading".into(),
+                percentage: 10,
+                bytes_transferred: 0,
+                total_bytes: 0,
+                message: "Downloading release binary from GitHub...".into(),
+            });
+            let client = reqwest::Client::builder()
+                .user_agent("UPSED-Desktop")
+                .timeout(Duration::from_secs(60))
+                .build()
+                .map_err(|e| e.to_string())?;
+            let resp = client.get(&url).send().await.map_err(|e| format!("Failed to download firmware: {}", e))?;
+            let bytes = resp.bytes().await.map_err(|e| format!("Failed to read firmware stream: {}", e))?;
+            bytes.to_vec()
+        }
+        "local" => {
+            let path = find_local_bridge_firmware().ok_or_else(|| {
+                "Local firmware binary not found at upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin".to_string()
+            })?;
+            std::fs::read(&path).map_err(|e| format!("Failed to read local firmware at {}: {}", path.display(), e))?
+        }
+        "file" => {
+            let p_str = custom_path.ok_or_else(|| "No custom file path provided".to_string())?;
+            std::fs::read(&p_str).map_err(|e| format!("Failed to read custom firmware at {}: {}", p_str, e))?
+        }
+        _ => return Err(format!("Unknown firmware source: {}", source)),
+    };
+
+    let total_len = binary_bytes.len() as u64;
+    if total_len == 0 {
+        return Err("Firmware binary is empty (0 bytes)".into());
+    }
+    if binary_bytes[0] != 0xE9 {
+        return Err(format!(
+            "Invalid ESP32 firmware binary (magic byte 0x{:02X} != 0xE9). Aborting flash.",
+            binary_bytes[0]
+        ));
+    }
+
+    push_bridge_log(BridgeLogEntry {
+        seq: 0,
+        ms: 0,
+        level: "INFO".into(),
+        msg: format!("Starting wireless OTA flash (source: {}, size: {} bytes)", source, total_len),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        source: "DESKTOP-OTA".into(),
+    });
+
+    // 3. Request on-demand OTA Lease
+    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+        phase: "leasing".into(),
+        percentage: 20,
+        bytes_transferred: 0,
+        total_bytes: total_len,
+        message: "Activating on-demand OTA server on ESP32 Bridge...".into(),
+    });
+
+    let state_clone = state.inner().clone();
+    let port_opt = port_name.clone();
+    let secret_clone = secret.trim().to_string();
+
+    let lease_info = tokio::task::spawn_blocking(move || {
+        state_clone
+            .manager
+            .with_bridge_transport(port_opt.as_deref(), |bridge, _key| {
+                bridge.start_ota(&secret_clone)
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let target_url = format!("http://{}:{}/update", lease_info.ip, lease_info.port);
+    tracing::info!("[OTA] Lease acquired: posting firmware to {}", target_url);
+
+    // 4. Stream Upload via HTTP POST Multipart
+    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+        phase: "uploading".into(),
+        percentage: 40,
+        bytes_transferred: total_len / 4,
+        total_bytes: total_len,
+        message: format!("Writing firmware to ESP32 ({:.1} KB)...", total_len as f64 / 1024.0),
+    });
+
+    let part = reqwest::multipart::Part::bytes(binary_bytes)
+        .file_name("firmware.bin")
+        .mime_str("application/octet-stream")
+        .map_err(|e| e.to_string())?;
+
+    let form = reqwest::multipart::Form::new().part("firmware", part);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let res = client
+        .post(&target_url)
+        .header("X-UPSED-OTA-TOKEN", secret.trim())
+        .multipart(form)
+        .send()
+        .await;
+
+    match res {
+        Ok(response) => {
+            if !response.status().is_success() {
+                let err_text = response.text().await.unwrap_or_else(|_| "HTTP error".into());
+                let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+                    phase: "error".into(),
+                    percentage: 0,
+                    bytes_transferred: 0,
+                    total_bytes: total_len,
+                    message: format!("ESP32 OTA error: {}", err_text),
+                });
+                return Err(format!("ESP32 OTA failed: {}", err_text));
+            }
+        }
+        Err(e) => {
+            let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+                phase: "error".into(),
+                percentage: 0,
+                bytes_transferred: 0,
+                total_bytes: total_len,
+                message: format!("Failed to stream firmware to bridge: {}", e),
+            });
+            return Err(format!("HTTP upload failed: {}", e));
+        }
+    }
+
+    // 5. Post-flash reboot
+    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+        phase: "rebooting".into(),
+        percentage: 95,
+        bytes_transferred: total_len,
+        total_bytes: total_len,
+        message: "Firmware flashing complete! ESP32 is rebooting...".into(),
+    });
+
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
+        phase: "success".into(),
+        percentage: 100,
+        bytes_transferred: total_len,
+        total_bytes: total_len,
+        message: "Bridge successfully updated and rebooted!".into(),
+    });
+
+    push_bridge_log(BridgeLogEntry {
+        seq: 0,
+        ms: 0,
+        level: "INFO".into(),
+        msg: "Wireless OTA firmware flash completed successfully. Bridge rebooted.".into(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        source: "DESKTOP-OTA".into(),
+    });
+
+    Ok("Bridge firmware updated successfully".into())
 }
 
 

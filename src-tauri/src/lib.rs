@@ -285,7 +285,9 @@ pub fn run() {
             commands::clear_bridge_backlog,
             commands::test_bridge_websocket,
             commands::discover_bridge_on_lan,
-            commands::get_bridge_log_history
+            commands::get_bridge_log_history,
+            commands::check_bridge_firmware_update,
+            commands::flash_bridge_firmware
         ])
         .build(tauri::generate_context!())
         .expect("error while building UPSED application")

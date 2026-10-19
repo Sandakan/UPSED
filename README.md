@@ -89,6 +89,15 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Multi-target structured logging powered by `tauri-plugin-log`: streams to terminal `stdout`, webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log`).
 - Window geometry persistence via `tauri-plugin-window-state`: remembers dimensions, screen position, and maximized state across reboots.
 
+### 📡 ESP32-S3 IoT Hardware Bridge & Wireless OTA Flashing
+
+- **Wireless Hardware Gateway:** Connects UPS units to UPSED over 2.4GHz Wi-Fi WebSocket (`ws://upsed-bridge.local:81`) or high-speed USB CDC Serial (115,200 baud).
+- **8MB PSRAM MessagePack Ring Buffer:** Buffers up to 8,192 offline telemetry samples (~22.7 hours at 10s cadence) while PC is asleep or off, synchronizing into SQLite history on reconnect.
+- **On-Demand Leased Wireless OTA Flashing:**
+  - **In-App Desktop OTA:** One-click wireless flashing from GitHub releases or local builds directly from the UPSED UI.
+  - **PlatformIO CLI:** `npm run bridge:ota` for terminal flashing over Wi-Fi.
+  - **Fail-Safe Security:** Port 8080 opened strictly for 90 seconds on-demand with a hardware watchdog lease; requires `UPSED_OTA_SECRET` authentication token in `.env`. Telemetry UART paused during flash.
+
 ### 🔋 OS Native Battery Bridge (Opt-In)
 
 - Emulates an internal system battery for desktop operating systems:
