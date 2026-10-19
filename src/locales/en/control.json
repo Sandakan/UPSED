@@ -40,6 +40,10 @@
     "cancelShutdownTitle": "Cancel Pending Shutdown",
     "cancelShutdownDesc": "Cancels any active shutdown countdown timer immediately.",
     "cancelShutdownBtn": "Cancel Shutdown (CS)"
+  },
+  "flags": {
+    "title": "Device Features & Capabilities",
+    "desc": "Hardware capabilities supported by your connected UPS."
   }
 }
 

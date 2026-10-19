@@ -271,8 +271,10 @@ export async function handleIncomingUpsEvent(
     inAppToastsEnabled?: boolean;
   }
 ) {
-  // Lifecycle events (APP_START, APP_HIDE, APP_EXIT) are logged only and do not trigger toasts or OS notifications
-  if (event.event_type.startsWith('APP_')) {
+  // Lifecycle events (APP_START, APP_HIDE, APP_EXIT) and user actions (USER_ACTION)
+  // are preserved in the audit log but do not trigger popup toasts or OS notifications
+  // since the user/UI already initiated them and receives inline UI feedback.
+  if (event.event_type.startsWith('APP_') || event.event_type === 'USER_ACTION') {
     return;
   }
 

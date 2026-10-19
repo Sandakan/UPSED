@@ -10,10 +10,14 @@ import {
   Unlock,
   AlertOctagon,
   Check,
+  Lock,
+  Sliders,
 } from 'lucide-react';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { RefreshButton } from '../components/RefreshButton';
+import { ToggleSwitch } from '../components/ToggleSwitch';
 
 interface ControlProps {
   portName: string | null;
@@ -30,6 +34,114 @@ const getStagePillStyle = (stage: UnlockStage) => {
   }
 };
 
+interface HardwareFlagDef {
+  key: string;
+  name: string;
+  category: 'audio' | 'startup' | 'modes' | 'safety';
+  description: string;
+}
+
+const HARDWARE_FLAG_DEFS: HardwareFlagDef[] = [
+  // Alarms & Audio
+  {
+    key: 'a',
+    name: 'Audible Beeper Alarm',
+    category: 'audio',
+    description: 'Master acoustic beeper for alarms, transfers, and fault alerts.',
+  },
+  {
+    key: 'b',
+    name: 'Battery Mode Alarm',
+    category: 'audio',
+    description: 'Periodic warning chirp when operating from battery backup power.',
+  },
+  {
+    key: 'p',
+    name: 'Bypass / ECO Alarm',
+    category: 'audio',
+    description: 'Audible notification when the inverter switches to bypass or ECO mode.',
+  },
+
+  // Startup & Power Recovery
+  {
+    key: 'r',
+    name: 'Auto-Restart on AC Recovery',
+    category: 'startup',
+    description: 'Automatically re-engages the inverter and output when AC mains returns.',
+  },
+  {
+    key: 'z',
+    name: 'Cold Start Capability',
+    category: 'startup',
+    description: 'Allows starting the UPS directly from battery without utility AC present.',
+  },
+  {
+    key: 's',
+    name: 'Startup Battery Self-Test',
+    category: 'startup',
+    description: 'Executes a brief 10-second self-diagnostic discharge test upon power-on.',
+  },
+  {
+    key: 'o',
+    name: 'Bypass When Switched Off',
+    category: 'startup',
+    description: 'Continues passing utility mains power to output outlets even when UPS switch is off.',
+  },
+
+  // Operational Modes
+  {
+    key: 'g',
+    name: 'Generator Compatibility Mode',
+    category: 'modes',
+    description: 'Accepts broader voltage and frequency fluctuations typical of generator power.',
+  },
+  {
+    key: 'h',
+    name: 'High-Efficiency (ECO) Mode',
+    category: 'modes',
+    description: 'Activates ultra-high efficiency line-interactive bypass when utility power is clean.',
+  },
+  {
+    key: 'c',
+    name: 'Frequency Converter Mode',
+    category: 'modes',
+    description: 'Permits fixed frequency output synthesis (50 Hz <-> 60 Hz conversion).',
+  },
+  {
+    key: 'v',
+    name: 'Inverter Output Voltage Regulation',
+    category: 'modes',
+    description: 'Dynamic output voltage stabilization and inverter synthesis regulation.',
+  },
+
+  // Safety & Protection
+  {
+    key: 'e',
+    name: 'Emergency Power Off (EPO)',
+    category: 'safety',
+    description: 'Hardware remote emergency cutoff loop logic active.',
+  },
+  {
+    key: 'f',
+    name: 'Fault Auto-Acknowledge',
+    category: 'safety',
+    description: 'Automatically clears transient fault latches once operating condition normalizes.',
+  },
+  {
+    key: 'm',
+    name: 'Multi-Module Parallel Mode',
+    category: 'safety',
+    description: 'Synchronizes frequency and phase angle for multi-unit parallel redundant operation.',
+  },
+];
+
+const FLAG_CATEGORIES = [
+  { id: 'audio', label: 'Audio & Alarms', icon: Volume2 },
+  { id: 'startup', label: 'Startup & Power Recovery', icon: Power },
+  { id: 'modes', label: 'Operational Modes', icon: Sliders },
+  { id: 'safety', label: 'Safety & Protection', icon: ShieldAlert },
+] as const;
+
 export const Control: React.FC<ControlProps> = ({
   portName,
   safetyStage,
@@ -41,6 +153,8 @@ export const Control: React.FC<ControlProps> = ({
   const [confirmShutdown, setConfirmShutdown] = useState(false);
   const [timedDurationMinutes, setTimedDurationMinutes] = useState<number>(5);
   const [alarmEnabled, setAlarmEnabled] = useState<boolean | null>(null);
+  const [flags, setFlags] = useState<Record<string, boolean> | null>(null);
+  const [isRefreshingFlags, setIsRefreshingFlags] = useState(false);
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
@@ -66,39 +180,55 @@ export const Control: React.FC<ControlProps> = ({
 
   const canWriteConfig = safetyStage === 'T3ConfigWrite' || safetyStage === 'T4PowerControl';
 
-  // The audible-alarm flag is the lowercase 'a' in the QFLAG reply, e.g.
-  // "(EpbrsghczDoavefm": letters after 'E' are enabled, letters after 'D' disabled.
-  const refreshAlarmState = useCallback(async () => {
+  // Query capability flags via QFLAG:
+  // e.g. "(EpbrsghczDoavefm": letters after 'E' are enabled, letters after 'D' are disabled.
+  const refreshFlags = useCallback(async () => {
     if (!portName) {
+      setFlags(null);
       setAlarmEnabled(null);
       return;
     }
+    setIsRefreshingFlags(true);
     try {
       const resp = await api.sendCommand(portName, { type: 'QueryFlags' });
       const body = resp.trim().replace(/^\(/, '');
       if (!body.startsWith('E')) {
+        setFlags(null);
         setAlarmEnabled(null);
         return;
       }
       const rest = body.slice(1);
-      const d = rest.indexOf('D');
-      const enabled = d === -1 ? rest : rest.slice(0, d);
-      setAlarmEnabled(enabled.toLowerCase().includes('a'));
+      const dIndex = rest.indexOf('D');
+      const enStr = (dIndex === -1 ? rest : rest.slice(0, dIndex)).toLowerCase();
+      const disStr = (dIndex === -1 ? '' : rest.slice(dIndex + 1)).toLowerCase();
+
+      const newMap: Record<string, boolean> = {};
+      for (const ch of enStr) {
+        newMap[ch] = true;
+      }
+      for (const ch of disStr) {
+        newMap[ch] = false;
+      }
+
+      setFlags(newMap);
+      setAlarmEnabled(newMap['a'] ?? null);
     } catch {
-      setAlarmEnabled(null);
+      // Keep existing flags if offline or blocked
+    } finally {
+      setIsRefreshingFlags(false);
     }
   }, [portName]);
 
   useEffect(() => {
-    void refreshAlarmState();
-  }, [refreshAlarmState]);
+    void refreshFlags();
+  }, [refreshFlags]);
 
   const setAlarm = async (enable: boolean) => {
     await handleSendCommand(
       { type: 'SetAlarmEnabled', payload: enable },
       enable ? 'Enable Alarm' : 'Disable Alarm'
     );
-    await refreshAlarmState();
+    await refreshFlags();
   };
 
   const handleUnlockStage = async (target: UnlockStage) => {
@@ -368,6 +498,91 @@ export const Control: React.FC<ControlProps> = ({
               {t('control:stageT2.cancelTestBtn', 'Cancel Test (CT)')}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/*  Device Features & Capabilities (Read-Only)  */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <div>
+            <div className="flex items-center space-x-2">
+              <h4 className="text-sm font-semibold text-slate-100 flex items-center space-x-2">
+                <Sliders className="w-4 h-4 text-emerald-400" />
+                <span>{t('control:flags.title', 'Device Features & Capabilities')}</span>
+              </h4>
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-400 border border-slate-500/20 flex items-center space-x-1">
+                <Lock className="w-2.5 h-2.5" />
+                <span>Read-Only</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {t(
+                'control:flags.desc',
+                'Hardware capabilities supported by your connected UPS.'
+              )}
+            </p>
+          </div>
+
+          <RefreshButton
+            onClick={() => void refreshFlags()}
+            disabled={!portName}
+            isLoading={isRefreshingFlags}
+            title="Refresh features from UPS"
+          />
+        </div>
+
+        {/* Categorized Feature Groups */}
+        <div className="space-y-5">
+          {FLAG_CATEGORIES.map((cat) => {
+            const catFlags = HARDWARE_FLAG_DEFS.filter((f) => f.category === cat.id);
+            const CatIcon = cat.icon;
+            return (
+              <div key={cat.id} className="space-y-2.5">
+                <div className="flex items-center space-x-2 text-xs font-semibold text-slate-300">
+                  <CatIcon className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{cat.label}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {catFlags.map((flagDef) => {
+                    const isEnabled = flags ? flags[flagDef.key] === true : false;
+
+                    return (
+                      <div
+                        key={flagDef.key}
+                        className="p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02] flex items-center justify-between gap-3 transition hover:bg-white/[0.03]"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-semibold text-slate-200 block truncate">
+                            {flagDef.name}
+                          </span>
+                          <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-relaxed">
+                            {flagDef.description}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-2.5 shrink-0">
+                          <span title="Read-only" className="text-slate-400">
+                            <Lock className="w-3 h-3" />
+                          </span>
+                          <ToggleSwitch
+                            checked={isEnabled}
+                            readOnly
+                            disabled
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

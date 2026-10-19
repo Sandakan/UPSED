@@ -40,6 +40,10 @@
     "cancelShutdownTitle": "Annuler l'arrêt en attente",
     "cancelShutdownDesc": "Annule immédiatement tout compte à rebours d'extinction programmé.",
     "cancelShutdownBtn": "Annuler l'arrêt (CS)"
+  },
+  "flags": {
+    "title": "Fonctionnalités et capacités de l'appareil",
+    "desc": "Fonctionnalités matérielles prises en charge par votre onduleur connecté."
   }
 }
 
