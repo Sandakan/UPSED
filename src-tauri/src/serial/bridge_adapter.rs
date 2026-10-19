@@ -941,14 +941,37 @@ pub fn probe_ws_bridge(host_or_addr: &str) -> Option<(String, BridgeStatus)> {
     let ping_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"bridge.ping\",\"params\":{}}";
     ws.send(Message::Text(ping_req.into())).ok()?;
 
-    if let Ok(Message::Text(txt)) = ws.read() {
-        let res_val = parse_jsonrpc_response(txt.as_str().trim()).ok()?;
-        let mut status: BridgeStatus = serde_json::from_value(res_val).ok()?;
-        if status.bridge == "UPSED_BRIDGE_V1" {
-            status.active_transport = "websocket".to_string();
-            status.enrich_compatibility();
-            let canonical_port_name = format!("BRIDGE:WS:{}:{}", host, port);
-            return Some((canonical_port_name, status));
+    let timeout = Duration::from_millis(1500);
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        match ws.read() {
+            Ok(Message::Text(txt)) => {
+                let trimmed = txt.trim();
+                if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
+                    if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                        // Skip asynchronous bridge.log notifications emitted on connect
+                        continue;
+                    }
+                    if doc.get("id").and_then(|v| v.as_u64()) == Some(1) {
+                        if let Ok(res_val) = parse_jsonrpc_doc(&doc) {
+                            if let Ok(mut status) = serde_json::from_value::<BridgeStatus>(res_val) {
+                                if status.bridge == "UPSED_BRIDGE_V1" {
+                                    status.active_transport = "websocket".to_string();
+                                    status.enrich_compatibility();
+                                    let canonical_port_name = format!("BRIDGE:WS:{}:{}", host, port);
+                                    return Some((canonical_port_name, status));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Message::Ping(p)) => {
+                let _ = ws.send(Message::Pong(p));
+            }
+            Ok(Message::Pong(_)) => {}
+            Ok(_) => {}
+            Err(_) => break,
         }
     }
     None
@@ -973,48 +996,66 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
                 };
             }
 
-            match ws.read() {
-                Ok(Message::Text(txt)) => {
-                    let latency_ms = start.elapsed().as_millis() as u64;
-                    if let Ok(res_val) = parse_jsonrpc_response(txt.as_str().trim()) {
-                        if let Ok(mut status) = serde_json::from_value::<BridgeStatus>(res_val) {
-                            status.active_transport = "websocket".to_string();
-                            status.enrich_compatibility();
-                            return WsTestResult {
-                                reachable: true,
-                                host: clean_host,
-                                port: clean_port,
-                                latency_ms,
-                                status: Some(status),
-                                error: None,
-                            };
+            let timeout = Duration::from_millis(2000);
+            let mut last_error = None;
+            while start.elapsed() < timeout {
+                match ws.read() {
+                    Ok(Message::Text(txt)) => {
+                        let latency_ms = start.elapsed().as_millis() as u64;
+                        let trimmed = txt.trim();
+                        if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
+                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                                // Skip asynchronous bridge.log notifications emitted on connect
+                                continue;
+                            }
+                            let resp_id = doc.get("id").and_then(|v| v.as_u64());
+                            if resp_id == Some(1) {
+                                match parse_jsonrpc_doc(&doc) {
+                                    Ok(res_val) => match serde_json::from_value::<BridgeStatus>(res_val) {
+                                        Ok(mut status) => {
+                                            status.active_transport = "websocket".to_string();
+                                            status.enrich_compatibility();
+                                            return WsTestResult {
+                                                reachable: true,
+                                                host: clean_host,
+                                                port: clean_port,
+                                                latency_ms,
+                                                status: Some(status),
+                                                error: None,
+                                            };
+                                        }
+                                        Err(e) => {
+                                            last_error = Some(format!("Invalid bridge status format: {}", e));
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => {
+                                        last_error = Some(format!("JSON-RPC error from bridge: {}", e));
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
-                    WsTestResult {
-                        reachable: false,
-                        host: clean_host,
-                        port: clean_port,
-                        latency_ms,
-                        status: None,
-                        error: Some("Invalid JSON-RPC payload from bridge".into()),
+                    Ok(Message::Ping(p)) => {
+                        let _ = ws.send(Message::Pong(p));
+                    }
+                    Ok(Message::Pong(_)) => {}
+                    Ok(_) => {}
+                    Err(e) => {
+                        last_error = Some(e.to_string());
+                        break;
                     }
                 }
-                Ok(_) => WsTestResult {
-                    reachable: false,
-                    host: clean_host,
-                    port: clean_port,
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    status: None,
-                    error: Some("Unexpected non-text WebSocket frame".into()),
-                },
-                Err(e) => WsTestResult {
-                    reachable: false,
-                    host: clean_host,
-                    port: clean_port,
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    status: None,
-                    error: Some(e.to_string()),
-                },
+            }
+
+            WsTestResult {
+                reachable: false,
+                host: clean_host,
+                port: clean_port,
+                latency_ms: start.elapsed().as_millis() as u64,
+                status: None,
+                error: last_error.or_else(|| Some("WebSocket ping response timed out".into())),
             }
         }
         Err(e) => WsTestResult {

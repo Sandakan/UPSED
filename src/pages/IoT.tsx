@@ -55,6 +55,121 @@ export interface IoTProps {
   portName?: string | null;
 }
 
+const BridgeLedGuide: React.FC = () => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const LED_STATES = [
+    {
+      color: 'bg-emerald-400',
+      shadow: 'shadow-[0_0_10px_#34d399]',
+      pattern: 'Solid Green (Blue tick)',
+      title: 'Proxy Mode · UPSED Connected',
+      desc: 'Normal operation. AC grid is healthy, exchanging real-time telemetry with UPSED (brief 60ms Blue flash on each poll).',
+      badge: 'Normal',
+      badgeClass: 'bg-emerald-950/60 text-emerald-400 border-emerald-700/40',
+    },
+    {
+      color: 'bg-cyan-400 animate-pulse',
+      shadow: 'shadow-[0_0_10px_#22d3ee]',
+      pattern: 'Breathing Cyan (Slow pulse)',
+      title: 'Standalone Logging · PSRAM Active',
+      desc: 'Wi-Fi is connected, but UPSED desktop is offline. Bridge is autonomously buffering telemetry to 8MB PSRAM ring buffer.',
+      badge: 'Buffering',
+      badgeClass: 'bg-cyan-950/60 text-cyan-400 border-cyan-700/40',
+    },
+    {
+      color: 'bg-amber-400 animate-pulse',
+      shadow: 'shadow-[0_0_10px_#f59e0b]',
+      pattern: 'Pulsing Yellow (1.5s pulse)',
+      title: 'UPS RS-232 Port Offline / NAK',
+      desc: 'Bridge is running, but the UPS RS-232 communication cable is disconnected, or the UPS is returning NAK.',
+      badge: 'UPS Offline',
+      badgeClass: 'bg-amber-950/60 text-amber-400 border-amber-700/40',
+    },
+    {
+      color: 'bg-amber-500 animate-ping',
+      shadow: 'shadow-[0_0_10px_#f59e0b]',
+      pattern: 'Pulsing / Blinking Amber',
+      title: 'Wi-Fi Connecting / Associating',
+      desc: 'Bridge is actively associating with the configured 2.4GHz Wi-Fi access point and waiting for DHCP IP assignment.',
+      badge: 'Connecting',
+      badgeClass: 'bg-amber-950/60 text-amber-400 border-amber-700/40',
+    },
+    {
+      color: 'bg-rose-500 animate-bounce',
+      shadow: 'shadow-[0_0_10px_#f43f5e]',
+      pattern: 'Fast Double-Blink Red',
+      title: 'Wi-Fi Auth Error / Disconnected',
+      desc: 'Incorrect Wi-Fi password (AUTH_FAIL) or router AP rejected connection (Reason 202). Check network credentials.',
+      badge: 'Auth Error',
+      badgeClass: 'bg-rose-950/60 text-rose-400 border-rose-700/40',
+    },
+    {
+      color: 'bg-rose-600 animate-pulse',
+      shadow: 'shadow-[0_0_12px_#e11d48]',
+      pattern: 'Pulsing Alert Red',
+      title: 'Power Outage · Running on Battery',
+      desc: 'CRITICAL: Utility Fail bit detected. AC grid power is lost and UPS inverter is supplying power from battery.',
+      badge: 'On Battery',
+      badgeClass: 'bg-rose-950/60 text-rose-400 border-rose-700/40',
+    },
+    {
+      color: 'bg-fuchsia-500 animate-pulse',
+      shadow: 'shadow-[0_0_10px_#d946ef]',
+      pattern: 'Pulsing Magenta (Pink-Purple)',
+      title: 'Wireless Firmware OTA Update',
+      desc: 'On-demand 90-second OTA lease active on port 8080. Flashing new firmware binary into inactive flash partition.',
+      badge: 'OTA Mode',
+      badgeClass: 'bg-fuchsia-950/60 text-fuchsia-400 border-fuchsia-700/40',
+    },
+  ];
+
+  return (
+    <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 lg:col-span-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2.5">
+          <Radio className="w-5 h-5 text-amber-400 shrink-0" />
+          <div>
+            <h3 className="text-base font-semibold text-white">ESP32 Hardware Status LED Diagnostic Guide</h3>
+            <p className="text-xs text-slate-400">Onboard WS2812 RGB LED color and blink pattern reference</p>
+          </div>
+        </div>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition cursor-pointer"
+        >
+          {isExpanded ? 'Hide Guide' : 'View Status LED Guide'}
+        </button>
+      </div>
+
+      {isExpanded && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pt-4 mt-3 border-t border-white/[0.08]">
+          {LED_STATES.map((st, idx) => (
+            <div
+              key={idx}
+              className="p-3.5 rounded-xl border border-white/[0.06] bg-black/20 flex flex-col justify-between space-y-2.5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <span className={`w-3.5 h-3.5 rounded-full ${st.color} ${st.shadow} shrink-0`} />
+                  <span className="text-xs font-semibold text-white">{st.pattern}</span>
+                </div>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${st.badgeClass}`}>
+                  {st.badge}
+                </span>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-slate-200 mb-0.5">{st.title}</div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">{st.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const IoT: React.FC<IoTProps> = ({ portName }) => {
   const queryClient = useQueryClient();
   // Status & Telemetry
@@ -1220,6 +1335,9 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
               </PrimaryButton>
             </div>
           </div>
+
+          {/* Hardware Status LED Diagnostic Guide */}
+          <BridgeLedGuide />
         </div>
       )}
 
@@ -1352,6 +1470,9 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
               <span>Standard local Wi-Fi latency is typically 5ms to 25ms over 802.11n.</span>
             </div>
           </div>
+
+          {/* Hardware Status LED Diagnostic Guide */}
+          <BridgeLedGuide />
         </div>
       )}
 

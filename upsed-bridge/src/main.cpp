@@ -12,6 +12,7 @@
 #include "config.h"
 #include "backlog_store.h"
 #include "diag_log.h"
+#include "LedController.h"
 
 // ============================================================================
 // Global Instances & State
@@ -23,6 +24,7 @@ WebServer otaServer(BRIDGE_OTA_PORT);
 Preferences prefs;
 BacklogStore backlogStore;
 DiagLogger diagLog;
+static LedController ledController;
 
 enum BridgeOperatingMode {
     MODE_PROXY = 0,
@@ -96,12 +98,8 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
         return "";
     }
 
-    // Visual indicator: Blue while waiting in Proxy Mode, Cyan in Standalone Mode
-    if (isStandalonePoll) {
-        setBridgeLed(0, 40, 50);
-    } else {
-        setBridgeLed(0, 0, 50);
-    }
+    // Flash momentary activity tick
+    ledController.triggerActivityTick();
 
     UpsSerial.print(cleanCmd);
     UpsSerial.print('\r');
@@ -159,24 +157,20 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
 
     lastUpsCmdEndMs = millis();
 
-    // Update RGB LED based on UPS response
+    // Update LED controller based on UPS response
     if (response.length() == 0 || response.startsWith("(NAK")) {
-        setBridgeLed(60, 40, 0); // Yellow: Timeout or (NAK
+        ledController.setUpsState(UPS_LED_ERROR);
     } else if (response.startsWith("(")) {
         // Check if this is a Q1 status response with Utility Fail bit
         int lastSpace = response.lastIndexOf(' ');
         if (lastSpace > 0 && (response.length() - lastSpace - 1) == 8) {
             char utilityFailBit = response.charAt(lastSpace + 1);
             if (utilityFailBit == '1') {
-                setBridgeLed(80, 0, 0); // Red: Utility Fail / On Battery!
+                ledController.setUpsState(UPS_LED_ON_BATTERY);
                 return response;
             }
         }
-        if (isStandalonePoll) {
-            setBridgeLed(35, 0, 50); // Purple: Standalone Mode healthy
-        } else {
-            setBridgeLed(0, 50, 0);  // Green: Proxy Mode healthy
-        }
+        ledController.setUpsState(UPS_LED_HEALTHY);
     }
 
     return response;
@@ -205,16 +199,15 @@ void ensureNetworkServicesStarted() {
             ArduinoOTA.setPassword(BRIDGE_OTA_SECRET);
             ArduinoOTA.onStart([]() {
                 currentMode = MODE_OTA;
+                ledController.setMode(MODE_LED_OTA);
                 diagLog.info("[OTA] ArduinoOTA flashing started over Wi-Fi...");
-                setBridgeLed(70, 0, 70);
             });
             ArduinoOTA.onEnd([]() {
                 diagLog.info("[OTA] ArduinoOTA flashing completed! Rebooting...");
-                setBridgeLed(0, 80, 0);
             });
             ArduinoOTA.onError([](ota_error_t error) {
                 diagLog.error("[OTA] ArduinoOTA error [%u]", error);
-                setBridgeLed(80, 0, 0);
+                ledController.setUpsState(UPS_LED_ERROR);
             });
             ArduinoOTA.begin();
             arduinoOtaStarted = true;
@@ -237,7 +230,7 @@ void stopOtaMode() {
     if (currentMode == MODE_OTA) {
         currentMode = MODE_PROXY;
         lastDesktopContactMs = millis();
-        setBridgeLed(0, 50, 0); // Green
+        ledController.setMode(MODE_LED_PROXY);
     }
 }
 
@@ -256,12 +249,11 @@ void setupOtaHttpEndpoints() {
 
         if (success) {
             diagLog.info("[OTA] Firmware flashing succeeded! Scheduling restart in 250ms...");
-            setBridgeLed(0, 80, 0); // Bright green
+            setBridgeLed(0, 80, 0); // Solid green final flash before reboot
             delay(250);
             ESP.restart();
         } else {
             diagLog.error("[OTA] Firmware update failed: %s", Update.errorString());
-            setBridgeLed(80, 0, 0); // Red
             stopOtaMode();
         }
     }, []() {
@@ -275,7 +267,7 @@ void setupOtaHttpEndpoints() {
             otaUpdating = true;
             otaLeaseExpiryMs = millis() + 120000UL; // Extend lease during upload
             diagLog.info("[OTA] Commencing firmware stream: %s", upload.filename.c_str());
-            setBridgeLed(70, 0, 70); // Magenta
+            ledController.setMode(MODE_LED_OTA);
 
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                 diagLog.error("[OTA] Update.begin failed: %s", Update.errorString());
@@ -310,12 +302,12 @@ void setupOtaHttpEndpoints() {
 
 void startOtaMode() {
     currentMode = MODE_OTA;
+    ledController.setMode(MODE_LED_OTA);
     setupOtaHttpEndpoints();
     otaServer.begin();
     otaServerActive = true;
     otaUpdating = false;
     otaLeaseExpiryMs = millis() + BRIDGE_OTA_LEASE_MS;
-    setBridgeLed(70, 0, 70); // Magenta
     diagLog.info("[OTA] Leased OTA HTTP server active on port %d (Lease %u sec)",
                  BRIDGE_OTA_PORT, BRIDGE_OTA_LEASE_MS / 1000UL);
 }
@@ -325,9 +317,11 @@ void startOtaMode() {
 // ============================================================================
 bool connectToWifi(const String& ssid, const String& pass, uint32_t timeoutMs) {
     if (ssid.length() == 0) {
+        ledController.setWifiState(WIFI_LED_DISCONNECTED);
         return false;
     }
 
+    ledController.setWifiState(WIFI_LED_CONNECTING);
     diagLog.info("[WIFI] Associating with 2.4GHz network '%s'...", ssid.c_str());
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
@@ -337,14 +331,17 @@ bool connectToWifi(const String& ssid, const String& pass, uint32_t timeoutMs) {
 
     unsigned long startMs = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < timeoutMs) {
-        delay(100);
+        delay(50);
+        ledController.update();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
         lastWifiError = "None";
+        ledController.setWifiState(WIFI_LED_CONNECTED);
         ensureNetworkServicesStarted();
         return true;
     }
+    ledController.setWifiState(WIFI_LED_DISCONNECTED);
     return false;
 }
 
@@ -358,8 +355,8 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
         return false;
     }
 
+    ledController.setWifiState(WIFI_LED_CONNECTING);
     diagLog.info("[WIFI] Associating with 2.4GHz network '%s' (timeout %u ms)...", newSsid.c_str(), timeoutMs);
-    setBridgeLed(50, 25, 0); // Amber indication during transition
 
     WiFi.disconnect(false, true);
     delay(50);
@@ -370,11 +367,13 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
 
     unsigned long startMs = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < timeoutMs) {
-        delay(100);
+        delay(50);
+        ledController.update();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
         lastWifiError = "None";
+        ledController.setWifiState(WIFI_LED_CONNECTED);
         diagLog.info("[WIFI] Successfully associated with '%s'! IP: %s",
                      newSsid.c_str(), WiFi.localIP().toString().c_str());
         // Cleanly re-announce mDNS responder on the newly acquired IP address
@@ -383,14 +382,13 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
             mdnsStarted = false;
         }
         ensureNetworkServicesStarted();
-        setBridgeLed(0, 50, 0); // Green
         return true;
     }
 
     // Association failed! Rollback if we have previous working credentials
     diagLog.warn("[WIFI] Connection to '%s' failed (error: %s). Initiating automatic rollback...",
                  newSsid.c_str(), lastWifiError.c_str());
-    setBridgeLed(60, 0, 0); // Red indication of failed attempt
+    ledController.setWifiState(WIFI_LED_AUTH_FAIL);
 
     if (prevSsid.length() > 0 && prevSsid != newSsid) {
         diagLog.info("[WIFI] Restoring previous network credentials for '%s' in NVS Flash...", prevSsid.c_str());
@@ -407,10 +405,12 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
 
         startMs = millis();
         while (WiFi.status() != WL_CONNECTED && (millis() - startMs) < 10000) {
-            delay(100);
+            delay(50);
+            ledController.update();
         }
 
         if (WiFi.status() == WL_CONNECTED) {
+            ledController.setWifiState(WIFI_LED_CONNECTED);
             diagLog.info("[WIFI] Rollback successful! Reconnected to '%s' (IP: %s)",
                          prevSsid.c_str(), WiFi.localIP().toString().c_str());
             if (mdnsStarted) {
@@ -418,9 +418,9 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
                 mdnsStarted = false;
             }
             ensureNetworkServicesStarted();
-            setBridgeLed(35, 0, 50); // Purple indication
             return false;
         } else {
+            ledController.setWifiState(WIFI_LED_DISCONNECTED);
             diagLog.error("[WIFI] Rollback connection to '%s' also failed! (error: %s)",
                           prevSsid.c_str(), lastWifiError.c_str());
         }
@@ -496,6 +496,7 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
     }
     lastDesktopContactMs = millis();
     currentMode = MODE_PROXY;
+    ledController.setMode(MODE_LED_PROXY);
 
     if (strcmp(method, "bridge.ping") == 0 || strcmp(method, "bridge.getStatus") == 0) {
         JsonObject result = resDoc["result"].to<JsonObject>();
@@ -664,6 +665,7 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t
 void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     switch (event) {
         case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            ledController.setWifiState(WIFI_LED_CONNECTING);
             diagLog.info("[WIFI] Connected to AP '%s' (BSSID %02X:%02X:%02X:%02X:%02X:%02X)",
                          WiFi.SSID().c_str(),
                          info.wifi_sta_connected.bssid[0], info.wifi_sta_connected.bssid[1],
@@ -671,6 +673,7 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
                          info.wifi_sta_connected.bssid[4], info.wifi_sta_connected.bssid[5]);
             break;
         case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            ledController.setWifiState(WIFI_LED_CONNECTED);
             diagLog.info("[WIFI] DHCP IP Assigned: %s (Gateway: %s, RSSI: %d dBm)",
                          WiFi.localIP().toString().c_str(),
                          WiFi.gatewayIP().toString().c_str(),
@@ -681,6 +684,12 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
             uint8_t reason = info.wifi_sta_disconnected.reason;
             lastWifiError = String(DiagLogger::wifiReasonToString(reason));
+            if (reason == WIFI_REASON_AUTH_EXPIRE || reason == WIFI_REASON_AUTH_FAIL ||
+                reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT || reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
+                ledController.setWifiState(WIFI_LED_AUTH_FAIL);
+            } else {
+                ledController.setWifiState(WIFI_LED_DISCONNECTED);
+            }
             diagLog.warn("[WIFI] Disconnected from AP: %s (Reason code %d)",
                          lastWifiError.c_str(), reason);
             break;
@@ -694,7 +703,7 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 // Setup & Loop
 // ============================================================================
 void setup() {
-    setBridgeLed(40, 25, 0); // Amber
+    ledController.setWifiState(WIFI_LED_BOOT);
 
     Serial.begin(PC_SERIAL_BAUD);
     Serial.setRxBufferSize(2048);
@@ -720,13 +729,13 @@ void setup() {
 
     if (savedSsid.length() > 0) {
         connectToWifi(savedSsid, savedPass, 8000);
+    } else {
+        ledController.setWifiState(WIFI_LED_DISCONNECTED);
     }
 
     lastDesktopContactMs = millis();
     lastStandalonePollMs = millis();
     lastWifiRetryMs = millis();
-
-    setBridgeLed(0, 30, 0); // Ready: Green
 }
 
 void loop() {
@@ -788,8 +797,8 @@ void loop() {
     if (currentMode != MODE_OTA && (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS)) {
         if (currentMode != MODE_STANDALONE) {
             currentMode = MODE_STANDALONE;
+            ledController.setMode(MODE_LED_STANDALONE);
             diagLog.warn("[MODE] Switched to STANDALONE mode (15s desktop silence). Standalone logging active.");
-            setBridgeLed(35, 0, 50); // Purple
         }
 
         if (nowMs - lastStandalonePollMs >= STANDALONE_POLL_MS) {
@@ -800,4 +809,7 @@ void loop() {
             }
         }
     }
+
+    // 6. Non-blocking Status LED Update
+    ledController.update();
 }
