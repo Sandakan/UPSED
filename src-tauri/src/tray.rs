@@ -118,6 +118,28 @@ pub fn update_tray_state_multi(
                 }
                 None => "UPSED: Disconnected\n(No device connected)".to_string(),
             }
+        } else if device_summaries.len() == 1 {
+            let (name, st_opt) = &device_summaries[0];
+            match st_opt {
+                Some(status) => {
+                    let pct = compute_battery_pct(status.battery_voltage_v);
+                    let mode = if status.ups_failed {
+                        "FAULT"
+                    } else if status.test_in_progress {
+                        "Testing"
+                    } else if status.utility_fail && status.battery_low {
+                        "BATTERY LOW"
+                    } else if status.utility_fail {
+                        "ON BATTERY"
+                    } else if status.bypass_active {
+                        "BYPASS"
+                    } else {
+                        "Online (AC Normal)"
+                    };
+                    format!("UPSED: {}\n{} — {}% ({:.1}V)\nLoad: {}% ({}W)", name, mode, pct, status.battery_voltage_v, status.output_load_pct, status.output_watts)
+                }
+                None => format!("UPSED: {}\n(Offline / Disconnected)", name),
+            }
         } else {
             let mut lines = Vec::new();
             lines.push(format!("UPSED ({} devices connected)", device_summaries.len()));

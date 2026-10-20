@@ -403,7 +403,17 @@ pub async fn disconnect_device(
     tokio::task::spawn_blocking(move || {
         let ups_id = state_clone.manager.get_device_ups_id(&port_name);
         state_clone.manager.unregister_device(&port_name);
-        crate::tray::update_tray_state(&app_clone, false, None);
+        let remaining = state_clone.manager.list_connected_details();
+        if remaining.is_empty() {
+            crate::tray::update_tray_state(&app_clone, false, None);
+        } else {
+            let summaries: Vec<(&str, Option<&Q1Status>)> = remaining
+                .iter()
+                .map(|(info, _, st)| (info.port_name.as_str(), st.as_ref()))
+                .collect();
+            let primary = remaining.first().and_then(|(_, _, st)| st.as_ref());
+            crate::tray::update_tray_state_multi(&app_clone, primary, &summaries);
+        }
         let _ = state_clone.db.insert_event(&EventLogRecord {
             id: None,
             timestamp: chrono::Utc::now().to_rfc3339(),
@@ -490,12 +500,9 @@ pub async fn get_device_status(
 
                 let mut bridge = state_clone.bridge.lock().unwrap();
                 bridge.update(&status);
-                let is_enabled = bridge.is_enabled();
                 drop(bridge);
 
-                if is_enabled {
-                    crate::tray::update_tray_state(&app_clone, true, Some(&status));
-                }
+                crate::tray::update_tray_state(&app_clone, true, Some(&status));
 
                 // Sync real-time transport status if target is an ESP32 Bridge
                 if let Ok((medium, host, key)) = state_clone.manager.with_bridge_transport(Some(&port_name), |b, k| {
@@ -860,7 +867,19 @@ pub async fn save_ups_metadata(
         state_clone
             .db
             .save_ups_metadata(&metadata)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        // Link active connected device in manager immediately if present
+        for (info, _, _) in state_clone.manager.list_connected_details() {
+            if info.unique_id == metadata.unique_id
+                || (metadata.bridge_mac.is_some() && metadata.bridge_mac == info.bridge_mac)
+                || (metadata.usb_uuid.is_some() && metadata.usb_uuid == info.usb_uuid)
+                || (metadata.last_port.as_deref() == Some(&info.port_name))
+            {
+                state_clone.manager.set_device_ups_id(&info.port_name, metadata.unique_id.clone());
+            }
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?

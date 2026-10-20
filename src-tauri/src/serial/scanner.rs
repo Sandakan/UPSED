@@ -564,15 +564,33 @@ pub fn scan_available_ports_with_context(
     // 2. Scan serial COM ports (including USB-connected ESP32 Bridges)
     if let Ok(ports) = serialport::available_ports() {
         for port_info in ports {
+            let port_uuid = get_port_usb_uuid(&port_info.port_name);
             let is_already_active = active_devices.iter().any(|d| {
                 d.port_name == port_info.port_name
                     || d.port_name == format!("BRIDGE:{}", port_info.port_name)
+                    || (port_uuid.is_some() && d.usb_uuid.is_some() && d.usb_uuid == port_uuid)
             });
             if is_already_active {
                 continue;
             }
 
             if let Some(dev) = probe_port_internal(&port_info.port_name, fallback_ws_host) {
+                let is_duplicate = active_devices.iter().any(|d| {
+                    (d.bridge_mac.is_some() && d.bridge_mac == dev.bridge_mac)
+                        || d.unique_id == dev.unique_id
+                }) || discovered.iter().any(|d| {
+                    (d.bridge_mac.is_some() && d.bridge_mac == dev.bridge_mac)
+                        || d.unique_id == dev.unique_id
+                });
+
+                if is_duplicate {
+                    tracing::debug!(
+                        "Skipping duplicate bridge device on {} (already active via another transport)",
+                        dev.port_name
+                    );
+                    continue;
+                }
+
                 if dev.port_name.starts_with("BRIDGE:") {
                     found_usb_bridge = true;
                 }

@@ -135,6 +135,8 @@ impl MultiPortManager {
         if let Ok(mut devs) = self.devices.lock() {
             if let Some(dev) = devs.get_mut(port_name) {
                 dev.ups_id = Some(ups_id);
+            } else if let Some(dev) = devs.values_mut().find(|d| d.info.port_name == port_name || d.info.unique_id == port_name) {
+                dev.ups_id = Some(ups_id);
             }
         }
     }

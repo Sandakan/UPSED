@@ -448,7 +448,6 @@ export function App() {
         setTransportIp(payload.ip);
       }
       queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['ports'] });
     }).then((fn) => {
       if (!isMounted) fn();
       else unlisten = fn;

@@ -48,7 +48,7 @@ pub async fn run_background_monitor(
 fn poll_cycle_step(app: &AppHandle, state: &AppState) {
     let approved_profiles = state.db.list_all_ups_metadata().unwrap_or_default();
 
-    if approved_profiles.is_empty() {
+    if approved_profiles.is_empty() && state.manager.list_devices().is_empty() {
         crate::tray::update_tray_state(app, false, None);
         return;
     }
@@ -96,8 +96,13 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
         }
     }
 
-    // Poll each connected device that has an approved profile
+    // Poll each connected device
     let connected_list = state.manager.list_connected_details();
+    if connected_list.is_empty() {
+        crate::tray::update_tray_state(app, false, None);
+        return;
+    }
+
     let mut primary_status: Option<Q1Status> = None;
     let mut device_summaries: Vec<(String, Option<Q1Status>)> = Vec::new();
 
@@ -108,52 +113,74 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
         .map(|p| p.unique_id.clone())
         .or_else(|| approved_profiles.first().map(|p| p.unique_id.clone()));
 
-    for (info, ups_id_opt, last_status) in connected_list {
-        let Some(ref uid) = ups_id_opt else {
-            // Unapproved device connected in setup modal - skip persistent polling
-            continue;
-        };
+    for (info, mut ups_id_opt, last_status) in connected_list {
+        // Resolve ups_id_opt against approved profiles if not yet bound
+        if ups_id_opt.is_none() {
+            let matched = approved_profiles.iter().find(|p| {
+                p.unique_id == info.unique_id
+                    || (info.bridge_mac.is_some() && p.bridge_mac == info.bridge_mac)
+                    || (info.usb_uuid.is_some() && p.usb_uuid == info.usb_uuid)
+                    || (info.hardware_signature.is_some() && p.hardware_signature == info.hardware_signature)
+                    || (p.last_port.as_deref() == Some(&info.port_name))
+            }).or_else(|| {
+                if approved_profiles.len() == 1 {
+                    approved_profiles.first()
+                } else {
+                    None
+                }
+            });
 
-        let profile_opt = approved_profiles.iter().find(|p| p.unique_id == *uid);
-        let device_label = profile_opt
+            if let Some(prof) = matched {
+                ups_id_opt = Some(prof.unique_id.clone());
+                state.manager.set_device_ups_id(&info.port_name, prof.unique_id.clone());
+            }
+        }
+
+        let device_label = ups_id_opt
+            .as_ref()
+            .and_then(|uid| approved_profiles.iter().find(|p| p.unique_id == *uid))
             .map(|p| p.name.clone())
             .unwrap_or_else(|| info.port_name.clone());
 
         match state.manager.poll_device(&info.port_name) {
             Ok(status) => {
-                // Record telemetry in database
-                let _ = state.db.insert_telemetry(&TelemetryRecord {
-                    id: None,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    ups_id: uid.clone(),
-                    grid_voltage: status.grid_voltage_v,
-                    output_voltage: status.output_voltage_v,
-                    grid_frequency: status.grid_frequency_hz,
-                    output_frequency: status.output_frequency_hz,
-                    load_pct: status.output_load_pct,
-                    output_watts: status.output_watts,
-                    battery_voltage: status.battery_voltage_v,
-                    temperature_c: status.temperature_c,
-                });
+                // If profile is approved, record persistent telemetry and detect events
+                if let Some(ref uid) = ups_id_opt {
+                    let _ = state.db.insert_telemetry(&TelemetryRecord {
+                        id: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        ups_id: uid.clone(),
+                        grid_voltage: status.grid_voltage_v,
+                        output_voltage: status.output_voltage_v,
+                        grid_frequency: status.grid_frequency_hz,
+                        output_frequency: status.output_frequency_hz,
+                        load_pct: status.output_load_pct,
+                        output_watts: status.output_watts,
+                        battery_voltage: status.battery_voltage_v,
+                        temperature_c: status.temperature_c,
+                    });
 
-                // Detect rising-edge events
-                let detected = detect_status_events(last_status.as_ref(), &status, Some(uid));
-                for ev in &detected {
-                    let _ = state.db.insert_event(ev);
-                    let _ = app.emit("ups-event", ev);
+                    // Detect rising-edge events
+                    let detected = detect_status_events(last_status.as_ref(), &status, Some(uid));
+                    for ev in &detected {
+                        let _ = state.db.insert_event(ev);
+                        let _ = app.emit("ups-event", ev);
+                    }
                 }
 
                 // Push live telemetry payload
                 let _ = app.emit(
                     "ups-telemetry",
                     &UpsTelemetryPayload {
-                        ups_id: Some(uid.clone()),
+                        ups_id: ups_id_opt.clone(),
                         port_name: info.port_name.clone(),
                         status: status.clone(),
                     },
                 );
 
-                if primary_id.as_deref() == Some(uid) || primary_status.is_none() {
+                if (ups_id_opt.is_some() && primary_id.as_deref() == ups_id_opt.as_deref())
+                    || primary_status.is_none()
+                {
                     primary_status = Some(status.clone());
                 }
 
@@ -167,7 +194,7 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                 }
             }
             Err(err) => {
-                tracing::warn!("Background poll failed for UPS {} on {}: {}", uid, info.port_name, err);
+                tracing::warn!("Background poll failed for UPS on {}: {}", info.port_name, err);
                 device_summaries.push((device_label, None));
             }
         }
