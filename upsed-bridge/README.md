@@ -12,7 +12,8 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 - **8MB PSRAM MessagePack Ring Buffer:** Buffers up to 8,192 offline telemetry snapshots (~22.7 hours at 10s cadence) while your PC is off or asleep, automatically syncing them into UPSED's SQLite history upon desktop reconnection.
 - **Real-Time JSON-RPC 2.0 Streaming:** Asynchronously pushes diagnostic logs and hardware events (`bridge.log`) to the UPSED Live Debug Console.
 - **Hardware-Enforced Protocol Guarding:**
-  - 120ms inter-command UART guard delay prevents RS-232 transceiver buffer collisions.
+  - 150ms inter-command UART guard delay prevents RS-232 transceiver buffer collisions.
+  - 1400ms read timeout accommodates 2400-baud UPS microcontroller ADC sampling.
   - Transparent 3-attempt retry with 150ms backoff for noisy 2400-baud industrial lines.
 - **NVS Persistent Storage:** Saves Wi-Fi credentials securely in non-volatile flash partitions.
 
@@ -21,7 +22,7 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 ## 🔌 Hardware Pinout & Wiring
 
 | ESP32-S3 Pin | Function | Target / Module | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **USB-C Port** | USB CDC Serial (UART0) | Host PC / UPSED | 115,200 Baud |
 | **GPIO 17** | `UPS_RX_PIN` (UART1 RX) | MAX3232 Transceiver `R1OUT` | Connected to UPS DB9/RJ45 Pin 2 (TX) |
 | **GPIO 18** | `UPS_TX_PIN` (UART1 TX) | MAX3232 Transceiver `T1IN` | Connected to UPS DB9/RJ45 Pin 3 (RX) |
@@ -37,7 +38,7 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 ## 🚦 WS2812 RGB LED Status Indicator Guide
 
 | LED Color & Pattern | Operating State | Description |
-|---|---|---|
+| --- | --- | --- |
 | 🔵 **Blue (Pulsing)** | Boot / Associating | ESP32 initializing or attempting Wi-Fi association |
 | 🟢 **Green (Solid)** | Proxy Mode | UPSED Desktop connected; real-time USB/WS proxy active |
 | 🟠 **Amber / Orange (Solid)** | Standalone Mode | PC offline (>15s); autonomous 10s polling into PSRAM active |
@@ -56,6 +57,7 @@ cp .env.example .env
 ```
 
 Ensure `UPSED_OTA_SECRET` is set in your `.env`:
+
 ```env
 UPSED_OTA_SECRET="ChangeThisToAStrongSecretKey123!"
 ```
@@ -116,6 +118,7 @@ You can also update the ESP32-S3 firmware directly from the **UPSED Desktop Appl
 If you prefer running commands directly within the `upsed-bridge/` directory:
 
 ### 1. Build & Compilation
+
 ```bash
 # Navigate to the bridge directory
 cd upsed-bridge
@@ -128,6 +131,7 @@ pio run -v
 ```
 
 ### 2. Flashing & Uploading
+
 ```bash
 # Upload to automatically detected serial port
 pio run -t upload
@@ -137,6 +141,7 @@ pio run -t upload --upload-port COM3 --upload-speed 921600
 ```
 
 ### 3. Serial Monitoring
+
 ```bash
 # Monitor UART0 output at 115200 baud
 pio device monitor -b 115200
@@ -149,6 +154,7 @@ pio device monitor -b 115200 --filter time
 ```
 
 ### 4. Combined Upload & Monitor
+
 ```bash
 # Build, upload, and immediately open serial monitor in one command
 pio run -t upload -t monitor
@@ -159,13 +165,17 @@ pio run -t upload -t monitor
 ## 🗄️ Managing Flash, NVS & Device Partitions
 
 ### 1. Listing Connected Serial Devices
+
 To see all connected COM ports and USB serial chips (CH340, CP2102, ESP-USB-JTAG):
+
 ```bash
 pio device list
 ```
 
 ### 2. Full Flash Erase (Factory Reset)
+
 To wipe all NVS partitions (clearing saved Wi-Fi credentials, IP configurations, and PSRAM backlog):
+
 ```bash
 # Via PlatformIO
 pio run -t erase
@@ -175,7 +185,9 @@ esptool.py --port COM3 erase_flash
 ```
 
 ### 3. Entering ROM Bootloader Mode (Recovery)
+
 If the board does not auto-reset or is caught in a boot loop:
+
 1. Press and **hold** the **BOOT** button (GPIO 0).
 2. Tap and release the **RST** (or **EN**) button.
 3. Release the **BOOT** button.
@@ -190,11 +202,15 @@ If the board does not auto-reset or is caught in a boot loop:
 The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and WebSocket (`ws://0.0.0.0:81`).
 
 ### 1. `bridge.ping` — System Health
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 1, "method": "bridge.ping", "params": {}}
   ```
+
 - **Response:**
+
   ```json
   {
     "jsonrpc": "2.0",
@@ -220,32 +236,45 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
   ```
 
 ### 2. `bridge.setWifi` — NVS Provisioning
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 2, "method": "bridge.setWifi", "params": {"ssid": "MyHome_2.4G", "pass": "SecretKey123"}}
   ```
+
 - Saves credentials to NVS flash and initiates association.
 
 ### 3. `bridge.scanWifi` — 2.4GHz Airwave Probe
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 3, "method": "bridge.scanWifi", "params": {}}
   ```
+
 - Returns detected SSIDs, RSSI dBm values, and open/WPA2 flags.
 
 ### 4. `bridge.getBacklog` & `bridge.clearBacklog` — Offline Buffer
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 4, "method": "bridge.getBacklog", "params": {"limit": 50}}
   ```
+
 - Drains batches of offline MessagePack telemetry records stored while PC was offline.
 
 ### 5. `ups.cmd` — Raw Hardware Passthrough
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 5, "method": "ups.cmd", "params": {"cmd": "Q1"}}
   ```
+
 - **Response:**
+
   ```json
   {
     "jsonrpc": "2.0",
@@ -259,11 +288,15 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
   ```
 
 ### 6. `bridge.startOta` — On-Demand Leased Wireless OTA Mode
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 6, "method": "bridge.startOta", "params": {"token": "YourOtaSecret123!"}}
   ```
+
 - **Response:**
+
   ```json
   {
     "jsonrpc": "2.0",
@@ -276,17 +309,23 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
     }
   }
   ```
+
 - **Description:** Opens HTTP server on port 8080 and PlatformIO `ArduinoOTA` listener on port 3232 for 90 seconds. Suspends RS-232 telemetry and switches LED to pulsing Magenta.
 
 ### 7. `bridge.abortOta` — Cancel Leased OTA Mode
+
 - **Request:**
+
   ```json
   {"jsonrpc": "2.0", "id": 7, "method": "bridge.abortOta", "params": {}}
   ```
+
 - **Description:** Immediately terminates the HTTP server and ArduinoOTA listeners, releasing the lease and returning to normal mode.
 
 ### 8. `bridge.log` — Real-Time Push Notification
+
 Unprompted notification pushed to all connected clients:
+
 ```json
 {
   "jsonrpc": "2.0",

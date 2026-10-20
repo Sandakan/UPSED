@@ -7,7 +7,7 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.0.1"
+#define BRIDGE_FIRMWARE_VER    "1.0.2"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
@@ -24,7 +24,8 @@
 #define UPS_RX_PIN             17
 #define UPS_TX_PIN             18
 #define UPS_BAUD               2400
-#define UPS_READ_TIMEOUT_MS    900
+#define UPS_GUARD_DELAY_MS     150       // Guard delay between RS-232 UART frames
+#define UPS_READ_TIMEOUT_MS    1400      // Turnaround timeout for 2400-baud UPS MCU ADC/telemetry calculations
 
 // Role Handoff & Standalone Polling Intervals
 #define PROXY_TIMEOUT_MS       15000UL   // Switch to Standalone Mode after 15s of PC silence

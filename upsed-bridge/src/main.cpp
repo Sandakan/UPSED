@@ -79,11 +79,11 @@ uint32_t getCurrentTimestampSec() {
 static unsigned long lastUpsCmdEndMs = 0;
 
 String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
-    // 120ms inter-command guard delay on 2400-baud bus to avoid collision
+    // Inter-command guard delay on 2400-baud bus to avoid collision
     unsigned long now = millis();
     unsigned long elapsed = now - lastUpsCmdEndMs;
-    if (elapsed < 120) {
-        delay(120 - elapsed);
+    if (elapsed < UPS_GUARD_DELAY_MS) {
+        delay(UPS_GUARD_DELAY_MS - elapsed);
     }
 
     // Clean any stale bytes in UART1 receive buffer
@@ -146,7 +146,7 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
             }
             response.trim();
             if (response.startsWith("(") && !response.startsWith("(NAK")) {
-                diagLog.debug("[UPS] Q1 recovered on retry attempt %d", retry);
+                // Recovered cleanly on retry; avoid filling ring buffer with benign recovery entries
                 break;
             }
         }
