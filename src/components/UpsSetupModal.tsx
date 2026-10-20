@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck, Zap, Battery, Sparkles, X, Info, Gauge } from 'lucide-react';
+import { ShieldCheck, Zap, Battery, Sparkles, X, Info, Gauge, Link2 } from 'lucide-react';
 import { DiscoveredDevice, Q1Status, UpsMetadata } from '../lib/types';
+import { api } from '../lib/tauri';
 import {
   calculateActiveWatts,
   calculateBatterySoC,
@@ -19,6 +20,7 @@ interface UpsSetupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (metadata: UpsMetadata) => void;
+  onLinkExisting?: (targetUniqueId: string) => void;
 }
 
 const VA_PRESETS = [650, 1000, 1500, 2000, 3000, 6000, 10000];
@@ -29,6 +31,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onLinkExisting,
 }) => {
   const { t } = useTranslation(['modals', 'settings', 'common']);
   // Auto-detect sensible nominal battery voltage from live telemetry if available
@@ -49,6 +52,17 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
   const [batteryCapacityAh, setBatteryCapacityAh] = useState<number>(9.0);
   const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>('VRLA_SLA');
   const [topology, setTopology] = useState<string>(initialTopology);
+  const [candidates, setCandidates] = useState<UpsMetadata[]>([]);
+
+  useEffect(() => {
+    if (device.hardware_signature) {
+      api.getDisambiguationCandidates(device.hardware_signature)
+        .then((res) => {
+          setCandidates(res.filter((c) => c.unique_id !== device.unique_id));
+        })
+        .catch(console.error);
+    }
+  }, [device.hardware_signature, device.unique_id]);
 
   if (!isOpen) return null;
 
@@ -77,6 +91,8 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
       unique_id: device.unique_id,
       name: name.trim() || 'Connected UPS',
       usb_uuid: device.usb_uuid || null,
+      bridge_mac: device.bridge_mac || null,
+      hardware_signature: device.hardware_signature || null,
       rated_va: Math.max(50, ratedVa),
       power_factor: powerFactor,
       rated_watts: derivedWatts,
@@ -95,6 +111,8 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
       unique_id: device.unique_id,
       name: name.trim() || 'Connected UPS',
       usb_uuid: device.usb_uuid || null,
+      bridge_mac: device.bridge_mac || null,
+      hardware_signature: device.hardware_signature || null,
       rated_va: defaultVa,
       power_factor: defaultPf,
       rated_watts: calculateActiveWatts(defaultVa, defaultPf),
@@ -150,6 +168,30 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
             {device.firmware_version && <span>FW: {device.firmware_version}</span>}
           </div>
         </div>
+
+        {/* Twin-Unit Disambiguation Banner */}
+        {candidates.length > 0 && (
+          <div className="mx-5 mt-3 p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl flex items-center justify-between text-xs animate-fadeIn">
+            <div className="space-y-0.5 pr-2">
+              <div className="flex items-center space-x-1.5 text-indigo-300 font-medium">
+                <Link2 className="w-3.5 h-3.5" />
+                <span>Existing Matching Profile: "{candidates[0].name}"</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Did you reconnect an existing UPS via a new port/adapter? Link it to retain history, or complete the form below to configure as a new twin unit.
+              </p>
+            </div>
+            {onLinkExisting && (
+              <button
+                type="button"
+                onClick={() => onLinkExisting(candidates[0].unique_id)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg text-xs transition shrink-0 shadow-sm"
+              >
+                Link Profile
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">

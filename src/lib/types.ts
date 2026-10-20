@@ -21,6 +21,8 @@ export interface DiscoveredDevice {
   unique_id: string;
   firmware_version?: string | null;
   usb_uuid?: string | null;
+  bridge_mac?: string | null;
+  hardware_signature?: string | null;
   capabilities: DeviceCapabilities;
 }
 
@@ -28,6 +30,8 @@ export interface UpsMetadata {
   unique_id: string;
   name: string;
   usb_uuid?: string | null;
+  bridge_mac?: string | null;
+  hardware_signature?: string | null;
   rated_va: number;
   power_factor: number;
   rated_watts: number;

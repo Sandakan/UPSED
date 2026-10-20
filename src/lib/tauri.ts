@@ -73,8 +73,34 @@ export const api = {
   setBatteryBridgeStatus: (enabled: boolean) =>
     invoke<void>('set_battery_bridge_status', { enabled }),
 
-  getUpsMetadata: (uniqueId: string) =>
-    invoke<UpsMetadata | null>('get_ups_metadata', { uniqueId }),
+  getUpsMetadata: (
+    uniqueId: string,
+    bridgeMac?: string | null,
+    usbUuid?: string | null,
+    hardwareSignature?: string | null
+  ) =>
+    invoke<UpsMetadata | null>('get_ups_metadata', {
+      uniqueId,
+      bridgeMac: bridgeMac || null,
+      usbUuid: usbUuid || null,
+      hardwareSignature: hardwareSignature || null,
+    }),
+
+  linkTransportToProfile: (
+    uniqueId: string,
+    bridgeMac?: string | null,
+    usbUuid?: string | null,
+    hardwareSignature?: string | null
+  ) =>
+    invoke<void>('link_transport_to_profile', {
+      uniqueId,
+      bridgeMac: bridgeMac || null,
+      usbUuid: usbUuid || null,
+      hardwareSignature: hardwareSignature || null,
+    }),
+
+  getDisambiguationCandidates: (hardwareSignature: string) =>
+    invoke<UpsMetadata[]>('get_disambiguation_candidates', { hardwareSignature }),
 
   saveUpsMetadata: (metadata: UpsMetadata) =>
     invoke<void>('save_ups_metadata', { metadata }),

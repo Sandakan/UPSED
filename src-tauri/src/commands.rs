@@ -227,16 +227,12 @@ pub fn connect_device_internal(
             .send_command("QVFW")
             .ok()
             .and_then(|r| protocol::parse_firmware_version(&r).ok());
+        let bridge_mac = bridge_transport.bridge_mac();
         let unique_id = if let Some(sn) = serial_number.as_deref() {
             crate::serial::generate_unique_id(Some(sn), &normalized_bridge_port, firmware_version.as_deref())
-        } else if let Some(mac) = bridge_transport.bridge_mac() {
+        } else if let Some(mac) = bridge_mac.as_deref() {
             let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
-            let fw_part = firmware_version
-                .as_deref()
-                .map(|f| f.trim().replace(|c: char| !c.is_alphanumeric(), "_"))
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "GENERIC".to_string());
-            format!("BRIDGE-MAC-{}-FW-{}", clean_mac, fw_part)
+            format!("BRIDGE-MAC-{}", clean_mac)
         } else {
             crate::serial::generate_unique_id(
                 None,
@@ -248,6 +244,17 @@ pub fn connect_device_internal(
         let raw_com = normalized_bridge_port.strip_prefix("BRIDGE:").unwrap_or(&normalized_bridge_port);
         let usb_uuid = crate::serial::get_port_usb_uuid(raw_com);
 
+        let battery_v = bridge_transport
+            .send_command("Q1")
+            .ok()
+            .and_then(|r| protocol::Q1Status::parse(&r).ok())
+            .map(|s| s.battery_voltage_v);
+        let hardware_signature = Some(crate::serial::scanner::compute_hardware_signature(
+            &proto,
+            battery_v,
+            None,
+        ));
+
         let dev_info = DiscoveredDevice {
             port_name: normalized_bridge_port.clone(),
             protocol_id: proto,
@@ -255,6 +262,8 @@ pub fn connect_device_internal(
             unique_id,
             firmware_version,
             usb_uuid,
+            bridge_mac,
+            hardware_signature,
             capabilities,
         };
 
@@ -267,6 +276,8 @@ pub fn connect_device_internal(
             unique_id: format!("MANUAL-{}", port_name),
             firmware_version: None,
             usb_uuid: None,
+            bridge_mac: None,
+            hardware_signature: None,
             capabilities: protocol::DeviceCapabilities::for_protocol("00"),
         });
 
@@ -685,12 +696,60 @@ pub fn set_battery_bridge_status(
 pub async fn get_ups_metadata(
     state: State<'_, AppState>,
     unique_id: String,
+    bridge_mac: Option<String>,
+    usb_uuid: Option<String>,
+    hardware_signature: Option<String>,
 ) -> Result<Option<UpsMetadata>, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
             .db
-            .get_ups_metadata(&unique_id)
+            .resolve_ups_metadata(
+                &unique_id,
+                bridge_mac.as_deref(),
+                usb_uuid.as_deref(),
+                hardware_signature.as_deref(),
+            )
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn link_transport_to_profile(
+    state: State<'_, AppState>,
+    unique_id: String,
+    bridge_mac: Option<String>,
+    usb_uuid: Option<String>,
+    hardware_signature: Option<String>,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .link_transport_to_profile(
+                &unique_id,
+                bridge_mac.as_deref(),
+                usb_uuid.as_deref(),
+                hardware_signature.as_deref(),
+            )
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn get_disambiguation_candidates(
+    state: State<'_, AppState>,
+    hardware_signature: String,
+) -> Result<Vec<UpsMetadata>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .get_disambiguation_candidates(&hardware_signature)
             .map_err(|e| e.to_string())
     })
     .await
@@ -1089,7 +1148,7 @@ pub fn detect_status_events(
         });
     }
 
-    // 6. Over-temperature (threshold: >= 55°C)
+    // 6. Over-temperature (threshold: >= 55Â°C)
     if prev.temperature_c < 55 && curr.temperature_c >= 55 {
         events.push(EventLogRecord {
             id: None,
@@ -1097,7 +1156,7 @@ pub fn detect_status_events(
             port_name: port.to_string(),
             event_type: "OVER_TEMP".into(),
             severity: "warning".into(),
-            message: format!("Over Temperature: Internal heatsink reached {}°C. Check ventilation and ambient airflow.", curr.temperature_c),
+            message: format!("Over Temperature: Internal heatsink reached {}Â°C. Check ventilation and ambient airflow.", curr.temperature_c),
             acknowledged: false,
         });
     } else if prev.temperature_c >= 55 && curr.temperature_c < 50 {
@@ -1108,7 +1167,7 @@ pub fn detect_status_events(
             event_type: "TEMP_NORMAL".into(),
             severity: "info".into(),
             message: format!(
-                "Temperature Normal: Internal temperature decreased to {}°C.",
+                "Temperature Normal: Internal temperature decreased to {}Â°C.",
                 curr.temperature_c
             ),
             acknowledged: false,

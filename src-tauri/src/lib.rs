@@ -254,6 +254,8 @@ pub fn run() {
             commands::get_battery_bridge_status,
             commands::set_battery_bridge_status,
             commands::get_ups_metadata,
+            commands::link_transport_to_profile,
+            commands::get_disambiguation_candidates,
             commands::save_ups_metadata,
             commands::list_ups_metadata,
             commands::get_last_connected_device,

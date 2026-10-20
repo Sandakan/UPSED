@@ -143,14 +143,45 @@ export function App() {
 
   // 1b. UPS Hardware Profile & Specifications query
   const targetUniqueId = activeDevice?.unique_id || lastSavedDeviceId;
-  const { data: upsMetadata = null } = useQuery({
-    queryKey: ['upsMetadata', targetUniqueId],
-    queryFn: () => (targetUniqueId ? api.getUpsMetadata(targetUniqueId) : null),
+  const { data: upsMetadata = null, isLoading: isMetadataLoading } = useQuery({
+    queryKey: [
+      'upsMetadata',
+      targetUniqueId,
+      activeDevice?.bridge_mac,
+      activeDevice?.usb_uuid,
+      activeDevice?.hardware_signature,
+    ],
+    queryFn: () =>
+      targetUniqueId
+        ? api.getUpsMetadata(
+            targetUniqueId,
+            activeDevice?.bridge_mac,
+            activeDevice?.usb_uuid,
+            activeDevice?.hardware_signature
+          )
+        : null,
     enabled: !!targetUniqueId,
   });
 
   const saveMetadataMutation = useMutation({
     mutationFn: (meta: UpsMetadata) => api.saveUpsMetadata(meta),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['upsMetadata'] });
+    },
+  });
+
+  const linkTransportMutation = useMutation({
+    mutationFn: ({
+      profileId,
+      bridgeMac,
+      usbUuid,
+      hardwareSig,
+    }: {
+      profileId: string;
+      bridgeMac?: string | null;
+      usbUuid?: string | null;
+      hardwareSig?: string | null;
+    }) => api.linkTransportToProfile(profileId, bridgeMac, usbUuid, hardwareSig),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['upsMetadata'] });
     },
@@ -683,7 +714,7 @@ export function App() {
       />
 
       {/* First-time UPS Configuration Modal */}
-      {activeDevice && upsMetadata === null && !isSetupModalDismissed && (
+      {activeDevice && !isMetadataLoading && upsMetadata === null && !isSetupModalDismissed && (
         <UpsSetupModal
           device={activeDevice}
           status={status}
@@ -691,6 +722,15 @@ export function App() {
           onClose={() => setIsSetupModalDismissed(true)}
           onSave={(meta) => {
             saveMetadataMutation.mutate(meta);
+            setIsSetupModalDismissed(true);
+          }}
+          onLinkExisting={(targetProfileId) => {
+            linkTransportMutation.mutate({
+              profileId: targetProfileId,
+              bridgeMac: activeDevice.bridge_mac,
+              usbUuid: activeDevice.usb_uuid,
+              hardwareSig: activeDevice.hardware_signature,
+            });
             setIsSetupModalDismissed(true);
           }}
         />

@@ -50,6 +50,8 @@ pub struct UpsMetadata {
     pub unique_id: String,
     pub name: String,
     pub usb_uuid: Option<String>,
+    pub bridge_mac: Option<String>,
+    pub hardware_signature: Option<String>,
     pub rated_va: u32,
     pub power_factor: f32,
     pub rated_watts: u32,
@@ -200,6 +202,20 @@ impl Database {
             [],
         );
         let _ = conn.execute("ALTER TABLE ups_metadata ADD COLUMN usb_uuid TEXT", []);
+        let _ = conn.execute("ALTER TABLE ups_metadata ADD COLUMN bridge_mac TEXT", []);
+        let _ = conn.execute("ALTER TABLE ups_metadata ADD COLUMN hardware_signature TEXT", []);
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ups_metadata_bridge_mac ON ups_metadata(bridge_mac)",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ups_metadata_usb_uuid ON ups_metadata(usb_uuid)",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ups_metadata_hw_sig ON ups_metadata(hardware_signature)",
+            [],
+        );
         let _ = conn.execute(
             "ALTER TABLE ups_metadata ADD COLUMN rated_va INTEGER NOT NULL DEFAULT 1000",
             [],
@@ -486,7 +502,7 @@ impl Database {
     pub fn get_ups_metadata(&self, unique_id: &str) -> Result<Option<UpsMetadata>> {
         let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
+            "SELECT unique_id, name, usb_uuid, bridge_mac, hardware_signature, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata WHERE unique_id = ?1",
         )?;
 
@@ -496,28 +512,159 @@ impl Database {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
                 usb_uuid: row.get(2)?,
-                rated_va: row.get(3)?,
-                power_factor: row.get(4)?,
-                rated_watts: row.get(5)?,
-                battery_voltage: row.get(6)?,
-                battery_capacity_ah: row.get(7)?,
-                battery_chemistry: row.get(8)?,
-                topology: row.get(9)?,
-                updated_at: row.get(10)?,
+                bridge_mac: row.get(3)?,
+                hardware_signature: row.get(4)?,
+                rated_va: row.get(5)?,
+                power_factor: row.get(6)?,
+                rated_watts: row.get(7)?,
+                battery_voltage: row.get(8)?,
+                battery_capacity_ah: row.get(9)?,
+                battery_chemistry: row.get(10)?,
+                topology: row.get(11)?,
+                updated_at: row.get(12)?,
             }))
         } else {
             Ok(None)
         }
     }
 
+    pub fn resolve_ups_metadata(
+        &self,
+        unique_id: &str,
+        bridge_mac: Option<&str>,
+        usb_uuid: Option<&str>,
+        hardware_sig: Option<&str>,
+    ) -> Result<Option<UpsMetadata>> {
+        // Step 1: Direct match on unique_id
+        if let Some(meta) = self.get_ups_metadata(unique_id)? {
+            // Auto-enrich any missing transport fields
+            if (bridge_mac.is_some() && meta.bridge_mac.as_deref() != bridge_mac)
+                || (usb_uuid.is_some() && meta.usb_uuid.as_deref() != usb_uuid)
+                || (hardware_sig.is_some() && meta.hardware_signature.as_deref() != hardware_sig)
+            {
+                let _ = self.link_transport_to_profile(unique_id, bridge_mac, usb_uuid, hardware_sig);
+            }
+            return Ok(Some(meta));
+        }
+
+        // Step 2: Legacy prefix migration for BRIDGE-MAC-{MAC}-* (e.g. -FW-GENERIC)
+        let clean_mac = bridge_mac.map(|m| m.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase());
+        if let Some(mac) = clean_mac.as_deref() {
+            let legacy_prefix = format!("BRIDGE-MAC-{}", mac);
+            let conn = self.writer.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT unique_id FROM ups_metadata WHERE unique_id LIKE ?1 || '%' LIMIT 1",
+            )?;
+            let legacy_id: Option<String> = stmt.query_row(params![legacy_prefix], |row| row.get(0)).ok();
+            drop(stmt);
+
+            if let Some(old_id) = legacy_id {
+                let canonical_id = format!("BRIDGE-MAC-{}", mac);
+                let now = chrono::Utc::now().to_rfc3339();
+                tracing::info!(
+                    "[DATABASE] Auto-migrating legacy profile '{}' -> canonical '{}'",
+                    old_id,
+                    canonical_id
+                );
+                let _ = conn.execute(
+                    "UPDATE ups_metadata SET unique_id = ?1, bridge_mac = ?2, hardware_signature = COALESCE(?3, hardware_signature), updated_at = ?4 WHERE unique_id = ?5",
+                    params![canonical_id, mac, hardware_sig, now, old_id],
+                );
+                drop(conn);
+                return self.get_ups_metadata(&canonical_id);
+            }
+        }
+
+        // Step 3: Match by bound transport carrier (bridge_mac or usb_uuid)
+        let conn = self.reader.lock().unwrap();
+        if let Some(mac) = clean_mac.as_deref() {
+            let mut stmt = conn.prepare(
+                "SELECT unique_id FROM ups_metadata WHERE bridge_mac = ?1 LIMIT 1",
+            )?;
+            if let Ok(matched_id) = stmt.query_row(params![mac], |row| row.get::<_, String>(0)) {
+                drop(stmt);
+                drop(conn);
+                return self.get_ups_metadata(&matched_id);
+            }
+        }
+
+        if let Some(uuid) = usb_uuid {
+            let mut stmt = conn.prepare(
+                "SELECT unique_id FROM ups_metadata WHERE usb_uuid = ?1 LIMIT 1",
+            )?;
+            if let Ok(matched_id) = stmt.query_row(params![uuid], |row| row.get::<_, String>(0)) {
+                drop(stmt);
+                drop(conn);
+                return self.get_ups_metadata(&matched_id);
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn link_transport_to_profile(
+        &self,
+        unique_id: &str,
+        bridge_mac: Option<&str>,
+        usb_uuid: Option<&str>,
+        hardware_sig: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.writer.lock().unwrap();
+        let clean_mac = bridge_mac.map(|m| m.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase());
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE ups_metadata SET 
+                bridge_mac = COALESCE(?1, bridge_mac),
+                usb_uuid = COALESCE(?2, usb_uuid),
+                hardware_signature = COALESCE(?3, hardware_signature),
+                updated_at = ?4
+             WHERE unique_id = ?5",
+            params![clean_mac, usb_uuid, hardware_sig, now, unique_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_disambiguation_candidates(&self, hardware_sig: &str) -> Result<Vec<UpsMetadata>> {
+        let conn = self.reader.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT unique_id, name, usb_uuid, bridge_mac, hardware_signature, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
+             FROM ups_metadata WHERE hardware_signature = ?1 ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map(params![hardware_sig], |row| {
+            Ok(UpsMetadata {
+                unique_id: row.get(0)?,
+                name: row.get(1)?,
+                usb_uuid: row.get(2)?,
+                bridge_mac: row.get(3)?,
+                hardware_signature: row.get(4)?,
+                rated_va: row.get(5)?,
+                power_factor: row.get(6)?,
+                rated_watts: row.get(7)?,
+                battery_voltage: row.get(8)?,
+                battery_capacity_ah: row.get(9)?,
+                battery_chemistry: row.get(10)?,
+                topology: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
     pub fn save_ups_metadata(&self, meta: &UpsMetadata) -> Result<()> {
         let conn = self.writer.lock().unwrap();
         conn.execute(
-            "INSERT INTO ups_metadata (unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO ups_metadata (unique_id, name, usb_uuid, bridge_mac, hardware_signature, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(unique_id) DO UPDATE SET
                 name = excluded.name,
-                usb_uuid = excluded.usb_uuid,
+                usb_uuid = COALESCE(excluded.usb_uuid, ups_metadata.usb_uuid),
+                bridge_mac = COALESCE(excluded.bridge_mac, ups_metadata.bridge_mac),
+                hardware_signature = COALESCE(excluded.hardware_signature, ups_metadata.hardware_signature),
                 rated_va = excluded.rated_va,
                 power_factor = excluded.power_factor,
                 rated_watts = excluded.rated_watts,
@@ -530,6 +677,8 @@ impl Database {
                 meta.unique_id,
                 meta.name,
                 meta.usb_uuid,
+                meta.bridge_mac,
+                meta.hardware_signature,
                 meta.rated_va,
                 meta.power_factor,
                 meta.rated_watts,
@@ -546,7 +695,7 @@ impl Database {
     pub fn list_all_ups_metadata(&self) -> Result<Vec<UpsMetadata>> {
         let conn = self.reader.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT unique_id, name, usb_uuid, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
+            "SELECT unique_id, name, usb_uuid, bridge_mac, hardware_signature, rated_va, power_factor, rated_watts, battery_voltage, battery_capacity_ah, battery_chemistry, topology, updated_at
              FROM ups_metadata ORDER BY updated_at DESC",
         )?;
 
@@ -555,14 +704,16 @@ impl Database {
                 unique_id: row.get(0)?,
                 name: row.get(1)?,
                 usb_uuid: row.get(2)?,
-                rated_va: row.get(3)?,
-                power_factor: row.get(4)?,
-                rated_watts: row.get(5)?,
-                battery_voltage: row.get(6)?,
-                battery_capacity_ah: row.get(7)?,
-                battery_chemistry: row.get(8)?,
-                topology: row.get(9)?,
-                updated_at: row.get(10)?,
+                bridge_mac: row.get(3)?,
+                hardware_signature: row.get(4)?,
+                rated_va: row.get(5)?,
+                power_factor: row.get(6)?,
+                rated_watts: row.get(7)?,
+                battery_voltage: row.get(8)?,
+                battery_capacity_ah: row.get(9)?,
+                battery_chemistry: row.get(10)?,
+                topology: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })?;
 

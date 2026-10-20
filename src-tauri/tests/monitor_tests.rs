@@ -214,6 +214,69 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     let _ = std::fs::remove_file(&temp_db);
 }
 
+#[test]
+fn monitor_008_resolve_and_migrate_ups_metadata() {
+    use upsed_lib::db::{Database, UpsMetadata};
+
+    let db = Database::init(":memory:").unwrap();
+
+    // 1. Insert a legacy profile with -FW-GENERIC suffix
+    let legacy_profile = UpsMetadata {
+        unique_id: "BRIDGE-MAC-806599A6B9F8-FW-GENERIC".into(),
+        name: "PROLINK PRO901-ES".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        updated_at: "2026-10-19T08:00:00Z".into(),
+    };
+    db.save_ups_metadata(&legacy_profile).unwrap();
+
+    // 2. Resolve using clean canonical BRIDGE-MAC ID
+    let resolved = db
+        .resolve_ups_metadata(
+            "BRIDGE-MAC-806599A6B9F8",
+            Some("80:65:99:A6:B9:F8"),
+            None,
+            Some("P00:24V"),
+        )
+        .unwrap();
+
+    assert!(resolved.is_some());
+    let canonical = resolved.unwrap();
+    assert_eq!(canonical.unique_id, "BRIDGE-MAC-806599A6B9F8");
+    assert_eq!(canonical.name, "PROLINK PRO901-ES");
+    assert_eq!(canonical.bridge_mac.as_deref(), Some("806599A6B9F8"));
+    assert_eq!(canonical.hardware_signature.as_deref(), Some("P00:24V"));
+
+    // 3. Test twin-unit disambiguation candidates
+    let twin_profile = UpsMetadata {
+        unique_id: "BRIDGE-MAC-3C8427124A9C".into(),
+        name: "PROLINK PRO901-ES #2 (Server)".into(),
+        usb_uuid: None,
+        bridge_mac: Some("3C8427124A9C".into()),
+        hardware_signature: Some("P00:24V".into()),
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        updated_at: "2026-10-20T10:00:00Z".into(),
+    };
+    db.save_ups_metadata(&twin_profile).unwrap();
+
+    let candidates = db.get_disambiguation_candidates("P00:24V").unwrap();
+    assert_eq!(candidates.len(), 2);
+}
+
 fn uuid_or_timestamp() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

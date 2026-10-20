@@ -1,5 +1,5 @@
 use crate::protocol::{
-    parse_device_id, parse_firmware_version, parse_protocol_id, DeviceCapabilities,
+    parse_device_id, parse_firmware_version, parse_protocol_id, DeviceCapabilities, Q1Status,
 };
 use crate::serial::adapter::{PhysicalSerialPort, SerialTransport};
 use crate::serial::hid_adapter::HidTransport;
@@ -14,7 +14,39 @@ pub struct DiscoveredDevice {
     pub unique_id: String,
     pub firmware_version: Option<String>,
     pub usb_uuid: Option<String>,
+    pub bridge_mac: Option<String>,
+    pub hardware_signature: Option<String>,
     pub capabilities: DeviceCapabilities,
+}
+
+pub fn compute_hardware_signature(
+    protocol_id: &str,
+    battery_voltage_v: Option<f32>,
+    rated_va: Option<u32>,
+) -> String {
+    let proto = if protocol_id.is_empty() { "00" } else { protocol_id };
+    let nominal_v = match battery_voltage_v {
+        Some(v) if v > 0.0 => {
+            if v < 16.0 {
+                12
+            } else if v < 32.0 {
+                24
+            } else if v < 44.0 {
+                36
+            } else if v < 64.0 {
+                48
+            } else if v < 120.0 {
+                96
+            } else {
+                192
+            }
+        }
+        _ => 24,
+    };
+    match rated_va {
+        Some(va) if va > 0 => format!("P{}:{}V:{}VA", proto, nominal_v, va),
+        _ => format!("P{}:{}V", proto, nominal_v),
+    }
 }
 
 /// Derives a deterministic unique identifier for a UPS unit.
@@ -236,6 +268,13 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         firmware_version.as_deref(),
     );
 
+    let battery_v = transport
+        .send_command("Q1")
+        .ok()
+        .and_then(|r| Q1Status::parse(&r).ok())
+        .map(|s| s.battery_voltage_v);
+    let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
     let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
 
     Some(DiscoveredDevice {
@@ -245,6 +284,8 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         unique_id,
         firmware_version,
         usb_uuid,
+        bridge_mac: None,
+        hardware_signature,
         capabilities,
     })
 }
@@ -313,16 +354,12 @@ fn probe_via_bridge(bridge_port_id: &str, fallback_ws_host: Option<&str>) -> Opt
         .ok()
         .and_then(|r| parse_firmware_version(&r).ok());
 
+    let bridge_mac = transport.bridge_mac();
     let unique_id = if let Some(sn) = serial_number.as_deref() {
         generate_unique_id(Some(sn), bridge_port_id, firmware_version.as_deref())
-    } else if let Some(mac) = transport.bridge_mac() {
+    } else if let Some(mac) = bridge_mac.as_deref() {
         let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
-        let fw_part = firmware_version
-            .as_deref()
-            .map(|f| f.trim().replace(|c: char| !c.is_alphanumeric(), "_"))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "GENERIC".to_string());
-        format!("BRIDGE-MAC-{}-FW-{}", clean_mac, fw_part)
+        format!("BRIDGE-MAC-{}", clean_mac)
     } else {
         generate_unique_id(
             None,
@@ -330,6 +367,13 @@ fn probe_via_bridge(bridge_port_id: &str, fallback_ws_host: Option<&str>) -> Opt
             firmware_version.as_deref(),
         )
     };
+
+    let battery_v = transport
+        .send_command("Q1")
+        .ok()
+        .and_then(|r| Q1Status::parse(&r).ok())
+        .map(|s| s.battery_voltage_v);
+    let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
 
     let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
     let raw_com = bridge_port_id.strip_prefix("BRIDGE:").unwrap_or(bridge_port_id);
@@ -342,6 +386,8 @@ fn probe_via_bridge(bridge_port_id: &str, fallback_ws_host: Option<&str>) -> Opt
         unique_id,
         firmware_version,
         usb_uuid,
+        bridge_mac,
+        hardware_signature,
         capabilities,
     })
 }
@@ -396,6 +442,13 @@ pub fn probe_port_internal(port_name: &str, fallback_ws_host: Option<&str>) -> O
             firmware_version.as_deref(),
         );
 
+        let battery_v = transport
+            .send_command("Q1")
+            .ok()
+            .and_then(|r| Q1Status::parse(&r).ok())
+            .map(|s| s.battery_voltage_v);
+        let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
         let usb_uuid = get_port_usb_uuid(port_name);
 
@@ -406,6 +459,8 @@ pub fn probe_port_internal(port_name: &str, fallback_ws_host: Option<&str>) -> O
             unique_id,
             firmware_version,
             usb_uuid,
+            bridge_mac: None,
+            hardware_signature,
             capabilities,
         });
     }
@@ -463,6 +518,13 @@ pub fn probe_port_internal(port_name: &str, fallback_ws_host: Option<&str>) -> O
             firmware_version.as_deref(),
         );
 
+        let battery_v = transport
+            .send_command("Q1")
+            .ok()
+            .and_then(|r| Q1Status::parse(&r).ok())
+            .map(|s| s.battery_voltage_v);
+        let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
         let usb_uuid = get_port_usb_uuid(port_name);
 
@@ -473,6 +535,8 @@ pub fn probe_port_internal(port_name: &str, fallback_ws_host: Option<&str>) -> O
             unique_id,
             firmware_version,
             usb_uuid,
+            bridge_mac: None,
+            hardware_signature,
             capabilities,
         });
     }
