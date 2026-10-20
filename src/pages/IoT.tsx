@@ -39,6 +39,9 @@ import {
   History,
   X,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { useQueryClient } from '@tanstack/react-query';
@@ -214,6 +217,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   // WebSocket Failover & Discovery
   const [fallbackHost, setFallbackHost] = useState('upsed-bridge.local');
   const [isSavingHost, setIsSavingHost] = useState(false);
+  const [isAdvancedWsOpen, setIsAdvancedWsOpen] = useState(false);
   const [wsTestResult, setWsTestResult] = useState<WsTestResult | null>(null);
   const [isTestingWs, setIsTestingWs] = useState(false);
   const [isDiscoveringLan, setIsDiscoveringLan] = useState(false);
@@ -716,6 +720,23 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
           },
         })
       );
+    } finally {
+      setIsSavingHost(false);
+    }
+  };
+
+  // Reset Fallback Host to Default
+  const handleResetFallbackHost = async () => {
+    setFallbackHost('upsed-bridge.local');
+    setIsSavingHost(true);
+    try {
+      await api.setBridgeFallbackHost('upsed-bridge.local');
+      queryClient.invalidateQueries({ queryKey: ['ports'] });
+      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+      toast.success('Reset failover endpoint to default (upsed-bridge.local)');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Reset failed: ${msg}`);
     } finally {
       setIsSavingHost(false);
     }
@@ -1376,62 +1397,110 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
 
       {/* 2. WebSocket & Failover Tab */}
       {activeTab === 'ws' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Target Host Settings */}
-          <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center space-x-2.5 mb-4">
-                <Globe className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-base font-semibold text-white">WebSocket Host & Failover Endpoint</h3>
-              </div>
-
-              <p className="text-xs text-slate-400 mb-4">
-                When USB serial is unplugged or disconnected, UPSED seamlessly switches transport to WebSocket via this address (port 81).
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Bridge Hostname or Static IP
-                  </label>
-                  <input
-                    type="text"
-                    value={fallbackHost}
-                    onChange={(e) => setFallbackHost(e.target.value)}
-                    placeholder="upsed-bridge.local or 192.168.1.150"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500/50"
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Default is <code className="text-slate-400">upsed-bridge.local</code> via mDNS multicast.
-                  </p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Active Failover Target & Status Card */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2.5">
+                    <Globe className="w-5 h-5 text-cyan-400" />
+                    <h3 className="text-base font-semibold text-white">WebSocket Failover Target</h3>
+                  </div>
+                  {status?.active_transport === 'websocket' ? (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Active (In Use)
+                    </span>
+                  ) : status?.wifi_connected ? (
+                    <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                      Ready (Standby)
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-white/5">
+                      Standby
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={handleSaveFallbackHost}
-                    disabled={isSavingHost}
-                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingHost ? 'Saving...' : 'Save Failover Host'}
-                  </button>
+                <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                  When USB serial is unplugged or disconnected, UPSED seamlessly switches communication to this endpoint over Wi-Fi without dropping your UPS monitoring session.
+                </p>
 
+                {/* Target URI Box */}
+                <div className="p-4 rounded-xl bg-black/40 border border-white/[0.06] space-y-2.5 mb-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-slate-400">Configured Failover URI</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.06] text-cyan-300">
+                      Port 81
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <code className="text-base font-mono font-bold text-white tracking-wide truncate">
+                      ws://{fallbackHost}:81
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`ws://${fallbackHost}:81`);
+                        toast.success('Copied WebSocket URI to clipboard');
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-white transition cursor-pointer"
+                      title="Copy WebSocket URI"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metadata & Origin Details */}
+                <div className="grid grid-cols-2 gap-3 text-xs mb-4">
+                  <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="text-[10px] text-slate-500 mb-0.5">Endpoint Origin</div>
+                    <div className="font-medium text-slate-200 truncate">
+                      {status?.ip && fallbackHost === status.ip
+                        ? 'Auto-synced from USB'
+                        : fallbackHost === 'upsed-bridge.local'
+                        ? 'mDNS Multicast Default'
+                        : 'Manual Override'}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="text-[10px] text-slate-500 mb-0.5">Active Medium</div>
+                    <div className="font-medium text-slate-200 flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${status?.active_transport === 'websocket' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'}`} />
+                      {status?.active_transport === 'websocket' ? 'Wi-Fi WebSocket' : 'USB CDC Serial'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Action Buttons */}
+                <div className="flex flex-wrap gap-2">
                   <button
                     onClick={handleDiscoverLan}
                     disabled={isDiscoveringLan}
-                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition cursor-pointer disabled:opacity-50"
+                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-200 hover:text-white bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition cursor-pointer disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isDiscoveringLan ? 'animate-spin text-cyan-400' : ''}`} />
                     <span>{isDiscoveringLan ? 'Sweeping Subnet...' : 'Fast LAN Subnet Discovery'}</span>
                   </button>
+
+                  <button
+                    onClick={() => setIsAdvancedWsOpen((prev) => !prev)}
+                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] transition cursor-pointer"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isAdvancedWsOpen ? 'Hide Manual Config' : 'Manual IP Override'}</span>
+                    {isAdvancedWsOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
-            </div>
 
-            <div className="mt-6 pt-3 border-t border-white/[0.08] text-[11px] text-slate-500 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Host persistence stored in UPSED SQLite database app settings table.</span>
+              <div className="mt-5 pt-3 border-t border-white/[0.08] text-[11px] text-slate-500 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Zero-config auto-sync keeps this address current when connected via USB.</span>
+              </div>
             </div>
-          </div>
 
           {/* WebSocket Ping & Latency Tester */}
           <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 flex flex-col justify-between">
@@ -1503,11 +1572,66 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
               <span>Standard local Wi-Fi latency is typically 5ms to 25ms over 802.11n.</span>
             </div>
           </div>
-
-          {/* Hardware Status LED Diagnostic Guide */}
-          <BridgeLedGuide />
         </div>
-      )}
+
+        {/* Collapsible Accordion: Advanced Network & Manual IP */}
+        {isAdvancedWsOpen && (
+          <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1a1d24] animate-in fade-in duration-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sliders className="w-4 h-4 text-cyan-400" />
+                <h4 className="text-sm font-semibold text-white">Advanced Network & Manual IP Override</h4>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">For Homelabs & VLANs</span>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              If your ESP32 bridge is deployed on an isolated IoT VLAN, separate subnet, or behind a VPN where mDNS multicast and LAN sweeps are blocked, enter the static IP or DNS hostname directly.
+            </p>
+
+            <div className="max-w-xl space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Custom Hostname or Static IP Address
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={fallbackHost}
+                    onChange={(e) => setFallbackHost(e.target.value)}
+                    placeholder="upsed-bridge.local or 192.168.1.150"
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500/50"
+                  />
+                  <button
+                    onClick={handleSaveFallbackHost}
+                    disabled={isSavingHost}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 transition cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isSavingHost ? 'Saving...' : 'Save Endpoint'}
+                  </button>
+                  <button
+                    onClick={handleResetFallbackHost}
+                    disabled={isSavingHost}
+                    className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition cursor-pointer shrink-0"
+                    title="Reset to default upsed-bridge.local"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                Target will be saved to local SQLite app settings and used as the fallback destination when USB communication drops.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Hardware Status LED Diagnostic Guide */}
+        <BridgeLedGuide />
+      </div>
+    )}
 
       {/* 3. MessagePack Offline Backlog Tab */}
       {activeTab === 'backlog' && (
