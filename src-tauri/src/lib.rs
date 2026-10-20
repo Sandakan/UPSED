@@ -121,7 +121,7 @@ pub fn run() {
             let start_event = db::EventLogRecord {
                 id: None,
                 timestamp: chrono::Utc::now().to_rfc3339(),
-                port_name: "SYSTEM".into(),
+                ups_id: None,
                 event_type: "APP_START".into(),
                 severity: "info".into(),
                 message: format!("UPSED application started (v{})", env!("CARGO_PKG_VERSION")),
@@ -151,7 +151,7 @@ pub fn run() {
                     let hide_event = db::EventLogRecord {
                         id: None,
                         timestamp: chrono::Utc::now().to_rfc3339(),
-                        port_name: "SYSTEM".into(),
+                        ups_id: None,
                         event_type: "APP_HIDE".into(),
                         severity: "info".into(),
                         message: "UPSED application started minimized in system tray".into(),
@@ -200,7 +200,7 @@ pub fn run() {
                         let hide_event = db::EventLogRecord {
                             id: None,
                             timestamp: chrono::Utc::now().to_rfc3339(),
-                            port_name: "SYSTEM".into(),
+                            ups_id: None,
                             event_type: "APP_HIDE".into(),
                             severity: "info".into(),
                             message: "UPSED application window hidden to system tray".into(),
@@ -225,7 +225,7 @@ pub fn run() {
                         let hide_event = db::EventLogRecord {
                             id: None,
                             timestamp: chrono::Utc::now().to_rfc3339(),
-                            port_name: "SYSTEM".into(),
+                            ups_id: None,
                             event_type: "APP_HIDE".into(),
                             severity: "info".into(),
                             message: "UPSED application window minimized to taskbar".into(),
@@ -277,6 +277,8 @@ pub fn run() {
             commands::get_db_stats,
             commands::prune_telemetry,
             commands::clear_telemetry,
+            commands::delete_ups_profile,
+            commands::set_primary_ups,
             commands::vacuum_database,
             commands::get_bridge_status,
             commands::configure_bridge_wifi,
@@ -303,7 +305,7 @@ pub fn run() {
                         let exit_event = db::EventLogRecord {
                             id: None,
                             timestamp: chrono::Utc::now().to_rfc3339(),
-                            port_name: "SYSTEM".into(),
+                            ups_id: None,
                             event_type: "APP_EXIT".into(),
                             severity: "info".into(),
                             message: "UPSED application process exiting".into(),

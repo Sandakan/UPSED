@@ -31,42 +31,57 @@ export const api = {
   listConnectedDevices: () =>
     invoke<DiscoveredDevice[]>('list_connected_devices'),
 
-  getDeviceStatus: (portName: string) =>
-    invoke<Q1Status>('get_device_status', { portName }),
+  getDeviceStatus: (portName: string, upsId?: string) =>
+    invoke<Q1Status>('get_device_status', { portName, upsId: upsId || null }),
 
-  sendCommand: (portName: string, command: VoltronicCommand) =>
-    invoke<string>('send_command', { portName, command }),
+  sendCommand: (portName: string, command: VoltronicCommand, upsId?: string) =>
+    invoke<string>('send_command', { portName, command, upsId: upsId || null }),
 
-  getSafetyStage: () => invoke<UnlockStage>('get_safety_stage'),
+  getSafetyStage: (upsId?: string) =>
+    invoke<UnlockStage>('get_safety_stage', { upsId: upsId || null }),
 
-  unlockSafetyStage: (targetStage: UnlockStage) =>
-    invoke<void>('unlock_safety_stage', { targetStage }),
+  unlockSafetyStage: (targetStage: UnlockStage, upsId?: string) =>
+    invoke<void>('unlock_safety_stage', { targetStage, upsId: upsId || null }),
 
-  getRecentTelemetry: (portName: string, limit?: number) =>
-    invoke<TelemetryRecord[]>('get_recent_telemetry', { portName, limit }),
+  getRecentTelemetry: (portOrUpsId?: string, limit?: number, upsId?: string) => {
+    const effectiveUpsId = upsId || (portOrUpsId && !portOrUpsId.startsWith('COM') && !portOrUpsId.startsWith('USB:') && !portOrUpsId.startsWith('BRIDGE:') ? portOrUpsId : null);
+    const effectivePort = portOrUpsId && (portOrUpsId.startsWith('COM') || portOrUpsId.startsWith('USB:') || portOrUpsId.startsWith('BRIDGE:')) ? portOrUpsId : null;
+    return invoke<TelemetryRecord[]>('get_recent_telemetry', {
+      upsId: effectiveUpsId,
+      portName: effectivePort,
+      limit,
+    });
+  },
 
   getTelemetryRange: (
-    portName: string,
+    portOrUpsId: string,
     startTime: string,
     endTime: string,
-    maxPoints?: number
-  ) =>
-    invoke<TelemetryRecord[]>('get_telemetry_range', {
-      portName,
+    maxPoints?: number,
+    upsId?: string
+  ) => {
+    const effectiveUpsId = upsId || (portOrUpsId && !portOrUpsId.startsWith('COM') && !portOrUpsId.startsWith('USB:') && !portOrUpsId.startsWith('BRIDGE:') ? portOrUpsId : null);
+    const effectivePort = portOrUpsId && (portOrUpsId.startsWith('COM') || portOrUpsId.startsWith('USB:') || portOrUpsId.startsWith('BRIDGE:')) ? portOrUpsId : null;
+    return invoke<TelemetryRecord[]>('get_telemetry_range', {
+      upsId: effectiveUpsId,
+      portName: effectivePort,
       startTime,
       endTime,
       maxPoints,
-    }),
+    });
+  },
 
-  getRecentEvents: (limit?: number) =>
-    invoke<EventLogRecord[]>('get_recent_events', { limit }),
+  getRecentEvents: (limit?: number, upsId?: string) =>
+    invoke<EventLogRecord[]>('get_recent_events', { limit, upsId: upsId || null }),
 
-  clearEvents: () => invoke<void>('clear_events'),
+  clearEvents: (upsId?: string) =>
+    invoke<void>('clear_events', { upsId: upsId || null }),
 
   acknowledgeEvent: (eventId: number) =>
     invoke<void>('acknowledge_event', { eventId }),
 
-  acknowledgeAllEvents: () => invoke<number>('acknowledge_all_events'),
+  acknowledgeAllEvents: (upsId?: string) =>
+    invoke<number>('acknowledge_all_events', { upsId: upsId || null }),
 
   getBatteryBridgeStatus: () => invoke<boolean>('get_battery_bridge_status'),
 
@@ -140,9 +155,14 @@ export const api = {
 
   isDevMode: () => invoke<boolean>('is_dev_mode'),
   getDbStats: () => invoke<DbStats>('get_db_stats'),
-  pruneTelemetry: (olderThanDays: number) =>
-    invoke<number>('prune_telemetry', { olderThanDays }),
-  clearTelemetry: () => invoke<number>('clear_telemetry'),
+  pruneTelemetry: (olderThanDays: number, upsId?: string) =>
+    invoke<number>('prune_telemetry', { olderThanDays, upsId: upsId || null }),
+  clearTelemetry: (upsId?: string) =>
+    invoke<number>('clear_telemetry', { upsId: upsId || null }),
+  deleteUpsProfile: (uniqueId: string) =>
+    invoke<void>('delete_ups_profile', { uniqueId }),
+  setPrimaryUps: (uniqueId: string) =>
+    invoke<void>('set_primary_ups', { uniqueId }),
   vacuumDatabase: () => invoke<void>('vacuum_database'),
 
   getBridgeStatus: (portName?: string) =>
@@ -154,8 +174,8 @@ export const api = {
   scanBridgeWifi: (portName?: string) =>
     invoke<WifiScanNetwork[]>('scan_bridge_wifi', { portName }),
 
-  syncBridgeBacklog: (portName?: string) =>
-    invoke<number>('sync_bridge_backlog', { portName }),
+  syncBridgeBacklog: (portName?: string, upsId?: string) =>
+    invoke<number>('sync_bridge_backlog', { portName: portName || null, upsId: upsId || null }),
 
   clearBridgeBacklog: (portName?: string) =>
     invoke<boolean>('clear_bridge_backlog', { portName }),

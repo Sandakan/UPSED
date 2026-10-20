@@ -42,6 +42,27 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     let temp_db = std::env::temp_dir().join(format!("upsed_perf_test_{}.db", uuid_or_timestamp()));
     let db = Database::init(&temp_db).expect("Failed to initialize database for performance test");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "UPS-TEST-001".into(),
+        name: "Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     // Insert 300 telemetry records spaced 10 seconds apart
     let base_time = chrono::Utc::now() - chrono::Duration::seconds(3000);
     for i in 0..300 {
@@ -49,7 +70,7 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "UPS-TEST-001".into(),
             grid_voltage: 230.0 + (i as f32 % 5.0),
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -63,7 +84,7 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     }
 
     // 1. Verify query_recent_telemetry with index seek
-    let recent = db.query_recent_telemetry("COM1", 20).unwrap();
+    let recent = db.query_recent_telemetry("UPS-TEST-001", 20).unwrap();
     assert_eq!(recent.len(), 20);
     // Chronological order verification
     for w in recent.windows(2) {
@@ -75,11 +96,11 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     let end_iso = (base_time + chrono::Duration::seconds(3100)).to_rfc3339();
 
     // Raw mode (max_points = 0): returns all 300 points
-    let raw = db.query_telemetry_range("COM1", &start_iso, &end_iso, Some(0)).unwrap();
+    let raw = db.query_telemetry_range("UPS-TEST-001", &start_iso, &end_iso, Some(0)).unwrap();
     assert_eq!(raw.len(), 300);
 
     // Downsampled mode (max_points = 100): stride should be ceil(300/100) = 3 -> 100 points
-    let downsampled = db.query_telemetry_range("COM1", &start_iso, &end_iso, Some(100)).unwrap();
+    let downsampled = db.query_telemetry_range("UPS-TEST-001", &start_iso, &end_iso, Some(100)).unwrap();
     assert_eq!(downsampled.len(), 100);
 
     // Chronological ordering preserved
@@ -96,6 +117,27 @@ fn monitor_006_database_concurrency_split_read_write() {
     let temp_db = std::env::temp_dir().join(format!("upsed_concurrency_{}.db", uuid_or_timestamp()));
     let db = Arc::new(Database::init(&temp_db).expect("Failed to init db"));
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "COM_CONCURRENT".into(),
+        name: "Concurrent Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     let db_writer = Arc::clone(&db);
     let db_reader = Arc::clone(&db);
 
@@ -106,7 +148,7 @@ fn monitor_006_database_concurrency_split_read_write() {
                 .insert_telemetry(&TelemetryRecord {
                     id: None,
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    port_name: "COM_CONCURRENT".into(),
+                    ups_id: "COM_CONCURRENT".into(),
                     grid_voltage: 230.0,
                     output_voltage: 230.0,
                     grid_frequency: 50.0,
@@ -147,6 +189,27 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     let temp_db = std::env::temp_dir().join(format!("upsed_maint_{}.db", uuid_or_timestamp()));
     let db = Database::init(&temp_db).expect("Failed to init db");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "COM1".into(),
+        name: "Maint Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     let now = chrono::Utc::now();
     // Insert 10 records from 100 days ago
     for i in 0..10 {
@@ -154,7 +217,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "COM1".into(),
             grid_voltage: 230.0,
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -173,7 +236,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "COM1".into(),
             grid_voltage: 230.0,
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -194,7 +257,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     assert!(stats.file_size_bytes > 0);
 
     // Prune older than 30 days -> should delete the 10 old records
-    let pruned = db.prune_telemetry(30).unwrap();
+    let pruned = db.prune_telemetry(30, None).unwrap();
     assert_eq!(pruned, 10);
 
     let stats_after = db.get_db_stats().unwrap();
@@ -204,7 +267,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     db.vacuum_database().unwrap();
 
     // Clear telemetry
-    let cleared = db.clear_telemetry().unwrap();
+    let cleared = db.clear_telemetry(None).unwrap();
     assert_eq!(cleared, 15);
 
     let stats_final = db.get_db_stats().unwrap();
@@ -234,6 +297,10 @@ fn monitor_008_resolve_and_migrate_ups_metadata() {
         battery_capacity_ah: 9.0,
         battery_chemistry: "VRLA_SLA".into(),
         topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
         updated_at: "2026-10-19T08:00:00Z".into(),
     };
     db.save_ups_metadata(&legacy_profile).unwrap();
@@ -269,6 +336,10 @@ fn monitor_008_resolve_and_migrate_ups_metadata() {
         battery_capacity_ah: 9.0,
         battery_chemistry: "VRLA_SLA".into(),
         topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
         updated_at: "2026-10-20T10:00:00Z".into(),
     };
     db.save_ups_metadata(&twin_profile).unwrap();

@@ -10,23 +10,27 @@ import {
   ChevronDown,
   CheckCircle2,
   Bell,
-  Plug,
   Loader2,
   Info,
   Cpu,
+  Star,
+  Plus,
 } from 'lucide-react';
-import { DiscoveredDevice, UnlockStage } from '../lib/types';
+import { DiscoveredDevice, UnlockStage, UpsMetadata, Q1Status } from '../lib/types';
 import { UpsedLogo } from './UpsedLogo';
+import { TransportPill, DeviceStatePill, getTransportMedium, getUpsOperatingState } from './DevicePills';
 
 interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
-  devices: DiscoveredDevice[];
-  selectedDevice: string | null;
-  activeDeviceLabel: string | null;
-  activeTransport?: 'usb' | 'websocket' | null;
-  isStreaming?: boolean;
-  onSelectDevice: (port: string) => void;
+  profiles: UpsMetadata[];
+  selectedUpsId: string | null;
+  activeProfile: UpsMetadata | null;
+  activeDevice: DiscoveredDevice | null;
+  activeStatus: Q1Status | null;
+  deviceStatuses: Record<string, Q1Status>;
+  onSelectUps: (upsId: string) => void;
+  onOpenConnectModal: () => void;
   onScan: () => void;
   isScanning: boolean;
   safetyStage: UnlockStage;
@@ -67,12 +71,14 @@ const getStageBadgeStyle = (stage: UnlockStage) => {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onTabChange,
-  devices,
-  selectedDevice,
-  activeDeviceLabel,
-  activeTransport,
-  isStreaming,
-  onSelectDevice,
+  profiles,
+  selectedUpsId,
+  activeProfile,
+  activeDevice,
+  activeStatus,
+  deviceStatuses,
+  onSelectUps,
+  onOpenConnectModal,
   onScan,
   isScanning,
   safetyStage,
@@ -104,11 +110,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const activeDevice = devices.find((d) => d.port_name === selectedDevice);
-
   // Badge: red for critical, amber for warning-only
   const badgeCount = criticalCount > 0 ? criticalCount : warningCount;
-  const badgeColor  = criticalCount > 0
+  const badgeColor = criticalCount > 0
     ? 'bg-rose-500 text-white'
     : 'bg-amber-500 text-black';
 
@@ -122,9 +126,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           border: '1px solid transparent',
         };
 
+  // Current active UPS status & transport
+  const activeMedium = getTransportMedium(activeDevice?.port_name || activeProfile?.last_port);
+  const activeOperatingState = getUpsOperatingState(activeStatus);
+
   return (
     <aside
-      className="w-60 flex flex-col h-screen select-none shrink-0"
+      className="w-64 flex flex-col h-screen select-none shrink-0"
       style={{ backgroundColor: 'var(--sidebar-bg)' }}
     >
       {/* ── Brand ───────────────────────────────────────────── */}
@@ -132,38 +140,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <UpsedLogo size="lg" className="text-slate-100" />
       </div>
 
-      {/* ── UPS Device Dropdown ──────────────────────────────── */}
-      <div className="px-3 pb-4" ref={dropdownRef}>
+      {/* ── Master UPS Device Dropdown ──────────────────────── */}
+      <div className="px-3 pb-3" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition group"
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition group text-left cursor-pointer"
           style={{
             backgroundColor: 'var(--card-bg)',
             border: '1px solid var(--border-subtle)',
           }}
+          title={activeProfile ? `${activeProfile.name} (${activeProfile.unique_id})` : undefined}
         >
-          <div className="flex items-center space-x-2.5 min-w-0">
-            <div
-              className={`w-2 h-2 rounded-full shrink-0 transition ${
-                activeDevice || isStreaming ? 'bg-emerald-400' : 'bg-slate-600'
-              }`}
-            />
+          <div className="flex flex-col min-w-0 pr-2">
             <div className="flex items-center space-x-1.5 min-w-0">
-              <span className="text-slate-200 font-medium text-xs truncate">
-                {activeDeviceLabel ?? t('nav:device.noDevice', 'No device connected')}
+              {activeProfile?.is_primary && (
+                <span title="Primary Master UPS" className="inline-flex shrink-0">
+                  <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                </span>
+              )}
+              <span className="text-slate-200 font-semibold text-xs truncate">
+                {activeProfile?.name || activeDevice?.port_name || t('nav:device.noDevice', 'No UPS Selected')}
               </span>
-              {activeTransport === 'websocket' && (
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-700/50 shrink-0">
-                  Wi-Fi
-                </span>
-              )}
-              {activeTransport === 'usb' && (
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/50 shrink-0">
-                  USB
-                </span>
-              )}
+            </div>
+
+            {/* Dual status pills in dropdown trigger button */}
+            <div className="flex items-center space-x-1.5 mt-1">
+              <TransportPill transport={activeMedium} size="xs" />
+              <DeviceStatePill state={activeOperatingState} size="xs" />
             </div>
           </div>
+
           <ChevronDown
             className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform duration-200 ${
               dropdownOpen ? 'rotate-180' : ''
@@ -174,25 +180,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Popover */}
         {dropdownOpen && (
           <div
-            className="mt-1.5 rounded-xl overflow-hidden shadow-2xl border"
+            className="mt-1.5 rounded-xl overflow-hidden shadow-2xl border z-50 absolute left-3 w-60"
             style={{
               backgroundColor: 'var(--popover-bg)',
               borderColor: 'var(--border-subtle)',
             }}
           >
-            {/* Scan row */}
+            {/* Header row */}
             <div
               className="flex items-center justify-between px-3 py-2"
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
-              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-                {t('nav:device.discoveredPorts', 'Available Interfaces')}
+              <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+                UPS Profiles
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); onScan(); }}
                 disabled={isScanning}
                 className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-700/50 transition disabled:opacity-50 cursor-pointer"
-                title={t('nav:device.scanTitle', 'Scan for UPS devices')}
+                title="Scan for hardware"
               >
                 {isScanning
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -201,49 +207,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {/* Device list */}
-            <div className="max-h-48 overflow-y-auto py-1">
-              {devices.length === 0 ? (
-                <p className="text-xs text-slate-500 italic px-3 py-2.5">
-                  {t('nav:device.noUpsFound', 'No UPS found. Click scan to discover.')}
-                </p>
+            {/* Profiles list */}
+            <div className="max-h-56 overflow-y-auto py-1 custom-scrollbar">
+              {profiles.length === 0 ? (
+                <div className="p-3 text-center space-y-1">
+                  <p className="text-xs text-slate-400 italic">No UPS profiles saved.</p>
+                  <p className="text-[10px] text-slate-500">Connect a UPS to set up monitoring.</p>
+                </div>
               ) : (
-                devices.map((dev) => {
-                  const isWs = dev.port_name.startsWith('BRIDGE:WS:') || (activeTransport === 'websocket' && selectedDevice === dev.port_name);
-                  const isBridge = dev.port_name.startsWith('BRIDGE:');
+                profiles.map((p) => {
+                  const isSelected = selectedUpsId === p.unique_id;
+                  const profileStatus = deviceStatuses[p.unique_id] || (isSelected ? activeStatus : null);
+                  const pMedium = getTransportMedium(p.last_port);
+                  const pState = getUpsOperatingState(profileStatus);
+
                   return (
                     <button
-                      key={dev.port_name}
-                      onClick={() => { onSelectDevice(dev.port_name); setDropdownOpen(false); }}
-                      className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition ${
-                        selectedDevice === dev.port_name
-                          ? 'bg-cyan-950/60 text-cyan-300'
+                      key={p.unique_id}
+                      onClick={() => {
+                        onSelectUps(p.unique_id);
+                        setDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 transition flex flex-col space-y-1 cursor-pointer ${
+                        isSelected
+                          ? 'bg-cyan-950/60 text-cyan-300 border-l-2 border-cyan-400'
                           : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'
                       }`}
                     >
-                      <div className="flex items-center space-x-2 min-w-0">
-                        <Plug className="w-3 h-3 text-slate-500 shrink-0" />
-                        <span className="font-mono truncate">{dev.port_name}</span>
-                        {isWs ? (
-                          <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60 shrink-0 font-sans">
-                            Wi-Fi
+                      <div className="flex items-center justify-between min-w-0">
+                        <div className="flex items-center space-x-1.5 min-w-0">
+                          {p.is_primary && (
+                            <span title="Primary UPS" className="inline-flex shrink-0">
+                              <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                            </span>
+                          )}
+                          <span className="font-medium text-xs truncate text-slate-200">
+                            {p.name}
                           </span>
-                        ) : isBridge ? (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-700/50 shrink-0 font-sans font-bold uppercase">
-                            Bridge
-                          </span>
-                        ) : null}
+                        </div>
+                        {isSelected && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                        )}
                       </div>
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ml-2 text-slate-400"
-                        style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
-                      >
-                        {dev.capabilities.protocol_id}
-                      </span>
+
+                      <div className="flex items-center space-x-1.5">
+                        <TransportPill transport={pMedium} size="xs" />
+                        <DeviceStatePill state={pState} size="xs" />
+                      </div>
                     </button>
                   );
                 })
               )}
+            </div>
+
+            {/* Footer: Add / Detect UPS Action */}
+            <div
+              className="p-2 border-t"
+              style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'rgba(0,0,0,0.2)' }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setDropdownOpen(false);
+                  onOpenConnectModal();
+                }}
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50 border border-emerald-700/40 transition cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add / Detect UPS</span>
+              </button>
             </div>
           </div>
         )}

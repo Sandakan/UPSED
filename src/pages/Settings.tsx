@@ -17,6 +17,9 @@ import {
   RotateCcw,
   CheckCircle2,
   Activity,
+  Star,
+  Trash2,
+  Cpu,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
@@ -41,6 +44,9 @@ export interface SettingsProps {
   onBatteryBridgeChange: (val: boolean) => void;
   metadata?: UpsMetadata | null;
   onUpdateMetadata?: (val: UpsMetadata) => void;
+  profiles?: UpsMetadata[];
+  onSelectUps?: (upsId: string) => void;
+  onProfilesChanged?: () => void;
   osNotificationsEnabled: boolean;
   onOsNotificationsChange: (val: boolean) => void;
   inAppToastsEnabled: boolean;
@@ -85,6 +91,9 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       onBatteryBridgeChange,
       metadata,
       onUpdateMetadata,
+      profiles = [],
+      onSelectUps,
+      onProfilesChanged,
       osNotificationsEnabled,
       onOsNotificationsChange,
       inAppToastsEnabled,
@@ -667,7 +676,148 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         </div>
       </div>
 
-      {/* ── 3. Active UPS Profile & Specifications ───────────── */}
+      {/* ── 3. UPS Profiles Management ──────────────────────── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-4"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-slate-200">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <Cpu className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-100">
+                UPS Device Profiles Management
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Manage all registered UPS units, switch active profile view, set primary master device, or purge telemetry data.
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/[0.08]">
+            {profiles.length} Profiles
+          </span>
+        </div>
+
+        <div className="space-y-3 pt-1">
+          {profiles.length === 0 ? (
+            <p className="text-xs text-slate-500 italic py-2">
+              No UPS profiles saved yet. Connect and configure a UPS device to populate this list.
+            </p>
+          ) : (
+            profiles.map((p) => {
+              const isCurrentActive = metadata?.unique_id === p.unique_id;
+              return (
+                <div
+                  key={p.unique_id}
+                  className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition ${
+                    isCurrentActive
+                      ? 'bg-cyan-950/20 border-cyan-500/40'
+                      : 'bg-white/[0.02] border-white/[0.06]'
+                  }`}
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <span className="font-semibold text-sm text-slate-100 truncate">
+                        {p.name}
+                      </span>
+                      {p.is_primary && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                          <Star className="w-2.5 h-2.5 fill-amber-400" />
+                          Primary
+                        </span>
+                      )}
+                      {isCurrentActive && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          Active View
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono flex-wrap">
+                      <span>ID: {p.unique_id}</span>
+                      {p.last_port && <span>Port: {p.last_port}</span>}
+                      <span>{p.rated_va} VA ({p.rated_watts}W)</span>
+                      <span>Poll: {p.poll_interval_secs ?? 10}s</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-1">
+                    {!isCurrentActive && onSelectUps && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectUps(p.unique_id)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 transition cursor-pointer"
+                      >
+                        Select View
+                      </button>
+                    )}
+
+                    {!p.is_primary && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await api.setPrimaryUps(p.unique_id);
+                            toast.success(`Set ${p.name} as Primary Master UPS`);
+                            onProfilesChanged?.();
+                          } catch (e: any) {
+                            toast.error(`Failed to set primary: ${e?.message || e}`);
+                          }
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition cursor-pointer"
+                      >
+                        Set Primary
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(`Clear all telemetry history for "${p.name}"? This cannot be undone.`)) {
+                          try {
+                            const count = await api.clearTelemetry(p.unique_id);
+                            toast.success(`Cleared ${count} telemetry records for ${p.name}`);
+                          } catch (e: any) {
+                            toast.error(`Failed to clear telemetry: ${e?.message || e}`);
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.08] transition cursor-pointer"
+                    >
+                      Clear History
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(`Permanently delete UPS profile "${p.name}" (${p.unique_id})? All recorded telemetry and events for this device will be deleted!`)) {
+                          try {
+                            await api.deleteUpsProfile(p.unique_id);
+                            toast.success(`Deleted profile ${p.name}`);
+                            onProfilesChanged?.();
+                          } catch (e: any) {
+                            toast.error(`Failed to delete profile: ${e?.message || e}`);
+                          }
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 border border-rose-800/40 transition cursor-pointer"
+                      title="Delete Profile"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── 4. Active UPS Profile & Specifications ───────────── */}
       {metadata && (
         <div
           className="rounded-2xl p-5 shadow-sm border transition space-y-4"

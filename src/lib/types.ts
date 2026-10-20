@@ -39,6 +39,10 @@ export interface UpsMetadata {
   battery_capacity_ah: number;
   battery_chemistry: 'VRLA_SLA' | 'GEL' | 'LIFEPO4' | string;
   topology: 'Online' | 'LineInteractive' | 'OffLine' | string;
+  poll_interval_secs?: number;
+  bridge_ws_host?: string | null;
+  last_port?: string | null;
+  is_primary?: boolean;
   updated_at: string;
 }
 
@@ -60,10 +64,19 @@ export interface Q1Status {
   raw_status_bits: string;
 }
 
+export interface UpsTelemetryPayload {
+  ups_id?: string | null;
+  port_name: string;
+  status: Q1Status;
+}
+
+export type TransportMedium = 'wifi' | 'usb' | 'bridge' | 'serial' | 'unknown';
+export type UpsOperatingState = 'Online' | 'Battery' | 'Bypass' | 'Testing' | 'Fault' | 'Offline';
+
 export interface TelemetryRecord {
   id?: number;
   timestamp: string;
-  port_name: string;
+  ups_id: string;
   grid_voltage: number;
   output_voltage: number;
   grid_frequency?: number;
@@ -79,7 +92,7 @@ export type EventSeverity = 'critical' | 'warning' | 'info' | 'success';
 export interface EventLogRecord {
   id?: number;
   timestamp: string;
-  port_name: string;
+  ups_id?: string | null;
   event_type: string;
   severity: EventSeverity;
   message: string;

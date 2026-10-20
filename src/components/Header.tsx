@@ -7,15 +7,21 @@ import {
   Shield,
   Languages,
   Check,
+  Star,
 } from 'lucide-react';
-import { UnlockStage } from '../lib/types';
+import { UnlockStage, UpsMetadata, DiscoveredDevice, Q1Status } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
 import { PrimaryButton } from './PrimaryButton';
 import { setAppLanguage } from '../lib/i18n';
+import { TransportPill, DeviceStatePill, getTransportMedium, getUpsOperatingState } from './DevicePills';
 
 interface HeaderProps {
   currentTab: string;
-  selectedDevice: string | null;
+  selectedUpsId?: string | null;
+  activeProfile?: UpsMetadata | null;
+  activeDevice?: DiscoveredDevice | null;
+  activeStatus?: Q1Status | null;
+  selectedDevice?: string | null;
   activeTransport?: 'usb' | 'websocket' | null;
   transportIp?: string | null;
   bridgeUpdateAvailable?: boolean;
@@ -34,6 +40,7 @@ const PAGE_LABELS: Record<string, string> = {
   control:   'Hardware Control',
   config:    'Configuration',
   history:   'History & Graphs',
+  iot:       'IoT Bridge',
   settings:  'Settings',
 };
 
@@ -48,6 +55,9 @@ const getStagePillStyle = (stage: UnlockStage) => {
 
 export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
+  activeProfile,
+  activeDevice,
+  activeStatus,
   selectedDevice,
   activeTransport,
   transportIp,
@@ -88,6 +98,12 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
   const currentLang = i18n.language?.startsWith('fr') ? 'fr' : 'en';
 
+  const transport = getTransportMedium(
+    activeDevice?.port_name || activeProfile?.last_port || selectedDevice,
+    activeTransport
+  );
+  const operatingState = getUpsOperatingState(activeStatus);
+
   return (
     <header
       className="h-14 flex items-center justify-between px-3 sm:px-5 z-10 shrink-0 min-w-0"
@@ -96,40 +112,38 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
-      {/* ── Left: Page Title ───────────────────────── */}
-      <div className="flex items-center text-sm min-w-0 shrink mr-2">
-        <span className="text-slate-200 font-medium truncate">{pageLabel}</span>
+      {/* ── Left: Page Title & Active UPS Badge ─────── */}
+      <div className="flex items-center space-x-3 text-sm min-w-0 shrink mr-2">
+        <span className="text-slate-200 font-bold truncate">{pageLabel}</span>
+
+        {activeProfile && (
+          <div className="hidden sm:flex items-center space-x-2 pl-3 border-l border-white/[0.08]">
+            <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-medium">
+              {activeProfile.is_primary && (
+                <span title="Primary Master UPS" className="inline-flex shrink-0">
+                  <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                </span>
+              )}
+              <span className="truncate max-w-[150px] md:max-w-[200px]" title={activeProfile.name}>
+                {activeProfile.name}
+              </span>
+            </div>
+
+            <TransportPill transport={transport} ip={transportIp} size="sm" />
+            <DeviceStatePill state={operatingState} size="sm" />
+          </div>
+        )}
       </div>
 
       {/* ── Right: Actions ────────────────────────────────── */}
       <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
         {/* Safety Gate pill */}
         <span
-          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
         >
           <Shield className="w-3 h-3" />
           {getStageBadgeText(safetyStage)}
         </span>
-
-        {/* Active Transport badge if connected */}
-        {selectedDevice && activeTransport === 'websocket' && (
-          <span
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-cyan-950/80 text-cyan-400 border-cyan-700/40"
-            title={transportIp ? `Connected wirelessly via WebSocket (${transportIp})` : 'Connected wirelessly via WebSocket'}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>Wi-Fi</span>
-          </span>
-        )}
-        {selectedDevice && activeTransport === 'usb' && (
-          <span
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-emerald-950/80 text-emerald-400 border-emerald-700/40"
-            title="Connected via USB CDC Serial"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>USB CDC</span>
-          </span>
-        )}
 
         {/* Bridge Firmware Update Available Pill */}
         {bridgeUpdateAvailable && (
@@ -156,7 +170,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         )}
 
         {/* Last updated clock */}
-        <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice} />
+        <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice || activeDevice?.port_name || null} />
 
         {/* Primary CTA: Add / Scan UPS */}
         <PrimaryButton
@@ -188,7 +202,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
               {/* Refresh Telemetry */}
               <button
                 onClick={() => { onRefresh(); setOverflowOpen(false); }}
-                disabled={!selectedDevice || isRefreshing}
+                disabled={(!selectedDevice && !activeProfile) || isRefreshing}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition disabled:opacity-40 cursor-pointer"
               >
                 <RefreshCw

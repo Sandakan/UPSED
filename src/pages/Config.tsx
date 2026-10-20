@@ -7,10 +7,11 @@ import { PrimaryButton } from '../components/PrimaryButton';
 
 interface ConfigProps {
   portName: string | null;
+  upsId?: string | null;
   safetyStage: UnlockStage;
 }
 
-export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
+export const Config: React.FC<ConfigProps> = ({ portName, upsId, safetyStage }) => {
   const { t } = useTranslation(['config', 'common']);
   const [bypassHigh, setBypassHigh] = useState<number>(260);
   const [bypassLow, setBypassLow] = useState<number>(190);
@@ -21,7 +22,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
 
   const handleSaveParam = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
-      setStatusMessage(t('config:feedback.noDevice', 'Error: No active UPS device selected'));
+      setStatusMessage(t('config:feedback.noDevice', 'Error: No active UPS device selected or device is offline'));
       return;
     }
 
@@ -29,7 +30,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
     setStatusMessage(null);
 
     try {
-      const resp = await api.sendCommand(portName, cmd);
+      const resp = await api.sendCommand(portName, cmd, upsId || undefined);
       setStatusMessage(t('config:feedback.success', { label, resp, defaultValue: `Success: ${label} saved to UPS EEPROM (Response: ${resp})` }));
     } catch (err: any) {
       setStatusMessage(t('config:feedback.failed', { error: err?.message || String(err), defaultValue: `Failed: ${err?.message || String(err)}` }));

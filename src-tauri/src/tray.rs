@@ -67,66 +67,70 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn update_tray_state(app: &AppHandle, _is_enabled: bool, status: Option<&Q1Status>) {
+    update_tray_state_multi(app, status, &[]);
+}
+
+pub fn update_tray_state_multi(
+    app: &AppHandle,
+    primary_status: Option<&Q1Status>,
+    device_summaries: &[(&str, Option<&Q1Status>)],
+) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_visible(true);
 
-        let (state, tooltip) = match status {
+        let state = match primary_status {
             Some(status) => {
                 let pct = compute_battery_pct(status.battery_voltage_v);
                 if status.ups_failed {
-                    (
-                        UpsTrayState::UpsFault,
-                        format!(
-                            "UPSED: HARDWARE FAULT\nInverter Alarm Active!\nLoad: {}%",
-                            status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::UpsFault
                 } else if status.test_in_progress {
-                    (
-                        UpsTrayState::TestInProgress { pct },
-                        format!(
-                            "UPSED: Battery Self-Test in Progress...\n{}% ({:.1}V) | Load: {}%",
-                            pct, status.battery_voltage_v, status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::TestInProgress { pct }
                 } else if status.utility_fail && status.battery_low {
-                    (
-                        UpsTrayState::BatteryLow { pct },
-                        format!(
-                            "UPSED: CRITICAL — Battery Low!\n{}% ({:.1}V) | Load: {}%",
-                            pct, status.battery_voltage_v, status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::BatteryLow { pct }
                 } else if status.utility_fail {
-                    (
-                        UpsTrayState::OnBattery { pct },
-                        format!(
-                            "UPSED: ON BATTERY (AC Outage)\n{}% ({:.1}V) | Load: {}%",
-                            pct, status.battery_voltage_v, status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::OnBattery { pct }
                 } else if status.bypass_active {
-                    (
-                        UpsTrayState::BypassMode { pct },
-                        format!(
-                            "UPSED: Bypass Mode (Unprotected Grid)\n{}% ({:.1}V) | Load: {}%",
-                            pct, status.battery_voltage_v, status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::BypassMode { pct }
                 } else {
-                    (
-                        UpsTrayState::AcNormal { pct },
-                        format!(
-                            "UPSED: Online (AC Normal)\n{}% ({:.1}V) | Load: {}%",
-                            pct, status.battery_voltage_v, status.output_load_pct
-                        ),
-                    )
+                    UpsTrayState::AcNormal { pct }
                 }
             }
-            None => (
-                UpsTrayState::Disconnected,
-                "UPSED: Disconnected\n(No device connected)".to_string(),
-            ),
+            None => UpsTrayState::Disconnected,
+        };
+
+        let tooltip = if device_summaries.is_empty() {
+            match primary_status {
+                Some(status) => {
+                    let pct = compute_battery_pct(status.battery_voltage_v);
+                    if status.ups_failed {
+                        format!("UPSED: HARDWARE FAULT\nInverter Alarm Active!\nLoad: {}%", status.output_load_pct)
+                    } else if status.test_in_progress {
+                        format!("UPSED: Battery Self-Test in Progress...\n{}% ({:.1}V) | Load: {}%", pct, status.battery_voltage_v, status.output_load_pct)
+                    } else if status.utility_fail && status.battery_low {
+                        format!("UPSED: CRITICAL — Battery Low!\n{}% ({:.1}V) | Load: {}%", pct, status.battery_voltage_v, status.output_load_pct)
+                    } else if status.utility_fail {
+                        format!("UPSED: ON BATTERY (AC Outage)\n{}% ({:.1}V) | Load: {}%", pct, status.battery_voltage_v, status.output_load_pct)
+                    } else if status.bypass_active {
+                        format!("UPSED: Bypass Mode (Unprotected Grid)\n{}% ({:.1}V) | Load: {}%", pct, status.battery_voltage_v, status.output_load_pct)
+                    } else {
+                        format!("UPSED: Online (AC Normal)\n{}% ({:.1}V) | Load: {}%", pct, status.battery_voltage_v, status.output_load_pct)
+                    }
+                }
+                None => "UPSED: Disconnected\n(No device connected)".to_string(),
+            }
+        } else {
+            let mut lines = Vec::new();
+            lines.push(format!("UPSED ({} devices connected)", device_summaries.len()));
+            for (name, st_opt) in device_summaries {
+                if let Some(st) = st_opt {
+                    let pct = compute_battery_pct(st.battery_voltage_v);
+                    let mode = if st.ups_failed { "FAULT" } else if st.utility_fail { "BATTERY" } else if st.bypass_active { "BYPASS" } else { "ONLINE" };
+                    lines.push(format!("• {}: {}% [{}]", name, pct, mode));
+                } else {
+                    lines.push(format!("• {}: Offline", name));
+                }
+            }
+            lines.join("\n")
         };
 
         let _ = tray.set_tooltip(Some(tooltip));

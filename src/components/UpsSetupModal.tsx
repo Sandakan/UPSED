@@ -21,6 +21,7 @@ interface UpsSetupModalProps {
   onClose: () => void;
   onSave: (metadata: UpsMetadata) => void;
   onLinkExisting?: (targetUniqueId: string) => void;
+  isFirstProfile?: boolean;
 }
 
 const VA_PRESETS = [650, 1000, 1500, 2000, 3000, 6000, 10000];
@@ -32,6 +33,7 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
   onClose,
   onSave,
   onLinkExisting,
+  isFirstProfile = false,
 }) => {
   const { t } = useTranslation(['modals', 'settings', 'common']);
   // Auto-detect sensible nominal battery voltage from live telemetry if available
@@ -52,6 +54,8 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
   const [batteryCapacityAh, setBatteryCapacityAh] = useState<number>(9.0);
   const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>('VRLA_SLA');
   const [topology, setTopology] = useState<string>(initialTopology);
+  const [isPrimary, setIsPrimary] = useState<boolean>(isFirstProfile);
+  const [pollIntervalSecs, setPollIntervalSecs] = useState<number>(10);
   const [candidates, setCandidates] = useState<UpsMetadata[]>([]);
 
   useEffect(() => {
@@ -100,6 +104,9 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
       battery_capacity_ah: batteryCapacityAh,
       battery_chemistry: batteryChemistry,
       topology,
+      poll_interval_secs: pollIntervalSecs,
+      is_primary: isPrimary,
+      last_port: device.port_name,
       updated_at: new Date().toISOString(),
     });
   };
@@ -120,6 +127,9 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
       battery_capacity_ah: 9.0,
       battery_chemistry: 'VRLA_SLA',
       topology: initialTopology,
+      poll_interval_secs: 10,
+      is_primary: isPrimary,
+      last_port: device.port_name,
       updated_at: new Date().toISOString(),
     });
   };
@@ -360,6 +370,37 @@ export const UpsSetupModal: React.FC<UpsSetupModalProps> = ({
                 required
               />
               <span className="text-xs text-slate-400 font-mono">Ampere-Hours (Ah)</span>
+            </div>
+          </div>
+
+          {/* Primary UPS Toggle & Poll Interval */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <div className="flex items-center space-x-2.5">
+              <input
+                type="checkbox"
+                id="is-primary-checkbox"
+                checked={isPrimary}
+                onChange={(e) => setIsPrimary(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+              />
+              <label htmlFor="is-primary-checkbox" className="text-xs text-slate-300 font-medium cursor-pointer">
+                Primary Master UPS
+                <span className="block text-[10px] text-slate-500 font-normal">Drives system tray battery level</span>
+              </label>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-slate-300 font-medium">Poll Interval</label>
+                <span className="text-[10px] text-slate-400 font-mono font-bold">{pollIntervalSecs}s</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="60"
+                value={pollIntervalSecs}
+                onChange={(e) => setPollIntervalSecs(Number(e.target.value))}
+                className="w-full accent-emerald-400 cursor-pointer"
+              />
             </div>
           </div>
 

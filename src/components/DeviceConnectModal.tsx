@@ -1,39 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plug, RefreshCw, X, Check, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
-import { DiscoveredDevice } from '../lib/types';
+import { Plug, RefreshCw, X, Check, AlertTriangle, ShieldCheck, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { DiscoveredDevice, UpsMetadata } from '../lib/types';
 import { PrimaryButton } from './PrimaryButton';
 
 export interface DeviceConnectModalProps {
   isOpen: boolean;
   onClose: () => void;
   devices: DiscoveredDevice[];
+  profiles: UpsMetadata[];
   selectedDevice: string | null;
   isScanning: boolean;
   onScan: () => void;
   onSelectDevice: (portName: string) => void;
+  onConfigureDevice: (device: DiscoveredDevice) => void;
 }
 
 export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
   isOpen,
   onClose,
   devices,
+  profiles,
   selectedDevice,
   isScanning,
   onScan,
   onSelectDevice,
+  onConfigureDevice,
 }) => {
   const { t } = useTranslation(['modals', 'common']);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
   const [chosenPort, setChosenPort] = useState<string | null>(selectedDevice);
 
-  // Manage enter and exit animation lifecycle (matching ConfirmModal)
+  // Manage enter and exit animation lifecycle
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
       setIsClosing(false);
-      // Auto-scan on open as requested
       onScan();
       if (selectedDevice) {
         setChosenPort(selectedDevice);
@@ -69,9 +72,24 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
 
   if (!shouldRender) return null;
 
-  const handleConnect = () => {
-    if (chosenPort) {
-      onSelectDevice(chosenPort);
+  const chosenDev = devices.find((d) => d.port_name === chosenPort);
+  const chosenProfile = chosenDev
+    ? profiles.find(
+        (p) =>
+          p.unique_id === chosenDev.unique_id ||
+          (chosenDev.usb_uuid && p.usb_uuid === chosenDev.usb_uuid) ||
+          (chosenDev.bridge_mac && p.bridge_mac === chosenDev.bridge_mac)
+      )
+    : null;
+
+  const handleAction = () => {
+    if (!chosenDev) return;
+    if (chosenProfile) {
+      onSelectDevice(chosenDev.port_name);
+      onClose();
+    } else {
+      // Unapproved device -> launch setup modal
+      onConfigureDevice(chosenDev);
       onClose();
     }
   };
@@ -120,7 +138,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] rounded-lg transition"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] rounded-lg transition cursor-pointer"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -147,7 +165,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
           )}
 
           {/* Device List / Empty State */}
-          <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-0.5">
+          <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-0.5">
             {devices.length === 0 && !isScanning ? (
               <div className="rounded-xl border border-dashed border-white/[0.1] p-6 text-center space-y-2 bg-black/10">
                 <AlertTriangle className="w-8 h-8 mx-auto text-amber-400 opacity-80 mb-1" />
@@ -171,6 +189,13 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
               devices.map((dev) => {
                 const isChosen = chosenPort === dev.port_name;
                 const isCurrentlyActive = selectedDevice === dev.port_name;
+                const matchingProfile = profiles.find(
+                  (p) =>
+                    p.unique_id === dev.unique_id ||
+                    (dev.usb_uuid && p.usb_uuid === dev.usb_uuid) ||
+                    (dev.bridge_mac && p.bridge_mac === dev.bridge_mac)
+                );
+
                 return (
                   <button
                     key={dev.port_name}
@@ -195,33 +220,49 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
                       </div>
 
                       <div className="min-w-0">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                           <span className="font-mono font-bold text-sm text-slate-100">
                             {dev.port_name}
                           </span>
                           <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-white/[0.06] border border-white/[0.08] text-slate-300">
                             {dev.capabilities.protocol_id || dev.protocol_id}
                           </span>
+
                           {dev.port_name.startsWith('BRIDGE:WS:') ? (
                             <span className="text-[10px] px-2 py-0.5 rounded font-sans font-bold uppercase bg-cyan-950/80 border border-cyan-700/60 text-cyan-400">
                               Wi-Fi
                             </span>
                           ) : dev.port_name.startsWith('BRIDGE:') ? (
-                            <span className="text-[10px] px-2 py-0.5 rounded font-sans font-bold uppercase bg-emerald-950/80 border border-emerald-700/60 text-emerald-400">
+                            <span className="text-[10px] px-2 py-0.5 rounded font-sans font-bold uppercase bg-teal-950/80 border border-teal-700/60 text-teal-400">
                               Bridge
                             </span>
                           ) : null}
+
+                          {/* Approval Status Badge */}
+                          {matchingProfile ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-950 text-emerald-300 border border-emerald-700/50 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>{matchingProfile.name}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-950/80 text-amber-300 border border-amber-700/50 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-amber-400" />
+                              <span>Setup Required</span>
+                            </span>
+                          )}
+
                           {isCurrentlyActive && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-950 text-emerald-400 border border-emerald-700/50">
-                              {t('common:status.connected', 'Connected')}
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-cyan-950 text-cyan-400 border border-cyan-700/50">
+                              Active
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center space-x-2">
+
+                        <div className="text-[11px] text-slate-400 font-mono mt-1 flex items-center space-x-2">
                           {dev.serial_number && <span>SN: {dev.serial_number}</span>}
                           {dev.firmware_version && <span>FW: {dev.firmware_version}</span>}
                           {!dev.serial_number && !dev.firmware_version && (
-                            <span>{t('dashboard:autoDiscovery.discovered', 'Hardware detected & validated')}</span>
+                            <span>Hardware validated</span>
                           )}
                         </div>
                       </div>
@@ -252,7 +293,7 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
             <span>{isScanning ? t('common:status.scanning', 'Scanning...') : t('common:buttons.scan', 'Rescan Ports')}</span>
           </button>
 
-          {/* Right: Cancel & Connect */}
+          {/* Right: Cancel & Action (Connect or Set Up Profile) */}
           <div className="flex items-center space-x-2">
             <button
               type="button"
@@ -261,13 +302,24 @@ export const DeviceConnectModal: React.FC<DeviceConnectModalProps> = ({
             >
               {t('common:buttons.cancel', 'Cancel')}
             </button>
-            <PrimaryButton
-              onClick={handleConnect}
-              disabled={!chosenPort || isScanning}
-              icon={<Plug className="w-3.5 h-3.5" />}
-            >
-              <span>{chosenPort ? t('modals:connect.connectBtn', { port: chosenPort, defaultValue: `Connect to ${chosenPort}` }) : t('modals:connect.selectPortFirst', 'Connect Device')}</span>
-            </PrimaryButton>
+
+            {chosenProfile ? (
+              <PrimaryButton
+                onClick={handleAction}
+                disabled={!chosenPort || isScanning}
+                icon={<Plug className="w-3.5 h-3.5" />}
+              >
+                <span>Connect & Monitor</span>
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                onClick={handleAction}
+                disabled={!chosenPort || isScanning}
+                icon={<Sparkles className="w-3.5 h-3.5" />}
+              >
+                <span>Set Up UPS Profile</span>
+              </PrimaryButton>
+            )}
           </div>
         </div>
       </div>

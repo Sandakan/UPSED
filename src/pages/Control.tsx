@@ -21,6 +21,7 @@ import { ToggleSwitch } from '../components/ToggleSwitch';
 
 interface ControlProps {
   portName: string | null;
+  upsId?: string | null;
   safetyStage: UnlockStage;
   onRefreshStage: () => void;
 }
@@ -144,6 +145,7 @@ const FLAG_CATEGORIES = [
 
 export const Control: React.FC<ControlProps> = ({
   portName,
+  upsId,
   safetyStage,
   onRefreshStage,
 }) => {
@@ -158,7 +160,7 @@ export const Control: React.FC<ControlProps> = ({
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
-      setCommandFeedback(t('control:safetyGate.noDeviceError', 'Error: No active UPS device selected'));
+      setCommandFeedback(t('control:safetyGate.noDeviceError', 'Error: No active UPS device selected or device is offline'));
       return;
     }
 
@@ -166,7 +168,7 @@ export const Control: React.FC<ControlProps> = ({
     setCommandFeedback(null);
 
     try {
-      const resp = await api.sendCommand(portName, cmd);
+      const resp = await api.sendCommand(portName, cmd, upsId || undefined);
       const successMsg = t('control:safetyGate.feedbackSuccess', { label, resp, defaultValue: `Success: ${label} returned '${resp}'` });
       setCommandFeedback(successMsg);
     } catch (err: any) {
@@ -190,7 +192,7 @@ export const Control: React.FC<ControlProps> = ({
     }
     setIsRefreshingFlags(true);
     try {
-      const resp = await api.sendCommand(portName, { type: 'QueryFlags' });
+      const resp = await api.sendCommand(portName, { type: 'QueryFlags' }, upsId || undefined);
       const body = resp.trim().replace(/^\(/, '');
       if (!body.startsWith('E')) {
         setFlags(null);
@@ -217,7 +219,7 @@ export const Control: React.FC<ControlProps> = ({
     } finally {
       setIsRefreshingFlags(false);
     }
-  }, [portName]);
+  }, [portName, upsId]);
 
   useEffect(() => {
     void refreshFlags();
@@ -233,7 +235,7 @@ export const Control: React.FC<ControlProps> = ({
 
   const handleUnlockStage = async (target: UnlockStage) => {
     try {
-      await api.unlockSafetyStage(target);
+      await api.unlockSafetyStage(target, upsId || undefined);
       onRefreshStage();
       setCommandFeedback(t('control:safetyGate.feedbackUpdated', { target, defaultValue: `Safety stage updated to ${target}` }));
     } catch (err: any) {

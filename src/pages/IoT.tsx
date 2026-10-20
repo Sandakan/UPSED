@@ -58,6 +58,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 
 export interface IoTProps {
   portName?: string | null;
+  upsId?: string | null;
 }
 
 const BridgeLedGuide: React.FC = () => {
@@ -175,7 +176,7 @@ const BridgeLedGuide: React.FC = () => {
   );
 };
 
-export const IoT: React.FC<IoTProps> = ({ portName }) => {
+export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   const queryClient = useQueryClient();
   // Status & Telemetry
   const [status, setStatus] = useState<BridgeStatus | null>(null);
@@ -724,7 +725,7 @@ export const IoT: React.FC<IoTProps> = ({ portName }) => {
   const handleSyncBacklog = async () => {
     setIsSyncingBacklog(true);
     try {
-      const imported = await api.syncBridgeBacklog(portName ?? undefined);
+      const imported = await api.syncBridgeBacklog(portName ?? undefined, upsId ?? undefined);
       await refreshStatus();
       toast.custom(
         JSON.stringify({

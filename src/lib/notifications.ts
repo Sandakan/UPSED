@@ -299,7 +299,7 @@ export async function handleIncomingUpsEvent(
       if (permitted) {
         sendNotification({
           title: `UPSED: ${title}`,
-          body: `${description} (${event.port_name})`,
+          body: event.ups_id ? `${description} (${event.ups_id})` : description,
         });
       }
     } catch (err) {

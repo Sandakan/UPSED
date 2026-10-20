@@ -99,9 +99,16 @@ pub async fn scan_ports(
     Ok(devices)
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct UpsTelemetryPayload {
+    pub ups_id: Option<String>,
+    pub port_name: String,
+    pub status: Q1Status,
+}
+
 pub fn commit_bridge_backlog_to_db(
     db: &Database,
-    port_name: &str,
+    ups_id: &str,
     records: &[BridgeBacklogRecord],
     bridge_uptime_sec: u64,
 ) -> usize {
@@ -125,7 +132,7 @@ pub fn commit_bridge_backlog_to_db(
                 .insert_telemetry(&TelemetryRecord {
                     id: None,
                     timestamp: ts_rfc3339,
-                    port_name: port_name.to_string(),
+                    ups_id: ups_id.to_string(),
                     grid_voltage: status.grid_voltage_v,
                     output_voltage: status.output_voltage_v,
                     grid_frequency: status.grid_frequency_hz,
@@ -181,30 +188,6 @@ pub fn connect_device_internal(
         if let Ok(st) = bridge_transport.ping() {
             if st.wifi_connected && !st.ip.is_empty() {
                 let _ = state.db.set_setting("bridge_fallback_host", &st.ip);
-            }
-            if st.backlog_records > 0 {
-                if let Ok(backlog) = bridge_transport.drain_backlog() {
-                    let count = commit_bridge_backlog_to_db(
-                        &state.db,
-                        &normalized_bridge_port,
-                        &backlog,
-                        st.uptime_sec,
-                    );
-                    if count > 0 {
-                        let _ = state.db.insert_event(&EventLogRecord {
-                            id: None,
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                            port_name: normalized_bridge_port.clone(),
-                            event_type: "BRIDGE_SYNC".into(),
-                            severity: "info".into(),
-                            message: format!(
-                                "ESP32 Bridge Backlog Synced: Imported {} offline MessagePack telemetry samples recorded while desktop was offline.",
-                                count
-                            ),
-                            acknowledged: true,
-                        });
-                    }
-                }
             }
         }
 
@@ -293,7 +276,18 @@ pub fn connect_device_internal(
     };
 
     let effective_port = info.port_name.clone();
-    state.manager.register_device(info.clone(), transport);
+
+    // Check if this physical device matches an approved UPS profile in SQLite
+    let resolved_metadata = state.db.resolve_ups_metadata(
+        &info.unique_id,
+        info.bridge_mac.as_deref(),
+        info.usb_uuid.as_deref(),
+        info.hardware_signature.as_deref(),
+    ).ok().flatten();
+
+    let resolved_ups_id = resolved_metadata.as_ref().map(|m| m.unique_id.clone());
+
+    state.manager.register_device_with_ups_id(info.clone(), transport, resolved_ups_id.clone());
     let _ = state.db.set_setting("last_connected_port", &effective_port);
 
     // Sync real-time transport status if registered device is an ESP32 Bridge
@@ -303,15 +297,59 @@ pub fn connect_device_internal(
         crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
     }
 
-    let _ = state.db.insert_event(&EventLogRecord {
-        id: None,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: effective_port.clone(),
-        event_type: "CONNECT".into(),
-        severity: "info".into(),
-        message: format!("Connected to UPS on {}", effective_port),
-        acknowledged: true,
-    });
+    if let Some(ref uid) = resolved_ups_id {
+        let _ = state.db.link_transport_to_profile(
+            uid,
+            info.bridge_mac.as_deref(),
+            info.usb_uuid.as_deref(),
+            info.hardware_signature.as_deref(),
+        );
+
+        let _ = state.db.insert_event(&EventLogRecord {
+            id: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            ups_id: Some(uid.clone()),
+            event_type: "CONNECT".into(),
+            severity: "info".into(),
+            message: format!("Connected to UPS on {}", effective_port),
+            acknowledged: true,
+        });
+
+        // Drain offline backlog if connected via ESP32 bridge and profile is approved
+        if is_bridge {
+            let db_clone = state.db.clone();
+            let uid_clone = uid.clone();
+            let _ = state.manager.with_bridge_transport(Some(&effective_port), move |bridge, _key| {
+                if let Ok(st) = bridge.ping() {
+                    if st.backlog_records > 0 {
+                        if let Ok(backlog) = bridge.drain_backlog() {
+                            let count = commit_bridge_backlog_to_db(&db_clone, &uid_clone, &backlog, st.uptime_sec);
+                            if count > 0 {
+                                let _ = db_clone.insert_event(&EventLogRecord {
+                                    id: None,
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    ups_id: Some(uid_clone),
+                                    event_type: "BRIDGE_SYNC".into(),
+                                    severity: "info".into(),
+                                    message: format!(
+                                        "ESP32 Bridge Backlog Synced: Imported {} offline MessagePack telemetry samples.",
+                                        count
+                                    ),
+                                    acknowledged: true,
+                                });
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+    } else {
+        tracing::info!(
+            "Device connected on {} ({}) is unapproved. Telemetry and event recording paused until approved in setup.",
+            effective_port, info.unique_id
+        );
+    }
 
     Ok(info)
 }
@@ -363,12 +401,13 @@ pub async fn disconnect_device(
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
+        let ups_id = state_clone.manager.get_device_ups_id(&port_name);
         state_clone.manager.unregister_device(&port_name);
         crate::tray::update_tray_state(&app_clone, false, None);
         let _ = state_clone.db.insert_event(&EventLogRecord {
             id: None,
             timestamp: chrono::Utc::now().to_rfc3339(),
-            port_name: port_name.clone(),
+            ups_id,
             event_type: "DISCONNECT".into(),
             severity: "warning".into(),
             message: format!("Disconnected from UPS on {}", port_name),
@@ -390,21 +429,23 @@ pub async fn get_device_status(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: String,
+    ups_id: Option<String>,
 ) -> Result<Q1Status, String> {
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
-        if !state_clone.manager.is_connected(&port_name) {
+        let lookup_key = ups_id.as_deref().unwrap_or(&port_name);
+        if !state_clone.manager.is_connected(lookup_key) {
             tracing::info!(
                 "get_device_status: {} not connected, attempting connect",
-                port_name
+                lookup_key
             );
             if let Err(e) = connect_device_internal(&state_clone, &port_name, None) {
                 tracing::error!("Failed to connect to {}: {}", port_name, e);
                 let _ = state_clone.db.insert_event(&EventLogRecord {
                     id: None,
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    port_name: port_name.clone(),
+                    ups_id: ups_id.clone(),
                     event_type: "CONNECT_ERROR".into(),
                     severity: "critical".into(),
                     message: format!("Connection failed: {}", e),
@@ -414,29 +455,37 @@ pub async fn get_device_status(
             }
         }
 
-        let prev_status = state_clone.manager.get_last_status(&port_name);
-        match state_clone.manager.poll_device(&port_name) {
-            Ok(status) => {
-                let _ = state_clone.db.insert_telemetry(&TelemetryRecord {
-                    id: None,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    port_name: port_name.clone(),
-                    grid_voltage: status.grid_voltage_v,
-                    output_voltage: status.output_voltage_v,
-                    grid_frequency: status.grid_frequency_hz,
-                    output_frequency: status.output_frequency_hz,
-                    load_pct: status.output_load_pct,
-                    output_watts: status.output_watts,
-                    battery_voltage: status.battery_voltage_v,
-                    temperature_c: status.temperature_c,
-                });
+        let resolved_ups_id = state_clone
+            .manager
+            .get_device_ups_id(lookup_key)
+            .or(ups_id.clone());
 
-                // Detect state transitions and alarm events
-                let detected_events =
-                    detect_status_events(prev_status.as_ref(), &status, &port_name);
-                for ev in &detected_events {
-                    let _ = state_clone.db.insert_event(ev);
-                    let _ = app_clone.emit("ups-event", ev);
+        let prev_status = state_clone.manager.get_last_status(lookup_key);
+        match state_clone.manager.poll_device(lookup_key) {
+            Ok(status) => {
+                // If profile is approved, record telemetry and persistent events
+                if let Some(ref uid) = resolved_ups_id {
+                    let _ = state_clone.db.insert_telemetry(&TelemetryRecord {
+                        id: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        ups_id: uid.clone(),
+                        grid_voltage: status.grid_voltage_v,
+                        output_voltage: status.output_voltage_v,
+                        grid_frequency: status.grid_frequency_hz,
+                        output_frequency: status.output_frequency_hz,
+                        load_pct: status.output_load_pct,
+                        output_watts: status.output_watts,
+                        battery_voltage: status.battery_voltage_v,
+                        temperature_c: status.temperature_c,
+                    });
+
+                    // Detect state transitions and alarm events
+                    let detected_events =
+                        detect_status_events(prev_status.as_ref(), &status, Some(uid));
+                    for ev in &detected_events {
+                        let _ = state_clone.db.insert_event(ev);
+                        let _ = app_clone.emit("ups-event", ev);
+                    }
                 }
 
                 let mut bridge = state_clone.bridge.lock().unwrap();
@@ -463,7 +512,7 @@ pub async fn get_device_status(
                 let _ = state_clone.db.insert_event(&EventLogRecord {
                     id: None,
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    port_name: port_name.clone(),
+                    ups_id: resolved_ups_id,
                     event_type: "POLL_ERROR".into(),
                     severity: "warning".into(),
                     message: format!("Polling failed: {}", err_str),
@@ -537,20 +586,29 @@ pub async fn send_command(
     state: State<'_, AppState>,
     port_name: String,
     command: VoltronicCommand,
+    ups_id: Option<String>,
 ) -> Result<String, String> {
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
     let port = port_name.clone();
     let cmd_clone = command.clone();
+    let target_ups_id = ups_id.clone();
     tokio::task::spawn_blocking(move || {
-        if !state_clone.manager.is_connected(&port) {
+        let lookup_key = target_ups_id.as_deref().unwrap_or(&port);
+        if !state_clone.manager.is_connected(lookup_key) {
             let _ = connect_device_internal(&state_clone, &port, None);
         }
 
-        let gate = state_clone.gate.lock().unwrap();
+        // Use the device's isolated CommandGate if available; otherwise fallback to state_clone.gate
+        let gate_arc = state_clone
+            .manager
+            .get_gate(lookup_key)
+            .unwrap_or_else(|| Arc::clone(&state_clone.gate));
+        let gate = gate_arc.lock().unwrap();
+
         let result = state_clone
             .manager
-            .execute_gated_command(&port, &cmd_clone, &gate)
+            .execute_gated_command(lookup_key, &cmd_clone, &gate)
             .map_err(|e| e.to_string());
         drop(gate);
 
@@ -564,10 +622,11 @@ pub async fn send_command(
             ),
         };
 
+        let resolved_ups_id = state_clone.manager.get_device_ups_id(lookup_key).or(target_ups_id);
         let audit_event = EventLogRecord {
             id: None,
             timestamp: now,
-            port_name: port.clone(),
+            ups_id: resolved_ups_id,
             event_type: "USER_ACTION".into(),
             severity: if is_success { "info".into() } else { "warning".into() },
             message: action_desc,
@@ -584,7 +643,12 @@ pub async fn send_command(
 }
 
 #[tauri::command]
-pub fn get_safety_stage(state: State<AppState>) -> UnlockStage {
+pub fn get_safety_stage(state: State<AppState>, ups_id: Option<String>) -> UnlockStage {
+    if let Some(ref uid) = ups_id {
+        if let Some(stage) = state.manager.get_safety_stage(uid) {
+            return stage;
+        }
+    }
     let gate = state.gate.lock().unwrap();
     gate.current_stage()
 }
@@ -594,16 +658,29 @@ pub fn unlock_safety_stage(
     app: tauri::AppHandle,
     state: State<AppState>,
     target_stage: UnlockStage,
+    ups_id: Option<String>,
 ) -> Result<(), String> {
-    let mut gate = state.gate.lock().unwrap();
-    let prev_stage = gate.current_stage();
-    gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
-    drop(gate);
+    let prev_stage;
+    if let Some(ref uid) = ups_id {
+        if let Some(gate_arc) = state.manager.get_gate(uid) {
+            let mut gate = gate_arc.lock().unwrap();
+            prev_stage = gate.current_stage();
+            gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
+        } else {
+            let mut gate = state.gate.lock().unwrap();
+            prev_stage = gate.current_stage();
+            gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
+        }
+    } else {
+        let mut gate = state.gate.lock().unwrap();
+        prev_stage = gate.current_stage();
+        gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
+    }
 
     let audit_event = EventLogRecord {
         id: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
-        port_name: "SYSTEM".into(),
+        ups_id: ups_id.clone(),
         event_type: "USER_ACTION".into(),
         severity: "info".into(),
         message: format!(
@@ -622,15 +699,23 @@ pub fn unlock_safety_stage(
 #[tauri::command]
 pub async fn get_recent_telemetry(
     state: State<'_, AppState>,
-    port_name: String,
+    ups_id: Option<String>,
+    port_name: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<TelemetryRecord>, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
-        state_clone
-            .db
-            .query_recent_telemetry(&port_name, limit.unwrap_or(50))
-            .map_err(|e| e.to_string())
+        let target_id = ups_id.or_else(|| {
+            port_name.as_deref().and_then(|p| state_clone.manager.get_device_ups_id(p))
+        });
+
+        match target_id {
+            Some(ref id) => state_clone
+                .db
+                .query_recent_telemetry(id, limit.unwrap_or(50))
+                .map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -639,17 +724,25 @@ pub async fn get_recent_telemetry(
 #[tauri::command]
 pub async fn get_telemetry_range(
     state: State<'_, AppState>,
-    port_name: String,
+    ups_id: Option<String>,
+    port_name: Option<String>,
     start_time: String,
     end_time: String,
     max_points: Option<u32>,
 ) -> Result<Vec<TelemetryRecord>, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
-        state_clone
-            .db
-            .query_telemetry_range(&port_name, &start_time, &end_time, max_points)
-            .map_err(|e| e.to_string())
+        let target_id = ups_id.or_else(|| {
+            port_name.as_deref().and_then(|p| state_clone.manager.get_device_ups_id(p))
+        });
+
+        match target_id {
+            Some(ref id) => state_clone
+                .db
+                .query_telemetry_range(id, &start_time, &end_time, max_points)
+                .map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -658,13 +751,14 @@ pub async fn get_telemetry_range(
 #[tauri::command]
 pub async fn get_recent_events(
     state: State<'_, AppState>,
+    ups_id: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<EventLogRecord>, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
             .db
-            .query_recent_events(limit.unwrap_or(50))
+            .query_recent_events(ups_id.as_deref(), true, limit.unwrap_or(50))
             .map_err(|e| e.to_string())
     })
     .await
@@ -842,11 +936,19 @@ pub async fn fast_probe_device(port_name: String) -> Result<Option<DiscoveredDev
 }
 
 #[tauri::command]
-pub async fn clear_events(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn clear_events(
+    state: State<'_, AppState>,
+    ups_id: Option<String>,
+) -> Result<(), String> {
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || state_clone.db.clear_events().map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .clear_events(ups_id.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -863,12 +965,15 @@ pub async fn acknowledge_event(state: State<'_, AppState>, event_id: i64) -> Res
 }
 
 #[tauri::command]
-pub async fn acknowledge_all_events(state: State<'_, AppState>) -> Result<usize, String> {
+pub async fn acknowledge_all_events(
+    state: State<'_, AppState>,
+    ups_id: Option<String>,
+) -> Result<usize, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
             .db
-            .acknowledge_all_events()
+            .acknowledge_all_events(ups_id.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -960,12 +1065,13 @@ pub async fn get_db_stats(state: State<'_, AppState>) -> Result<DbStats, String>
 pub async fn prune_telemetry(
     state: State<'_, AppState>,
     older_than_days: u32,
+    ups_id: Option<String>,
 ) -> Result<usize, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
             .db
-            .prune_telemetry(older_than_days)
+            .prune_telemetry(older_than_days, ups_id.as_deref())
             .map_err(|e| e.to_string())
     })
     .await
@@ -973,12 +1079,50 @@ pub async fn prune_telemetry(
 }
 
 #[tauri::command]
-pub async fn clear_telemetry(state: State<'_, AppState>) -> Result<usize, String> {
+pub async fn clear_telemetry(
+    state: State<'_, AppState>,
+    ups_id: Option<String>,
+) -> Result<usize, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
             .db
-            .clear_telemetry()
+            .clear_telemetry(ups_id.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_ups_profile(
+    state: State<'_, AppState>,
+    unique_id: String,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // Unregister from memory if active
+        state_clone.manager.unregister_device(&unique_id);
+        // Cascade delete from SQLite
+        state_clone
+            .db
+            .delete_ups_metadata(&unique_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_primary_ups(
+    state: State<'_, AppState>,
+    unique_id: String,
+) -> Result<(), String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .db
+            .set_primary_ups(&unique_id)
             .map_err(|e| e.to_string())
     })
     .await
@@ -1002,7 +1146,7 @@ pub async fn vacuum_database(state: State<'_, AppState>) -> Result<(), String> {
 pub fn detect_status_events(
     prev: Option<&Q1Status>,
     curr: &Q1Status,
-    port: &str,
+    ups_id: Option<&str>,
 ) -> Vec<EventLogRecord> {
     let mut events = Vec::new();
     let now = chrono::Utc::now().to_rfc3339();
@@ -1011,12 +1155,14 @@ pub fn detect_status_events(
         return events;
     };
 
+    let target_ups_id = ups_id.map(|s| s.to_string());
+
     // 1. AC Utility Failure (Blackout) - Rising Edge
     if !prev.utility_fail && curr.utility_fail {
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "UTILITY_FAIL".into(),
             severity: "critical".into(),
             message:
@@ -1029,7 +1175,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "UTILITY_RESTORE".into(),
             severity: "success".into(),
             message: "AC Utility Restored: Mains grid power restored. Resumed normal line mode."
@@ -1043,7 +1189,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BATTERY_LOW".into(),
             severity: "critical".into(),
             message: "Low Battery: Battery capacity critically depleted. Prepare connected loads for shutdown.".into(),
@@ -1053,7 +1199,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BATTERY_NORMAL".into(),
             severity: "success".into(),
             message: "Battery Normal: Battery voltage recovered above low threshold.".into(),
@@ -1066,7 +1212,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BYPASS_ACTIVE".into(),
             severity: "warning".into(),
             message:
@@ -1078,7 +1224,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BYPASS_CLEARED".into(),
             severity: "info".into(),
             message: "Inverter Output Restored: UPS switched back from bypass to conditioned inverter mode.".into(),
@@ -1091,7 +1237,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "UPS_FAULT".into(),
             severity: "critical".into(),
             message: "UPS Hardware Fault: Internal inverter or component failure detected.".into(),
@@ -1104,7 +1250,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BATTERY_TEST_STARTED".into(),
             severity: "info".into(),
             message: "Battery Self-Test Active: UPS is executing a battery discharge self-test under load.".into(),
@@ -1114,7 +1260,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "BATTERY_TEST_COMPLETED".into(),
             severity: "info".into(),
             message: "Battery Self-Test Completed: Self-test completed; normal AC line mode restored.".into(),
@@ -1127,7 +1273,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "OVERLOAD".into(),
             severity: "critical".into(),
             message: format!("Overload: Output load reached {}% (exceeds 100% rated capacity). Reduce connected load immediately.", curr.output_load_pct),
@@ -1137,7 +1283,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "OVERLOAD_CLEARED".into(),
             severity: "info".into(),
             message: format!(
@@ -1153,7 +1299,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now.clone(),
-            port_name: port.to_string(),
+            ups_id: target_ups_id.clone(),
             event_type: "OVER_TEMP".into(),
             severity: "warning".into(),
             message: format!("Over Temperature: Internal heatsink reached {}Â°C. Check ventilation and ambient airflow.", curr.temperature_c),
@@ -1163,7 +1309,7 @@ pub fn detect_status_events(
         events.push(EventLogRecord {
             id: None,
             timestamp: now,
-            port_name: port.to_string(),
+            ups_id: target_ups_id,
             event_type: "TEMP_NORMAL".into(),
             severity: "info".into(),
             message: format!(
@@ -1393,6 +1539,7 @@ pub async fn configure_bridge_wifi(
 pub async fn sync_bridge_backlog(
     state: State<'_, AppState>,
     port_name: Option<String>,
+    ups_id: Option<String>,
 ) -> Result<usize, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
@@ -1405,12 +1552,17 @@ pub async fn sync_bridge_backlog(
             })
             .map_err(|e| e.to_string())?;
 
-        let count = commit_bridge_backlog_to_db(&state_clone.db, &key, &records, status.uptime_sec);
+        let resolved_id = ups_id.or_else(|| state_clone.manager.get_device_ups_id(&key));
+        let Some(uid) = resolved_id else {
+            return Err("Cannot sync bridge backlog: UPS profile not approved or found".into());
+        };
+
+        let count = commit_bridge_backlog_to_db(&state_clone.db, &uid, &records, status.uptime_sec);
         if count > 0 {
             let _ = state_clone.db.insert_event(&EventLogRecord {
                 id: None,
                 timestamp: chrono::Utc::now().to_rfc3339(),
-                port_name: key,
+                ups_id: Some(uid),
                 event_type: "BRIDGE_SYNC".into(),
                 severity: "info".into(),
                 message: format!(

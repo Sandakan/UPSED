@@ -133,9 +133,9 @@ export const UpsedToaster: React.FC = () => {
                     >
                       {severity}
                     </span>
-                    {event?.port_name && (
-                      <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded">
-                        {event.port_name}
+                    {event?.ups_id && (
+                      <span className="text-[10px] text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded font-mono">
+                        {event.ups_id}
                       </span>
                     )}
                   </div>

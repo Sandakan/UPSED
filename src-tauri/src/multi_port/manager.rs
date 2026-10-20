@@ -1,13 +1,17 @@
 use crate::gate::CommandGate;
-use crate::protocol::{ProtocolError, Q1Status, QpigsStatus, VoltronicCommand};
+use crate::protocol::{ProtocolError, Q1Status, QpigsStatus, UnlockStage, VoltronicCommand};
 use crate::serial::{DiscoveredDevice, SerialTransport};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub struct ConnectedUps {
     pub info: DiscoveredDevice,
     pub transport: Arc<Mutex<Box<dyn SerialTransport>>>,
+    pub gate: Arc<Mutex<CommandGate>>,
     pub last_status: Option<Q1Status>,
+    pub ups_id: Option<String>,
+    pub last_polled_at: Option<Instant>,
 }
 
 pub struct MultiPortManager {
@@ -28,6 +32,15 @@ impl MultiPortManager {
     }
 
     pub fn register_device(&self, info: DiscoveredDevice, transport: Box<dyn SerialTransport>) {
+        self.register_device_with_ups_id(info, transport, None);
+    }
+
+    pub fn register_device_with_ups_id(
+        &self,
+        info: DiscoveredDevice,
+        transport: Box<dyn SerialTransport>,
+        ups_id: Option<String>,
+    ) {
         let mut devs = self.devices.lock().unwrap();
         let port_name = info.port_name.clone();
         devs.insert(
@@ -35,14 +48,31 @@ impl MultiPortManager {
             ConnectedUps {
                 info,
                 transport: Arc::new(Mutex::new(transport)),
+                gate: Arc::new(Mutex::new(CommandGate::new())),
                 last_status: None,
+                ups_id,
+                last_polled_at: None,
             },
         );
     }
 
-    pub fn unregister_device(&self, port_name: &str) -> Option<ConnectedUps> {
+    pub fn unregister_device(&self, port_or_ups_id: &str) -> Option<ConnectedUps> {
         let mut devs = self.devices.lock().unwrap();
-        devs.remove(port_name)
+        if let Some(removed) = devs.remove(port_or_ups_id) {
+            return Some(removed);
+        }
+        let found_key = devs.iter().find_map(|(k, v)| {
+            if v.info.unique_id == port_or_ups_id || v.ups_id.as_deref() == Some(port_or_ups_id) {
+                Some(k.clone())
+            } else {
+                None
+            }
+        });
+        if let Some(key) = found_key {
+            devs.remove(&key)
+        } else {
+            None
+        }
     }
 
     pub fn list_devices(&self) -> Vec<DiscoveredDevice> {
@@ -50,27 +80,109 @@ impl MultiPortManager {
         devs.values().map(|d| d.info.clone()).collect()
     }
 
-    pub fn is_connected(&self, port_name: &str) -> bool {
+    pub fn list_connected_details(&self) -> Vec<(DiscoveredDevice, Option<String>, Option<Q1Status>)> {
         let devs = self.devices.lock().unwrap();
-        devs.contains_key(port_name)
+        devs.values()
+            .map(|d| (d.info.clone(), d.ups_id.clone(), d.last_status.clone()))
+            .collect()
     }
 
-    pub fn get_last_status(&self, port_name: &str) -> Option<Q1Status> {
+    pub fn is_connected(&self, port_or_ups_id: &str) -> bool {
         let devs = self.devices.lock().unwrap();
-        devs.get(port_name).and_then(|d| d.last_status.clone())
+        devs.contains_key(port_or_ups_id)
+            || devs.values().any(|d| {
+                d.info.unique_id == port_or_ups_id || d.ups_id.as_deref() == Some(port_or_ups_id)
+            })
     }
 
-    pub fn poll_device(&self, port_name: &str) -> Result<Q1Status, ProtocolError> {
-        let (proto, transport_arc) = {
+    pub fn get_last_status(&self, port_or_ups_id: &str) -> Option<Q1Status> {
+        let devs = self.devices.lock().unwrap();
+        devs.get(port_or_ups_id)
+            .or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id
+                        || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            })
+            .and_then(|d| d.last_status.clone())
+    }
+
+    pub fn get_device_info(&self, port_or_ups_id: &str) -> Option<DiscoveredDevice> {
+        let devs = self.devices.lock().unwrap();
+        devs.get(port_or_ups_id)
+            .or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id
+                        || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            })
+            .map(|d| d.info.clone())
+    }
+
+    pub fn get_device_ups_id(&self, port_or_ups_id: &str) -> Option<String> {
+        let devs = self.devices.lock().unwrap();
+        devs.get(port_or_ups_id)
+            .or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id
+                        || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            })
+            .and_then(|d| d.ups_id.clone())
+    }
+
+    pub fn set_device_ups_id(&self, port_name: &str, ups_id: String) {
+        if let Ok(mut devs) = self.devices.lock() {
+            if let Some(dev) = devs.get_mut(port_name) {
+                dev.ups_id = Some(ups_id);
+            }
+        }
+    }
+
+    pub fn get_gate(&self, port_or_ups_id: &str) -> Option<Arc<Mutex<CommandGate>>> {
+        let devs = self.devices.lock().unwrap();
+        let dev = devs.get(port_or_ups_id).or_else(|| {
+            devs.values().find(|d| {
+                d.info.unique_id == port_or_ups_id
+                    || d.ups_id.as_deref() == Some(port_or_ups_id)
+            })
+        })?;
+        Some(Arc::clone(&dev.gate))
+    }
+
+    pub fn get_safety_stage(&self, port_or_ups_id: &str) -> Option<UnlockStage> {
+        self.get_gate(port_or_ups_id)
+            .map(|gate_arc| gate_arc.lock().unwrap().current_stage())
+    }
+
+    pub fn unlock_safety_stage(&self, port_or_ups_id: &str, target_stage: UnlockStage) -> Result<(), String> {
+        let gate_arc = self.get_gate(port_or_ups_id).ok_or_else(|| {
+            format!("Device '{}' not found in active manager registry", port_or_ups_id)
+        })?;
+        let mut gate = gate_arc.lock().unwrap();
+        gate.unlock_stage(target_stage).map_err(|e| e.to_string())
+    }
+
+    pub fn poll_device(&self, port_or_ups_id: &str) -> Result<Q1Status, ProtocolError> {
+        let (proto, transport_arc, port_name) = {
             let devs = self.devices.lock().unwrap();
-            let device = devs.get(port_name).ok_or_else(|| {
+            let device = devs.get(port_or_ups_id).or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id
+                        || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            }).ok_or_else(|| {
                 tracing::error!(
                     "Device on {} not found in active manager registry",
-                    port_name
+                    port_or_ups_id
                 );
-                ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+                ProtocolError::DeviceError(format!("Device on {} not found", port_or_ups_id))
             })?;
-            (device.info.protocol_id.clone(), Arc::clone(&device.transport))
+            (
+                device.info.protocol_id.clone(),
+                Arc::clone(&device.transport),
+                device.info.port_name.clone(),
+            )
         };
 
         tracing::info!(
@@ -150,8 +262,9 @@ impl MultiPortManager {
                                 status.battery_voltage_v
                             );
                             if let Ok(mut devs) = self.devices.lock() {
-                                if let Some(device) = devs.get_mut(port_name) {
+                                if let Some(device) = devs.get_mut(&port_name) {
                                     device.last_status = Some(status.clone());
+                                    device.last_polled_at = Some(Instant::now());
                                 }
                             }
                             return Ok(status);
@@ -186,7 +299,7 @@ impl MultiPortManager {
 
     pub fn execute_gated_command(
         &self,
-        port_name: &str,
+        port_or_ups_id: &str,
         cmd: &VoltronicCommand,
         gate: &CommandGate,
     ) -> Result<String, ProtocolError> {
@@ -195,10 +308,15 @@ impl MultiPortManager {
             .map_err(|e| ProtocolError::DeviceError(e.to_string()))?;
 
         // Step 2: Determine effective command string and acquire transport Arc
-        let (cmd_str, transport_arc) = {
+        let (cmd_str, transport_arc, port_name) = {
             let devs = self.devices.lock().unwrap();
-            let device = devs.get(port_name).ok_or_else(|| {
-                ProtocolError::DeviceError(format!("Device on {} not found", port_name))
+            let device = devs.get(port_or_ups_id).or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id
+                        || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            }).ok_or_else(|| {
+                ProtocolError::DeviceError(format!("Device on {} not found", port_or_ups_id))
             })?;
 
             // Determine effective command string (with smart buzzer toggle if applicable)
@@ -216,7 +334,7 @@ impl MultiPortManager {
                     .map_err(ProtocolError::EncodingError)?,
             };
 
-            (cmd_str, Arc::clone(&device.transport))
+            (cmd_str, Arc::clone(&device.transport), device.info.port_name.clone())
         };
 
         let mut transport = transport_arc.lock().map_err(|_| {
@@ -238,10 +356,22 @@ impl MultiPortManager {
         res
     }
 
-    /// Access an active `BridgeTransport` instance (or the first active bridge if `port_name` is empty).
+    pub fn execute_device_command(
+        &self,
+        port_or_ups_id: &str,
+        cmd: &VoltronicCommand,
+    ) -> Result<String, ProtocolError> {
+        let gate_arc = self.get_gate(port_or_ups_id).ok_or_else(|| {
+            ProtocolError::DeviceError(format!("Device on {} not found", port_or_ups_id))
+        })?;
+        let gate = gate_arc.lock().unwrap();
+        self.execute_gated_command(port_or_ups_id, cmd, &gate)
+    }
+
+    /// Access an active `BridgeTransport` instance (or the first active bridge if `port_or_ups_id` is empty).
     pub fn with_bridge_transport<F, R>(
         &self,
-        port_name: Option<&str>,
+        port_or_ups_id: Option<&str>,
         f: F,
     ) -> Result<R, ProtocolError>
     where
@@ -249,8 +379,16 @@ impl MultiPortManager {
     {
         let (key, transport_arc) = {
             let devs = self.devices.lock().unwrap();
-            let target_key = if let Some(p) = port_name.filter(|s| !s.is_empty()) {
-                Some(p.to_string())
+            let target_key = if let Some(p) = port_or_ups_id.filter(|s| !s.is_empty()) {
+                if devs.contains_key(p) {
+                    Some(p.to_string())
+                } else if let Some(d) = devs.values().find(|d| {
+                    d.info.unique_id == p || d.ups_id.as_deref() == Some(p)
+                }) {
+                    Some(d.info.port_name.clone())
+                } else {
+                    Some(p.to_string())
+                }
             } else {
                 devs.keys()
                     .find(|k| k.starts_with("BRIDGE:"))
