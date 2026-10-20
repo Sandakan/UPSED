@@ -49,10 +49,42 @@ fn bridge_003_when_disabled_no_os_interaction() {
 
 #[test]
 fn bridge_004_icon_generator_sanity() {
-    use upsed_lib::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba};
+    use upsed_lib::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba, TRAY_ICON_SIZE};
     let rgba = generate_battery_icon_rgba(96, false, false);
-    assert_eq!(rgba.len(), 32 * 32 * 4);
+    assert_eq!(rgba.len(), (TRAY_ICON_SIZE as usize) * (TRAY_ICON_SIZE as usize) * 4);
 
     let pct = compute_battery_pct(27.1);
     assert_eq!(pct, 96);
 }
+
+#[test]
+fn bridge_005_all_7_tray_states_generate_valid_rgba() {
+    use upsed_lib::battery_bridge::{generate_tray_icon_rgba, UpsTrayState, TRAY_ICON_SIZE};
+
+    let states = [
+        UpsTrayState::Disconnected,
+        UpsTrayState::AcNormal { pct: 100 },
+        UpsTrayState::OnBattery { pct: 75 },
+        UpsTrayState::BatteryLow { pct: 15 },
+        UpsTrayState::BypassMode { pct: 100 },
+        UpsTrayState::UpsFault,
+        UpsTrayState::TestInProgress { pct: 90 },
+    ];
+
+    for state in states {
+        let rgba = generate_tray_icon_rgba(state);
+        assert_eq!(
+            rgba.len(),
+            (TRAY_ICON_SIZE as usize) * (TRAY_ICON_SIZE as usize) * 4,
+            "Tray icon for state {:?} must match TRAY_ICON_SIZE RGBA buffer size",
+            state
+        );
+        // Ensure not completely blank
+        assert!(
+            rgba.iter().any(|&b| b > 0),
+            "Tray icon for state {:?} must contain non-zero pixel data",
+            state
+        );
+    }
+}
+

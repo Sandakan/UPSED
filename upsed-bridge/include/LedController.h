@@ -58,11 +58,20 @@ public:
         lastActivityMs = millis();
     }
 
+    // Force immediate render (used during setup/boot)
+    void forceUpdate() {
+        lastUpdateMs = 0;
+        lastRenderedR = 255;
+        lastRenderedG = 255;
+        lastRenderedB = 255;
+        update();
+    }
+
     // Called on every loop() cycle - completely non-blocking
     void update() {
         unsigned long now = millis();
         // Update LED at ~60 Hz (every 16ms) to avoid saturating GPIO / RMT bus
-        if (now - lastUpdateMs < 16) {
+        if (lastUpdateMs != 0 && (now - lastUpdateMs < 16)) {
             return;
         }
         lastUpdateMs = now;

@@ -345,12 +345,15 @@ pub async fn connect_device(
 
 #[tauri::command]
 pub async fn disconnect_device(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: String,
 ) -> Result<(), String> {
     let state_clone = state.inner().clone();
+    let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
         state_clone.manager.unregister_device(&port_name);
+        crate::tray::update_tray_state(&app_clone, false, None);
         let _ = state_clone.db.insert_event(&EventLogRecord {
             id: None,
             timestamp: chrono::Utc::now().to_rfc3339(),

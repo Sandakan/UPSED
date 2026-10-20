@@ -190,6 +190,8 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
         }
         Err(err) => {
             tracing::warn!("Background poll failed for {}: {}", port_name, err);
+            // Update tray state to Disconnected
+            crate::tray::update_tray_state(app, false, None);
             let _ = app.emit(
                 "ups-probe-status",
                 ProbeStatusEvent {

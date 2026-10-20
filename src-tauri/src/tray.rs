@@ -1,4 +1,4 @@
-use crate::battery_bridge::{compute_battery_pct, generate_battery_icon_rgba};
+use crate::battery_bridge::{compute_battery_pct, generate_tray_icon_rgba, UpsTrayState, TRAY_ICON_SIZE};
 use crate::protocol::Q1Status;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
@@ -13,12 +13,12 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let quit_item = MenuItem::with_id(app, "quit", "Quit UPSED", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
 
-    let icon_bytes = generate_battery_icon_rgba(100, false, false);
-    let icon = Image::new_owned(icon_bytes, 32, 32);
+    let icon_bytes = generate_tray_icon_rgba(UpsTrayState::Disconnected);
+    let icon = Image::new_owned(icon_bytes, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
 
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("UPSED UPS Monitor")
+        .tooltip("UPSED: Disconnected (No device connected)")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -28,7 +28,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                     let _ = window.emit("app-window-visibility", true);
-                    tracing::info!("[LIFECYCLE] UPSED application window opened from system tray menu");
+                    tracing::info!(
+                        "[LIFECYCLE] UPSED application window opened from system tray menu"
+                    );
                 }
             }
             "quit" => {
@@ -50,7 +52,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                     let _ = window.emit("app-window-visibility", true);
-                    tracing::info!("[LIFECYCLE] UPSED application window restored via system tray click");
+                    tracing::info!(
+                        "[LIFECYCLE] UPSED application window restored via system tray click"
+                    );
                 }
             }
         })
@@ -62,41 +66,74 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn update_tray_state(app: &AppHandle, is_enabled: bool, status: Option<&Q1Status>) {
+pub fn update_tray_state(app: &AppHandle, _is_enabled: bool, status: Option<&Q1Status>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if !is_enabled {
-            let _ = tray.set_visible(false);
-            return;
-        }
-
         let _ = tray.set_visible(true);
 
-        if let Some(status) = status {
-            let pct = compute_battery_pct(status.battery_voltage_v);
-            let on_battery = status.utility_fail;
-            let battery_low = status.battery_low;
+        let (state, tooltip) = match status {
+            Some(status) => {
+                let pct = compute_battery_pct(status.battery_voltage_v);
+                if status.ups_failed {
+                    (
+                        UpsTrayState::UpsFault,
+                        format!(
+                            "UPSED: HARDWARE FAULT\nInverter Alarm Active!\nLoad: {}%",
+                            status.output_load_pct
+                        ),
+                    )
+                } else if status.test_in_progress {
+                    (
+                        UpsTrayState::TestInProgress { pct },
+                        format!(
+                            "UPSED: Battery Self-Test in Progress...\n{}% ({:.1}V) | Load: {}%",
+                            pct, status.battery_voltage_v, status.output_load_pct
+                        ),
+                    )
+                } else if status.utility_fail && status.battery_low {
+                    (
+                        UpsTrayState::BatteryLow { pct },
+                        format!(
+                            "UPSED: CRITICAL — Battery Low!\n{}% ({:.1}V) | Load: {}%",
+                            pct, status.battery_voltage_v, status.output_load_pct
+                        ),
+                    )
+                } else if status.utility_fail {
+                    (
+                        UpsTrayState::OnBattery { pct },
+                        format!(
+                            "UPSED: ON BATTERY (AC Outage)\n{}% ({:.1}V) | Load: {}%",
+                            pct, status.battery_voltage_v, status.output_load_pct
+                        ),
+                    )
+                } else if status.bypass_active {
+                    (
+                        UpsTrayState::BypassMode { pct },
+                        format!(
+                            "UPSED: Bypass Mode (Unprotected Grid)\n{}% ({:.1}V) | Load: {}%",
+                            pct, status.battery_voltage_v, status.output_load_pct
+                        ),
+                    )
+                } else {
+                    (
+                        UpsTrayState::AcNormal { pct },
+                        format!(
+                            "UPSED: Online (AC Normal)\n{}% ({:.1}V) | Load: {}%",
+                            pct, status.battery_voltage_v, status.output_load_pct
+                        ),
+                    )
+                }
+            }
+            None => (
+                UpsTrayState::Disconnected,
+                "UPSED: Disconnected\n(No device connected)".to_string(),
+            ),
+        };
 
-            let mode_str = if status.ups_failed {
-                "UPS FAULT"
-            } else if status.bypass_active {
-                "Bypass Mode"
-            } else if on_battery {
-                "ON BATTERY (AC Fail)"
-            } else {
-                "AC Line Mode"
-            };
-
-            let tooltip = format!(
-                "UPSED: {}% ({:.1}V)\nMode: {} | Load: {}%",
-                pct, status.battery_voltage_v, mode_str, status.output_load_pct
-            );
-            let _ = tray.set_tooltip(Some(tooltip));
-
-            let icon_bytes = generate_battery_icon_rgba(pct, on_battery, battery_low);
-            let img = Image::new_owned(icon_bytes, 32, 32);
-            let _ = tray.set_icon(Some(img));
-        } else {
-            let _ = tray.set_tooltip(Some("UPSED: Waiting for telemetry..."));
+        let _ = tray.set_tooltip(Some(tooltip));
+        let icon_bytes = generate_tray_icon_rgba(state);
+        let img = Image::new_owned(icon_bytes, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
+        if let Err(e) = tray.set_icon(Some(img)) {
+            tracing::error!("[TRAY] Failed to set tray icon: {:?}", e);
         }
     }
 }

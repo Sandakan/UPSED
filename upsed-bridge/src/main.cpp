@@ -324,7 +324,7 @@ bool connectToWifi(const String& ssid, const String& pass, uint32_t timeoutMs) {
     ledController.setWifiState(WIFI_LED_CONNECTING);
     diagLog.info("[WIFI] Associating with 2.4GHz network '%s'...", ssid.c_str());
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
+    WiFi.setTxPower(WIFI_POWER_15dBm); // 15dBm limits peak transmission current spikes to eliminate brownouts
     WiFi.setHostname(BRIDGE_MDNS_HOSTNAME);
     WiFi.disconnect(false, true);
     WiFi.begin(ssid.c_str(), pass.c_str());
@@ -361,7 +361,7 @@ bool connectToWifiWithRollback(const String& newSsid, const String& newPass,
     WiFi.disconnect(false, true);
     delay(50);
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
+    WiFi.setTxPower(WIFI_POWER_15dBm);
     WiFi.setHostname(BRIDGE_MDNS_HOSTNAME);
     WiFi.begin(newSsid.c_str(), newPass.c_str());
 
@@ -703,12 +703,15 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 // Setup & Loop
 // ============================================================================
 void setup() {
-    ledController.setWifiState(WIFI_LED_BOOT);
-
-    Serial.begin(PC_SERIAL_BAUD);
+    // 1. Configure USB UART RX buffer BEFORE calling begin()
     Serial.setRxBufferSize(2048);
+    Serial.begin(PC_SERIAL_BAUD);
 
     UpsSerial.begin(UPS_BAUD, SERIAL_8N1, UPS_RX_PIN, UPS_TX_PIN);
+
+    // 2. Immediately render initial boot state on RGB LED
+    ledController.setWifiState(WIFI_LED_BOOT);
+    ledController.forceUpdate();
 
     diagLog.setNotificationSink(broadcastLogNotification);
     backlogStore.begin();

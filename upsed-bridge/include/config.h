@@ -44,7 +44,16 @@
 inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
 #ifdef RGB_BUILTIN
     neopixelWrite(RGB_BUILTIN, r, g, b);
-#endif
+#else
     neopixelWrite(RGB_PIN_PRIMARY, r, g, b);
-    neopixelWrite(RGB_PIN_ALT, r, g, b);
+#endif
+
+    uint8_t primaryPin = 48;
+#ifdef RGB_BUILTIN
+    primaryPin = RGB_BUILTIN;
+#endif
+    if (RGB_PIN_ALT != primaryPin) {
+        delayMicroseconds(60); // Allow WS2812 latch reset (>50us) to avoid RMT channel collision
+        neopixelWrite(RGB_PIN_ALT, r, g, b);
+    }
 }
