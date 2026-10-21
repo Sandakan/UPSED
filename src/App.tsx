@@ -621,16 +621,6 @@ export function App() {
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}
-        profiles={profiles}
-        selectedUpsId={selectedUpsId}
-        activeProfile={activeProfile}
-        activeDevice={activeDevice}
-        activeStatus={status}
-        deviceStatuses={deviceStatuses}
-        onSelectUps={handleSelectUps}
-        onOpenConnectModal={handleOpenAddDeviceModal}
-        onScan={handleScan}
-        isScanning={isScanning}
         safetyStage={safetyStage}
         criticalCount={criticalCount}
         warningCount={warningCount}
@@ -661,6 +651,11 @@ export function App() {
           safetyStage={safetyStage}
           onTabChange={handleTabChange}
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
+          profiles={profiles}
+          deviceStatuses={deviceStatuses}
+          onSelectUps={handleSelectUps}
+          onScan={handleScan}
+          isScanning={isScanning}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar min-w-0">

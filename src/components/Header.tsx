@@ -8,6 +8,8 @@ import {
   Languages,
   Check,
   Star,
+  ChevronDown,
+  CheckCircle2,
 } from 'lucide-react';
 import { UnlockStage, UpsMetadata, DiscoveredDevice, Q1Status } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
@@ -32,6 +34,11 @@ interface HeaderProps {
   safetyStage: UnlockStage;
   onTabChange: (tab: string) => void;
   onOpenAddDeviceModal: () => void;
+  profiles?: UpsMetadata[];
+  deviceStatuses?: Record<string, Q1Status>;
+  onSelectUps?: (upsId: string) => void;
+  onScan?: () => void;
+  isScanning?: boolean;
 }
 
 const PAGE_LABELS: Record<string, string> = {
@@ -55,6 +62,7 @@ const getStagePillStyle = (stage: UnlockStage) => {
 
 export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
+  selectedUpsId,
   activeProfile,
   activeDevice,
   activeStatus,
@@ -69,16 +77,26 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   safetyStage,
   onTabChange,
   onOpenAddDeviceModal,
+  profiles,
+  deviceStatuses,
+  onSelectUps,
+  onScan,
+  isScanning,
 }) => {
   const { t, i18n } = useTranslation(['common', 'nav', 'modals']);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Close overflow menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
         setOverflowOpen(false);
+      }
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -112,27 +130,176 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
-      {/* ── Left: Page Title & Active UPS Badge ─────── */}
+      {/* ── Left: Page Title & Interactive Master UPS Picker ─────── */}
       <div className="flex items-center space-x-3 text-sm min-w-0 shrink mr-2">
         <span className="text-slate-200 font-bold truncate">{pageLabel}</span>
 
-        {activeProfile && (
-          <div className="hidden sm:flex items-center space-x-2 pl-3 border-l border-white/[0.08]">
-            <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-medium">
-              {activeProfile.is_primary && (
+        {/* Master UPS Dropdown Trigger */}
+        <div className="relative pl-3 border-l border-white/[0.08]" ref={pickerRef}>
+          <button
+            onClick={() => setPickerOpen((o) => !o)}
+            className="flex items-center space-x-2 px-2.5 py-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07] transition text-left cursor-pointer group select-none"
+            title={activeProfile ? `${activeProfile.name} (${activeProfile.unique_id})` : undefined}
+          >
+            <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-medium min-w-0">
+              {activeProfile?.is_primary && (
                 <span title="Primary Master UPS" className="inline-flex shrink-0">
                   <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                 </span>
               )}
-              <span className="truncate max-w-[150px] md:max-w-[200px]" title={activeProfile.name}>
-                {activeProfile.name}
+              <span className="font-semibold text-white truncate max-w-[120px] sm:max-w-[160px] md:max-w-[200px]">
+                {activeProfile?.name || t('nav:device.noDevice', 'No UPS Selected')}
               </span>
             </div>
 
             <TransportPill transport={transport} ip={transportIp} size="sm" />
             <DeviceStatePill state={operatingState} size="sm" />
-          </div>
-        )}
+
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${
+                pickerOpen ? 'rotate-180 text-white' : 'group-hover:text-slate-200'
+              }`}
+            />
+          </button>
+
+          {/* Unified Picker Popover */}
+          {pickerOpen && (
+            <div
+              className="mt-2 rounded-2xl overflow-hidden shadow-2xl border z-50 absolute left-3 w-72 sm:w-80 animate-in fade-in duration-150"
+              style={{
+                backgroundColor: 'var(--popover-bg, #161d2b)',
+                borderColor: 'var(--border-subtle, rgba(255,255,255,0.08))',
+              }}
+            >
+              {/* Header: Title + Scan / Recheck Action */}
+              <div
+                className="flex items-center justify-between px-3.5 py-2.5 bg-black/20"
+                style={{ borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.08))' }}
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                    Connected UPS Devices
+                  </span>
+                  {profiles && profiles.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-white/[0.06] text-slate-400">
+                      {profiles.length}
+                    </span>
+                  )}
+                </div>
+
+                {onScan && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onScan();
+                    }}
+                    disabled={isScanning}
+                    className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-cyan-300 hover:bg-white/[0.06] transition disabled:opacity-50 cursor-pointer"
+                    title="Scan for hardware"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-cyan-400' : ''}`} />
+                    <span className="text-[11px]">{isScanning ? 'Scanning...' : 'Recheck'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Profiles List */}
+              <div className="max-h-60 overflow-y-auto py-1.5 custom-scrollbar space-y-0.5">
+                {!profiles || profiles.length === 0 ? (
+                  <div className="p-4 text-center space-y-1.5">
+                    <p className="text-xs text-slate-400 italic">No UPS profiles detected.</p>
+                    <p className="text-[11px] text-slate-500">Connect a UPS to set up real-time monitoring.</p>
+                  </div>
+                ) : (
+                  profiles.map((p) => {
+                    const isSelected = selectedUpsId === p.unique_id;
+                    const profileStatus = (deviceStatuses && deviceStatuses[p.unique_id]) || (isSelected ? activeStatus : null);
+                    const pMedium = getTransportMedium(p.last_port);
+                    const pState = getUpsOperatingState(profileStatus);
+
+                    return (
+                      <button
+                        key={p.unique_id}
+                        onClick={() => {
+                          if (onSelectUps) {
+                            onSelectUps(p.unique_id);
+                          }
+                          setPickerOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 transition flex flex-col space-y-1 cursor-pointer border-l-2 ${
+                          isSelected
+                            ? 'bg-cyan-950/40 text-cyan-300 border-cyan-400'
+                            : 'border-transparent text-slate-300 hover:bg-white/[0.04] hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between min-w-0">
+                          <div className="flex items-center space-x-1.5 min-w-0">
+                            {p.is_primary && (
+                              <span title="Primary UPS" className="inline-flex shrink-0">
+                                <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                              </span>
+                            )}
+                            <span className="font-semibold text-xs truncate text-slate-100">
+                              {p.name}
+                            </span>
+                            {p.rated_va && (
+                              <span className="text-[10px] text-slate-500 font-mono">
+                                ({p.rated_va}VA)
+                              </span>
+                            )}
+                          </div>
+                          {isSelected && (
+                            <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 ml-1.5" />
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <TransportPill transport={pMedium} size="xs" />
+                          <DeviceStatePill state={pState} size="xs" />
+                          {p.last_port && (
+                            <span className="text-[10px] font-mono text-slate-500 truncate max-w-[120px]">
+                              {p.last_port}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer: Recheck Hardware & Add Device Actions */}
+              <div
+                className="p-2.5 border-t bg-black/30 space-y-1.5"
+                style={{ borderColor: 'var(--border-subtle, rgba(255,255,255,0.08))' }}
+              >
+                {onScan && (
+                  <button
+                    type="button"
+                    onClick={() => onScan()}
+                    disabled={isScanning}
+                    className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-cyan-400' : ''}`} />
+                    <span>{isScanning ? 'Scanning Interfaces...' : 'Recheck Connected Hardware'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPickerOpen(false);
+                    onOpenAddDeviceModal();
+                  }}
+                  className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-xl text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-emerald-700/40 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Connect Another UPS Device</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Right: Actions ────────────────────────────────── */}
