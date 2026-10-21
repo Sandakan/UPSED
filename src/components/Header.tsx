@@ -337,7 +337,10 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         )}
 
         {/* Last updated clock */}
-        <LastUpdatedTimer lastUpdatedAt={lastUpdatedAt} selectedDevice={selectedDevice || activeDevice?.port_name || null} />
+        <LastUpdatedTimer
+          lastUpdatedAt={lastUpdatedAt}
+          selectedDevice={selectedUpsId || activeProfile?.unique_id || selectedDevice || activeDevice?.port_name || null}
+        />
 
         {/* Primary CTA: Add / Scan UPS */}
         <PrimaryButton

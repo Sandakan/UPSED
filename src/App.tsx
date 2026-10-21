@@ -39,6 +39,7 @@ export function App() {
   const [selectedUpsId, setSelectedUpsId] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [deviceStatuses, setDeviceStatuses] = useState<Record<string, Q1Status>>({});
+  const [deviceUpdatedTimes, setDeviceUpdatedTimes] = useState<Record<string, number>>({});
   const [configuringDevice, setConfiguringDevice] = useState<DiscoveredDevice | null>(null);
   const [pollInterval, setPollInterval] = useState<number>(10);
   const [isSetupModalDismissed, setIsSetupModalDismissed] = useState(false);
@@ -281,6 +282,7 @@ export function App() {
     error: statusError,
     isFetching: isFetchingStatus,
     refetch: refetchStatus,
+    dataUpdatedAt: queryStatusUpdatedAt,
   } = useQuery({
     queryKey: ['deviceStatus', targetTelemetryKey],
     queryFn: () => api.getDeviceStatus(effectivePort || '', selectedUpsId || undefined),
@@ -298,6 +300,13 @@ export function App() {
     }
     return fetchedStatus;
   }, [selectedUpsId, effectivePort, deviceStatuses, fetchedStatus]);
+
+  // Compute timestamp of when the active UPS data was last updated
+  const activeDeviceUpdatedTime = targetTelemetryKey ? deviceUpdatedTimes[targetTelemetryKey] : undefined;
+  const lastUpdatedAt = useMemo(() => {
+    const ts = Math.max(queryStatusUpdatedAt || 0, activeDeviceUpdatedTime || 0);
+    return ts > 0 ? ts : undefined;
+  }, [queryStatusUpdatedAt, activeDeviceUpdatedTime]);
 
   // Telemetry History query scoped to active UPS profile
   const {
@@ -332,11 +341,22 @@ export function App() {
       const payload = tauriEvent.payload;
       const newStatus = payload.status;
 
+      const now = Date.now();
+
       // Update multi-device status cache in memory
       setDeviceStatuses((prev) => {
         const next = { ...prev, [payload.port_name]: newStatus };
         if (payload.ups_id) {
           next[payload.ups_id] = newStatus;
+        }
+        return next;
+      });
+
+      // Update multi-device last updated timestamps
+      setDeviceUpdatedTimes((prev) => {
+        const next = { ...prev, [payload.port_name]: now };
+        if (payload.ups_id) {
+          next[payload.ups_id] = now;
         }
         return next;
       });
@@ -648,6 +668,7 @@ export function App() {
           bridgeCompatible={bridgeCompatible}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
+          lastUpdatedAt={lastUpdatedAt}
           safetyStage={safetyStage}
           onTabChange={handleTabChange}
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
