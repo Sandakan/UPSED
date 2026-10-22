@@ -6,9 +6,7 @@ use upsed_lib::serial::SerialTransport;
 
 #[test]
 fn t2_001_buzzer_toggle_encodes_and_executes_in_t2() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new_authenticated();
 
     let cmd = VoltronicCommand::BuzzerToggle;
     assert!(gate.check_command(&cmd).is_ok());
@@ -34,24 +32,20 @@ fn t2_001_buzzer_toggle_encodes_and_executes_in_t2() {
 
 #[test]
 fn t2_001b_buzzer_blocked_in_t1() {
-    let mut gate = CommandGate::new();
-    gate.unlock_stage(UnlockStage::T1ReadOnly).unwrap(); // Relocked to T1
+    let gate = CommandGate::new();
     let cmd = VoltronicCommand::BuzzerToggle;
     let result = gate.check_command(&cmd);
     assert_eq!(
         result,
-        Err(GateError::StageLocked {
+        Err(GateError::AuthRequired {
             required: UnlockStage::T2NonDestructive,
-            current: UnlockStage::T1ReadOnly,
         })
     );
 }
 
 #[test]
 fn t2_002_ten_second_test_encodes_and_executes() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new_authenticated();
 
     let cmd = VoltronicCommand::TenSecondTest;
     assert!(gate.check_command(&cmd).is_ok());
@@ -64,9 +58,7 @@ fn t2_002_ten_second_test_encodes_and_executes() {
 
 #[test]
 fn t2_002b_test_cancel_executes() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new_authenticated();
 
     let cmd = VoltronicCommand::CancelTest;
     assert!(gate.check_command(&cmd).is_ok());
@@ -79,39 +71,33 @@ fn t2_002b_test_cancel_executes() {
 
 #[test]
 fn t2_003_t2_cannot_execute_t3_config_writes() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new();
 
     let config_cmd = VoltronicCommand::SetBypassHighVoltage(260);
-    assert!(matches!(
+    assert_eq!(
         gate.check_command(&config_cmd),
-        Err(GateError::StageLocked {
+        Err(GateError::AuthRequired {
             required: UnlockStage::T3ConfigWrite,
-            current: UnlockStage::T2NonDestructive,
         })
-    ));
+    );
 }
 
 #[test]
 fn t2_004_t2_cannot_execute_t4_power_control() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new();
 
     let shutdown_cmd = VoltronicCommand::ShutdownWithDelay { minutes: 1.0 };
-    assert!(matches!(
+    assert_eq!(
         gate.check_command(&shutdown_cmd),
-        Err(GateError::StageLocked {
+        Err(GateError::AuthRequired {
             required: UnlockStage::T4PowerControl,
-            current: UnlockStage::T2NonDestructive,
         })
-    ));
+    );
 }
 
 #[test]
 fn t2_005_timed_test_encodes_and_executes() {
-    let gate = CommandGate::new(); // Defaults to T2
+    let gate = CommandGate::new_authenticated();
     let cmd = VoltronicCommand::TestForMinutes(5);
     assert!(gate.check_command(&cmd).is_ok());
     assert_eq!(cmd.as_cmd_str().unwrap(), "T05");
@@ -131,16 +117,14 @@ fn t2_006_timed_test_range_validation() {
 
 #[test]
 fn t2_007_timed_test_blocked_in_t1() {
-    let mut gate = CommandGate::new();
-    gate.unlock_stage(UnlockStage::T1ReadOnly).unwrap();
+    let gate = CommandGate::new();
     let cmd = VoltronicCommand::TestForMinutes(10);
-    assert!(matches!(
+    assert_eq!(
         gate.check_command(&cmd),
-        Err(GateError::StageLocked {
+        Err(GateError::AuthRequired {
             required: UnlockStage::T2NonDestructive,
-            current: UnlockStage::T1ReadOnly,
         })
-    ));
+    );
 }
 
 #[test]

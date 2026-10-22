@@ -7,33 +7,30 @@ import {
   Power,
   XCircle,
   ShieldAlert,
+  ShieldCheck,
   Unlock,
-  AlertOctagon,
   Check,
   Lock,
   Sliders,
+  KeyRound,
 } from 'lucide-react';
-import { UnlockStage, VoltronicCommand } from '../lib/types';
+import { useAuth } from '../lib/auth';
+import { DiscoveredDevice, Q1Status, UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { RefreshButton } from '../components/RefreshButton';
 import { ToggleSwitch } from '../components/ToggleSwitch';
+import { PowerControlCard } from '../components/PowerControlCard';
 
 interface ControlProps {
   portName: string | null;
   upsId?: string | null;
   safetyStage: UnlockStage;
   onRefreshStage: () => void;
+  device?: DiscoveredDevice | null;
+  deviceName?: string | null;
+  status?: Q1Status | null;
 }
-
-const getStagePillStyle = (stage: UnlockStage) => {
-  switch (stage) {
-    case 'T1ReadOnly':       return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/40';
-    case 'T2NonDestructive': return 'bg-blue-950/80    text-blue-400    border-blue-700/40';
-    case 'T3ConfigWrite':    return 'bg-amber-950/80   text-amber-400   border-amber-700/40';
-    case 'T4PowerControl':   return 'bg-rose-950/80    text-rose-400    border-rose-700/40';
-  }
-};
 
 interface HardwareFlagDef {
   key: string;
@@ -148,11 +145,15 @@ export const Control: React.FC<ControlProps> = ({
   upsId,
   safetyStage,
   onRefreshStage,
+  device,
+  deviceName,
+  status,
 }) => {
   const { t } = useTranslation(['control', 'common']);
+  const auth = useAuth();
+  const isAuthenticated = Boolean(auth.status?.authenticated);
   const [commandFeedback, setCommandFeedback] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [confirmShutdown, setConfirmShutdown] = useState(false);
   const [timedDurationMinutes, setTimedDurationMinutes] = useState<number>(5);
   const [alarmEnabled, setAlarmEnabled] = useState<boolean | null>(null);
   const [flags, setFlags] = useState<Record<string, boolean> | null>(null);
@@ -179,8 +180,6 @@ export const Control: React.FC<ControlProps> = ({
       setIsExecuting(false);
     }
   };
-
-  const canWriteConfig = safetyStage === 'T3ConfigWrite' || safetyStage === 'T4PowerControl';
 
   // Query capability flags via QFLAG:
   // e.g. "(EpbrsghczDoavefm": letters after 'E' are enabled, letters after 'D' are disabled.
@@ -233,19 +232,9 @@ export const Control: React.FC<ControlProps> = ({
     await refreshFlags();
   };
 
-  const handleUnlockStage = async (target: UnlockStage) => {
-    try {
-      await api.unlockSafetyStage(target, upsId || undefined);
-      onRefreshStage();
-      setCommandFeedback(t('control:safetyGate.feedbackUpdated', { target, defaultValue: `Safety stage updated to ${target}` }));
-    } catch (err: any) {
-      setCommandFeedback(t('control:safetyGate.feedbackAdvanceError', { error: err?.message || String(err), defaultValue: `Stage advance failed: ${err?.message || String(err)}` }));
-    }
-  };
-
   return (
     <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
-      {/*  Safety Gate Status Card  */}
+      {/* Access Control & Safety Barrier Card */}
       <div
         className="rounded-2xl p-5 shadow-sm border transition"
         style={{
@@ -255,61 +244,89 @@ export const Control: React.FC<ControlProps> = ({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start space-x-3.5">
-            <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 shrink-0">
-              <ShieldAlert className="w-5 h-5" />
+            <div
+              className={`p-2.5 rounded-xl border shrink-0 ${
+                isAuthenticated
+                  ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+                  : !auth.status?.configured
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+              }`}
+            >
+              {isAuthenticated ? (
+                <ShieldCheck className="w-5 h-5 text-indigo-400" />
+              ) : !auth.status?.configured ? (
+                <ShieldAlert className="w-5 h-5 text-amber-400" />
+              ) : (
+                <Lock className="w-5 h-5 text-slate-400" />
+              )}
             </div>
             <div>
               <div className="flex items-center space-x-2.5">
                 <h3 className="text-sm font-semibold text-slate-100">
-                  {t('control:safetyGate.title', 'Firmware Safety Gate')}
+                  {isAuthenticated
+                    ? t('control:auth.barrierUnlockedTitle', 'Hardware Safety Barrier — Unlocked')
+                    : !auth.status?.configured
+                    ? t('control:auth.barrierSetupTitle', 'Hardware Safety Barrier — Setup Required')
+                    : t('control:auth.barrierLockedTitle', 'Hardware Safety Barrier — Protected')}
                 </h3>
                 <span
-                  className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${getStagePillStyle(
-                    safetyStage
-                  )}`}
+                  className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${
+                    isAuthenticated
+                      ? 'bg-indigo-950/80 text-indigo-300 border-indigo-700/50'
+                      : !auth.status?.configured
+                      ? 'bg-amber-950/80 text-amber-300 border-amber-700/50'
+                      : 'bg-slate-900/80 text-slate-400 border-white/[0.1]'
+                  }`}
                 >
-                  {safetyStage}
+                  {isAuthenticated
+                    ? `Authenticated (${auth.status?.username})`
+                    : !auth.status?.configured
+                    ? 'Setup Required'
+                    : 'Protected · Read-Only'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 max-w-xl leading-relaxed">
-                {t('control:safetyGate.desc', 'To prevent firmware corruption or accidental load drop, commands are strictly categorized by risk. Each stage unlocks sequentially.')}
+                {isAuthenticated
+                  ? t(
+                      'control:auth.authenticatedDesc',
+                      `Session active for ${auth.status?.username}. Diagnostic self-tests, persistent parameter modifications, and live power cuts are unlocked.`
+                    )
+                  : !auth.status?.configured
+                  ? t(
+                      'control:auth.setupRequiredDesc',
+                      'No administrator credentials configured. Set up credentials to unlock control commands.'
+                    )
+                  : t(
+                      'control:auth.protectedDesc',
+                      'Stage T1 telemetry queries remain available to all users. Diagnostic self-tests, persistent parameter modifications, and live power cuts require authenticated credentials.'
+                    )}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
-            {safetyStage === 'T1ReadOnly' && (
-              <PrimaryButton
-                onClick={() => handleUnlockStage('T2NonDestructive')}
-                icon={<Unlock className="w-3.5 h-3.5" />}
-              >
-                <span>{t('control:safetyGate.unlockT2', 'Unlock Stage T2')}</span>
-              </PrimaryButton>
-            )}
-            {safetyStage === 'T2NonDestructive' && (
-              <PrimaryButton
-                onClick={() => handleUnlockStage('T3ConfigWrite')}
-                icon={<Unlock className="w-3.5 h-3.5" />}
-              >
-                <span>{t('control:safetyGate.unlockT3', 'Unlock Stage T3')}</span>
-              </PrimaryButton>
-            )}
-            {safetyStage === 'T3ConfigWrite' && (
-              <PrimaryButton
-                variant="danger"
-                onClick={() => handleUnlockStage('T4PowerControl')}
-                icon={<Unlock className="w-3.5 h-3.5" />}
-              >
-                <span>{t('control:safetyGate.unlockT4', 'Unlock Stage T4')}</span>
-              </PrimaryButton>
-            )}
-            {safetyStage === 'T4PowerControl' && (
+            {isAuthenticated ? (
               <PrimaryButton
                 variant="secondary"
-                onClick={() => handleUnlockStage('T1ReadOnly')}
+                onClick={() => auth.logout()}
+                icon={<Lock className="w-3.5 h-3.5" />}
+              >
+                <span>{t('control:auth.logOut', 'Log Out')}</span>
+              </PrimaryButton>
+            ) : !auth.status?.configured ? (
+              <PrimaryButton
+                onClick={() => auth.openLoginModal()}
+                icon={<KeyRound className="w-3.5 h-3.5" />}
+              >
+                <span>{t('control:auth.setupCredentials', 'Set Up Credentials')}</span>
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                onClick={() => auth.openLoginModal()}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>{t('control:safetyGate.relockT1', 'Relock to T1')}</span>
+                <span>{t('control:auth.logIn', 'Log In & Unlock')}</span>
               </PrimaryButton>
             )}
           </div>
@@ -387,8 +404,8 @@ export const Control: React.FC<ControlProps> = ({
 
             <div className="mt-4 space-y-2">
               <PrimaryButton
-                onClick={() => setAlarm(alarmEnabled === false)}
-                disabled={isExecuting || !canWriteConfig}
+                onClick={() => auth.requireAuth(() => setAlarm(alarmEnabled === false))}
+                disabled={isExecuting}
                 fullWidth
               >
                 <span>
@@ -397,9 +414,10 @@ export const Control: React.FC<ControlProps> = ({
                     : 'Disable Alarm (PDA)'}
                 </span>
               </PrimaryButton>
-              {!canWriteConfig && (
-                <p className="text-[10px] text-amber-400/80">
-                  {t('control:stageT2.buzzerNeedsT3', 'Unlock Stage T3 to change this setting.')}
+              {!isAuthenticated && (
+                <p className="text-[10px] text-indigo-400/80 flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span>{t('control:auth.needsAuthNotice', 'Requires authentication to modify.')}</span>
                 </p>
               )}
             </div>
@@ -419,8 +437,12 @@ export const Control: React.FC<ControlProps> = ({
 
             <div className="mt-3 space-y-2.5">
               <PrimaryButton
-                onClick={() => handleSendCommand({ type: 'TenSecondTest' }, 'Start 10s Test')}
-                disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                onClick={() =>
+                  auth.requireAuth(() =>
+                    handleSendCommand({ type: 'TenSecondTest' }, 'Start 10s Test')
+                  )
+                }
+                disabled={isExecuting}
                 fullWidth
               >
                 <span>{t('control:stageT2.test10sBtn', 'Quick 10s Test (T)')}</span>
@@ -463,12 +485,14 @@ export const Control: React.FC<ControlProps> = ({
                 <button
                   type="button"
                   onClick={() =>
-                    handleSendCommand(
-                      { type: 'TestForMinutes', payload: timedDurationMinutes },
-                      `Start ${timedDurationMinutes}m Test`
+                    auth.requireAuth(() =>
+                      handleSendCommand(
+                        { type: 'TestForMinutes', payload: timedDurationMinutes },
+                        `Start ${timedDurationMinutes}m Test`
+                      )
                     )
                   }
-                  disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+                  disabled={isExecuting}
                   className="w-full py-1.5 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-emerald-300 border border-emerald-500/30 text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {t(
@@ -493,8 +517,12 @@ export const Control: React.FC<ControlProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => handleSendCommand({ type: 'CancelTest' }, 'Cancel Test')}
-              disabled={isExecuting || safetyStage === 'T1ReadOnly'}
+              onClick={() =>
+                auth.requireAuth(() =>
+                  handleSendCommand({ type: 'CancelTest' }, 'Cancel Test')
+                )
+              }
+              disabled={isExecuting}
               className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 border border-white/[0.08] hover:border-rose-500/40 text-xs font-medium transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               {t('control:stageT2.cancelTestBtn', 'Cancel Test (CT)')}
@@ -588,105 +616,18 @@ export const Control: React.FC<ControlProps> = ({
         </div>
       </div>
 
-      {/*  Stage T4: Live Power Control Card  */}
-      <div
-        className="rounded-2xl p-5 shadow-sm border transition"
-        style={{
-          backgroundColor: 'var(--card-bg)',
-          borderColor: 'var(--card-border)',
-        }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <div className="flex items-center space-x-2">
-              <h4 className="text-sm font-semibold text-slate-100">
-                {t('control:stageT4.title', 'Stage T4: Live Power Control')}
-              </h4>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                {t('control:stageT4.risk', 'High Risk')}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {t('control:stageT4.desc', 'Commands that can cut load output or trigger hardware shutdown.')}
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {/* Shutdown with Delay */}
-          <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/[0.03] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center space-x-2 text-rose-300 mb-1">
-                <AlertOctagon className="w-4 h-4 text-rose-400" />
-                <span className="text-xs font-semibold">{t('control:stageT4.shutdownTitle', 'Emergency Shutdown')}</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT4.shutdownDesc', 'Shuts down UPS output after a 0.3m (~18 seconds) delay.')}
-              </p>
-            </div>
-
-            {confirmShutdown ? (
-              <div className="mt-4 space-y-2">
-                <p className="text-[11px] text-rose-400 font-semibold text-center">
-                  {t('control:stageT4.shutdownWarn', 'Are you sure? Connected equipment will lose power!')}
-                </p>
-                <div className="flex space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConfirmShutdown(false);
-                      handleSendCommand(
-                        { type: 'ShutdownWithDelay', payload: { minutes: 0.3 } },
-                        'Shutdown UPS Output'
-                      );
-                    }}
-                    className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
-                  >
-                    {t('control:stageT4.confirmBtn', 'Confirm Shutdown')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmShutdown(false)}
-                    className="py-2 px-3 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/[0.08] text-xs rounded-xl transition cursor-pointer"
-                  >
-                    {t('common:buttons.cancel', 'Cancel')}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmShutdown(true)}
-                disabled={isExecuting || safetyStage !== 'T4PowerControl'}
-                className="mt-4 w-full py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
-              >
-                {t('control:stageT4.initiateBtn', 'Initiate Shutdown (S.3)')}
-              </button>
-            )}
-          </div>
-
-          {/* Cancel Shutdown */}
-          <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center space-x-2 text-slate-200 mb-1">
-                <Power className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold">{t('control:stageT4.cancelShutdownTitle', 'Cancel Pending Shutdown')}</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                {t('control:stageT4.cancelShutdownDesc', 'Cancels any active shutdown countdown timer immediately.')}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => handleSendCommand({ type: 'CancelShutdown' }, 'Cancel Shutdown')}
-              disabled={isExecuting || safetyStage !== 'T4PowerControl'}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-emerald-400 border border-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
-            >
-              {t('control:stageT4.cancelShutdownBtn', 'Cancel Shutdown (CS)')}
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Stage T4: Live Power Control Card */}
+      <PowerControlCard
+        portName={portName}
+        upsId={upsId || null}
+        deviceName={deviceName}
+        device={device}
+        safetyStage={safetyStage}
+        status={status}
+        isExecuting={isExecuting}
+        onSendCommand={handleSendCommand}
+        onRefreshStage={onRefreshStage}
+      />
     </div>
   );
 };

@@ -20,8 +20,14 @@ import {
   Star,
   Trash2,
   Cpu,
+  KeyRound,
+  ShieldCheck,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../lib/auth';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
@@ -137,6 +143,18 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       (metadata?.battery_chemistry as BatteryChemistry) || 'VRLA_SLA'
     );
     const [topology, setTopology] = useState(metadata?.topology || 'Online');
+
+    // Authentication & Access Control state
+    const auth = useAuth();
+    const [currentPw, setCurrentPw] = useState('');
+    const [newPw, setNewPw] = useState('');
+    const [confirmNewPw, setConfirmNewPw] = useState('');
+    const [showPw, setShowPw] = useState(false);
+    const [isChangingPw, setIsChangingPw] = useState(false);
+    const [pwChangeError, setPwChangeError] = useState<string | null>(null);
+    const [pwChangeSuccess, setPwChangeSuccess] = useState<string | null>(null);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
 
     useEffect(() => {
       setCurrentTheme(themeMode);
@@ -425,6 +443,52 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const handleLanguageChange = (mode: AppLanguageMode) => {
       setCurrentLangMode(mode);
       setAppLanguage(mode);
+    };
+
+    const handleChangePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPwChangeError(null);
+      setPwChangeSuccess(null);
+
+      if (!currentPw) {
+        setPwChangeError('Current password is required');
+        return;
+      }
+      if (newPw.length < 8) {
+        setPwChangeError('New password must be at least 8 characters');
+        return;
+      }
+      if (newPw !== confirmNewPw) {
+        setPwChangeError('New passwords do not match');
+        return;
+      }
+
+      setIsChangingPw(true);
+      try {
+        await auth.changePassword(currentPw, newPw);
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmNewPw('');
+        setPwChangeSuccess('Password changed successfully');
+        setTimeout(() => setPwChangeSuccess(null), 3000);
+      } catch (err: any) {
+        setPwChangeError(err?.message || String(err));
+      } finally {
+        setIsChangingPw(false);
+      }
+    };
+
+    const handleResetCredentials = async () => {
+      setIsResetting(true);
+      try {
+        await auth.reset();
+        setShowResetConfirm(false);
+        toast.success('Administrator credentials reset to unconfigured');
+      } catch (err: any) {
+        toast.error(`Reset failed: ${err?.message || String(err)}`);
+      } finally {
+        setIsResetting(false);
+      }
     };
 
     return (
@@ -1267,6 +1331,237 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
             </label>
           </div>
         </div>
+      </div>
+
+      {/* ── 8. Security & Access Control ───────────────────────── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-4"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-slate-200">
+            <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-100">
+                {t('settings:securitySection.title', 'Security & Access Control')}
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {t(
+                  'settings:securitySection.desc',
+                  'Manage administrator credentials that protect write operations and live power controls.'
+                )}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full border ${
+              auth.status?.authenticated
+                ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+                : !auth.status?.configured
+                ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
+            }`}
+          >
+            {auth.status?.authenticated
+              ? 'Authenticated'
+              : !auth.status?.configured
+              ? 'Unconfigured'
+              : 'Protected'}
+          </span>
+        </div>
+
+        {/* Current Status Row */}
+        <div className="p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <p className="text-xs font-semibold text-slate-200">
+              {auth.status?.authenticated
+                ? t(
+                    'settings:securitySection.authenticatedAs',
+                    `Authenticated as ${auth.status.username}`
+                  )
+                : !auth.status?.configured
+                ? t('settings:securitySection.notConfigured', 'Credentials Not Configured')
+                : t('settings:securitySection.notAuthenticated', 'Protected / Locked')}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {auth.status?.authenticated
+                ? t(
+                    'settings:securitySection.sessionActiveDesc',
+                    'Write commands and power controls unlocked until session expires after 15m idle.'
+                  )
+                : !auth.status?.configured
+                ? t(
+                    'settings:securitySection.notConfiguredDesc',
+                    'Set up administrator credentials to guard hardware safety gates.'
+                  )
+                : t(
+                    'settings:securitySection.notAuthenticatedDesc',
+                    'Log in to modify persistent hardware configuration or power states.'
+                  )}
+            </p>
+          </div>
+          <div className="shrink-0">
+            {auth.status?.authenticated ? (
+              <button
+                type="button"
+                onClick={() => auth.logout()}
+                className="px-3 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-semibold transition cursor-pointer"
+              >
+                {t('common:buttons.logOut', 'Log Out')}
+              </button>
+            ) : !auth.status?.configured ? (
+              <PrimaryButton
+                onClick={() => auth.openLoginModal()}
+                icon={<KeyRound className="w-3.5 h-3.5" />}
+              >
+                <span>{t('settings:securitySection.setupCredentials', 'Set Up Credentials')}</span>
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                onClick={() => auth.openLoginModal()}
+                icon={<Lock className="w-3.5 h-3.5" />}
+              >
+                <span>{t('settings:securitySection.unlockSession', 'Log In & Unlock')}</span>
+              </PrimaryButton>
+            )}
+          </div>
+        </div>
+
+        {/* Change Password Sub-Card */}
+        {auth.status?.configured && (
+          <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-3">
+            <div className="flex items-center justify-between">
+              <h5 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{t('settings:securitySection.changePassword', 'Change Administrator Password')}</span>
+              </h5>
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer"
+              >
+                {showPw ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                <span>{showPw ? 'Hide' : 'Show'}</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.currentPassword', 'Current Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    placeholder="••••••••"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.newPassword', 'New Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    placeholder="Min 8 characters"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.confirmNewPassword', 'Confirm New Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={confirmNewPw}
+                    onChange={(e) => setConfirmNewPw(e.target.value)}
+                    placeholder="Re-enter password"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+              </div>
+
+              {pwChangeError && (
+                <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+                  {pwChangeError}
+                </div>
+              )}
+              {pwChangeSuccess && (
+                <div className="p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs">
+                  {pwChangeSuccess}
+                </div>
+              )}
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={isChangingPw || !currentPw || !newPw || !confirmNewPw}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-950/40 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isChangingPw ? 'Updating...' : t('settings:securitySection.updatePasswordBtn', 'Update Password')}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Reset Danger Zone */}
+        {auth.status?.configured && (
+          <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.03] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-rose-300">
+                {t('settings:securitySection.resetTitle', 'Reset Security Credentials')}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t(
+                  'settings:securitySection.resetDesc',
+                  'Clear administrator credentials and return to initial setup state.'
+                )}
+              </p>
+            </div>
+
+            {showResetConfirm ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetConfirm(false)}
+                  disabled={isResetting}
+                  className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-white/[0.04] border border-white/[0.08] rounded-xl transition cursor-pointer"
+                >
+                  {t('common:buttons.cancel', 'Cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetCredentials}
+                  disabled={isResetting}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition shadow-lg shadow-rose-950/40 cursor-pointer"
+                >
+                  {isResetting ? 'Resetting...' : t('settings:securitySection.confirmResetBtn', 'Confirm Reset')}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition cursor-pointer self-start sm:self-auto"
+              >
+                {t('settings:securitySection.resetBtn', 'Reset Credentials')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Save / Unsaved Action Bar (Docked when idle, Sticky when dirty) ── */}

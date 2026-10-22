@@ -39,6 +39,7 @@ fn bridge_003_when_disabled_no_os_interaction() {
         bypass_active: false,
         ups_failed: false,
         test_in_progress: false,
+        shutdown_active: false,
         beeper_on: false,
         raw_status_bits: "00000000".into(),
     };

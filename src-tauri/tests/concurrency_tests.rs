@@ -2,7 +2,7 @@ mod mock_serial;
 use mock_serial::MockSerialPort;
 use upsed_lib::gate::CommandGate;
 use upsed_lib::multi_port::MultiPortManager;
-use upsed_lib::protocol::{DeviceCapabilities, UnlockStage, VoltronicCommand};
+use upsed_lib::protocol::{DeviceCapabilities, VoltronicCommand};
 use upsed_lib::serial::DiscoveredDevice;
 
 #[test]
@@ -75,9 +75,7 @@ fn multi_002_commands_isolated_per_port() {
     manager.register_device(dev1, Box::new(port1));
     manager.register_device(dev2, Box::new(port2));
 
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new_authenticated();
 
     // Send buzzer command to COM1 only
     let resp = manager

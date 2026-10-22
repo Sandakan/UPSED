@@ -16,12 +16,14 @@ pub struct ConnectedUps {
 
 pub struct MultiPortManager {
     devices: Arc<Mutex<HashMap<String, ConnectedUps>>>,
+    auth: Arc<crate::auth::AuthManager>,
 }
 
 impl Default for MultiPortManager {
     fn default() -> Self {
         Self {
             devices: Arc::new(Mutex::new(HashMap::new())),
+            auth: Arc::new(crate::auth::AuthManager::new_in_memory()),
         }
     }
 }
@@ -29,6 +31,13 @@ impl Default for MultiPortManager {
 impl MultiPortManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_auth(auth: Arc<crate::auth::AuthManager>) -> Self {
+        Self {
+            devices: Arc::new(Mutex::new(HashMap::new())),
+            auth,
+        }
     }
 
     pub fn register_device(&self, info: DiscoveredDevice, transport: Box<dyn SerialTransport>) {
@@ -48,7 +57,7 @@ impl MultiPortManager {
             ConnectedUps {
                 info,
                 transport: Arc::new(Mutex::new(transport)),
-                gate: Arc::new(Mutex::new(CommandGate::new())),
+                gate: Arc::new(Mutex::new(CommandGate::with_auth(Arc::clone(&self.auth)))),
                 last_status: None,
                 ups_id,
                 last_polled_at: None,
@@ -245,6 +254,7 @@ impl MultiPortManager {
                                 bypass_active: false,
                                 ups_failed: false,
                                 test_in_progress: false,
+                                shutdown_active: false,
                                 beeper_on: false,
                                 raw_status_bits: "00000000".into(),
                             })

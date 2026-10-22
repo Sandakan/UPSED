@@ -1,18 +1,11 @@
-﻿mod mock_serial;
+mod mock_serial;
 use mock_serial::MockSerialPort;
 use upsed_lib::gate::{CommandGate, GateError};
 use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
 use upsed_lib::serial::SerialTransport;
 
 fn t4_gate() -> CommandGate {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    gate.set_test_passed(UnlockStage::T2NonDestructive);
-    gate.unlock_stage(UnlockStage::T3ConfigWrite).unwrap();
-    gate.set_test_passed(UnlockStage::T3ConfigWrite);
-    gate.unlock_stage(UnlockStage::T4PowerControl).unwrap();
-    gate
+    CommandGate::new_authenticated()
 }
 
 #[test]
@@ -104,29 +97,47 @@ fn t4_003c_all_power_commands_require_t4() {
         VoltronicCommand::OutletOn { group: 1 },
         VoltronicCommand::OutletOff { group: 1 },
     ];
-    let mut t3 = CommandGate::new();
-    t3.set_test_passed(UnlockStage::T1ReadOnly);
-    t3.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    t3.set_test_passed(UnlockStage::T2NonDestructive);
-    t3.unlock_stage(UnlockStage::T3ConfigWrite).unwrap();
+    let unauth = CommandGate::new();
     let t4 = t4_gate();
     for c in &power {
         assert_eq!(c.required_stage(), UnlockStage::T4PowerControl, "{:?}", c);
-        assert!(t3.check_command(c).is_err(), "{:?}", c);
+        assert!(unauth.check_command(c).is_err(), "{:?}", c);
         assert!(t4.check_command(c).is_ok(), "{:?}", c);
     }
 }
 
 #[test]
 fn t4_004_gate_blocks_t4_if_t3_not_passed() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    gate.set_test_passed(UnlockStage::T2NonDestructive);
-    gate.unlock_stage(UnlockStage::T3ConfigWrite).unwrap();
-    // NOT marking t3_tests_passed
-
-    let result = gate.unlock_stage(UnlockStage::T4PowerControl);
-    assert!(matches!(result, Err(GateError::PrerequisiteNotMet(_))));
+    let gate = CommandGate::new();
+    let shutdown = VoltronicCommand::ShutdownWithDelay { minutes: 1.0 };
+    assert_eq!(
+        gate.check_command(&shutdown),
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T4PowerControl,
+        })
+    );
 }
+
+#[test]
+fn t4_005_q1_parses_shutdown_active_bit() {
+    use upsed_lib::protocol::Q1Status;
+    // Status bits: 00000010 -> index 6 is '1' (shutdown active), index 7 is '0' (beeper off)
+    let resp = "(238.0 50.0 238.0 50.0 023 0230 025.4 45 00000010";
+    let status = Q1Status::parse(resp).unwrap();
+    assert!(status.shutdown_active);
+    assert!(!status.test_in_progress);
+    assert!(!status.beeper_on);
+
+    // Both test in progress and shutdown active
+    let resp2 = "(238.0 50.0 238.0 50.0 023 0230 025.4 45 00000110";
+    let status2 = Q1Status::parse(resp2).unwrap();
+    assert!(status2.shutdown_active);
+    assert!(status2.test_in_progress);
+
+    // Idle
+    let resp_idle = "(238.0 50.0 238.0 50.0 023 0230 025.4 45 00000000";
+    let status_idle = Q1Status::parse(resp_idle).unwrap();
+    assert!(!status_idle.shutdown_active);
+}
+
 

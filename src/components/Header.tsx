@@ -4,13 +4,16 @@ import {
   RefreshCw,
   Plus,
   MoreHorizontal,
-  Shield,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
   Languages,
   Check,
   Star,
   ChevronDown,
   CheckCircle2,
 } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 import { UnlockStage, UpsMetadata, DiscoveredDevice, Q1Status } from '../lib/types';
 import { LastUpdatedTimer } from './LastUpdatedTimer';
 import { PrimaryButton } from './PrimaryButton';
@@ -51,15 +54,6 @@ const PAGE_LABELS: Record<string, string> = {
   settings:  'Settings',
 };
 
-const getStagePillStyle = (stage: UnlockStage) => {
-  switch (stage) {
-    case 'T1ReadOnly':       return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/40';
-    case 'T2NonDestructive': return 'bg-blue-950/80    text-blue-400    border-blue-700/40';
-    case 'T3ConfigWrite':    return 'bg-amber-950/80   text-amber-400   border-amber-700/40';
-    case 'T4PowerControl':   return 'bg-rose-950/80    text-rose-400    border-rose-700/40';
-  }
-};
-
 export const Header: React.FC<HeaderProps> = React.memo(({
   currentTab,
   selectedUpsId,
@@ -74,7 +68,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   onRefresh,
   isRefreshing,
   lastUpdatedAt,
-  safetyStage,
+  safetyStage: _safetyStage,
   onTabChange,
   onOpenAddDeviceModal,
   profiles,
@@ -84,6 +78,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   isScanning,
 }) => {
   const { t, i18n } = useTranslation(['common', 'nav', 'modals']);
+  const auth = useAuth();
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -104,15 +99,6 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   }, []);
 
   const pageLabel = t(`nav:items.${currentTab}`, { defaultValue: PAGE_LABELS[currentTab] ?? currentTab });
-
-  const getStageBadgeText = (stage: UnlockStage) => {
-    switch (stage) {
-      case 'T1ReadOnly':       return t('common:stages.t1.badge', 'T1 · Read-Only');
-      case 'T2NonDestructive': return t('common:stages.t2.badge', 'T2 · Diagnostic');
-      case 'T3ConfigWrite':    return t('common:stages.t3.badge', 'T3 · Config Write');
-      case 'T4PowerControl':   return t('common:stages.t4.badge', 'T4 · Power Control');
-    }
-  };
 
   const currentLang = i18n.language?.startsWith('fr') ? 'fr' : 'en';
 
@@ -304,13 +290,39 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
       {/* ── Right: Actions ────────────────────────────────── */}
       <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-        {/* Safety Gate pill */}
-        <span
-          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${getStagePillStyle(safetyStage)}`}
-        >
-          <Shield className="w-3 h-3" />
-          {getStageBadgeText(safetyStage)}
-        </span>
+        {/* Security / Auth Status Pill */}
+        {auth.status?.authenticated ? (
+          <button
+            type="button"
+            onClick={() => auth.logout()}
+            className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-indigo-950/80 text-indigo-300 border-indigo-700/50 hover:bg-indigo-900/60 transition cursor-pointer"
+            title={`Authenticated as ${auth.status.username}. Click to log out.`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="font-mono">{auth.status.username}</span>
+            <span className="text-[10px] text-indigo-400 font-normal opacity-80">· Log Out</span>
+          </button>
+        ) : !auth.status?.configured ? (
+          <button
+            type="button"
+            onClick={() => auth.openLoginModal()}
+            className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-950/80 text-amber-300 border-amber-700/50 hover:bg-amber-900/60 transition cursor-pointer"
+            title="Administrator credentials not configured. Click to initialize."
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+            <span>Setup Required</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => auth.openLoginModal()}
+            className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-slate-900/80 text-slate-300 border-white/[0.1] hover:bg-white/[0.06] transition cursor-pointer"
+            title="Write commands protected. Click to log in."
+          >
+            <Lock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Protected</span>
+          </button>
+        )}
 
         {/* Bridge Firmware Update Available Pill */}
         {bridgeUpdateAvailable && (

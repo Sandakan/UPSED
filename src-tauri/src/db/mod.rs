@@ -235,6 +235,12 @@ impl Database {
                 FOREIGN KEY (ups_id) REFERENCES ups_metadata(unique_id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS auth_credentials (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_telemetry_ups_time ON telemetry(ups_id, timestamp ASC);
             CREATE INDEX IF NOT EXISTS idx_telemetry_ups_id ON telemetry(ups_id, id DESC);
             CREATE INDEX IF NOT EXISTS idx_events_ack ON events(acknowledged);
@@ -529,6 +535,37 @@ impl Database {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
         )?;
+        Ok(())
+    }
+
+    pub fn get_auth_credentials(&self) -> Result<Option<crate::auth::CredentialRecord>> {
+        let conn = self.reader.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT username, password_hash FROM auth_credentials LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(crate::auth::CredentialRecord {
+                username: row.get(0)?,
+                password_hash: row.get(1)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_auth_credentials(&self, username: &str, password_hash: &str) -> Result<()> {
+        let conn = self.writer.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute("DELETE FROM auth_credentials", [])?;
+        conn.execute(
+            "INSERT INTO auth_credentials (username, password_hash, updated_at) VALUES (?1, ?2, ?3)",
+            params![username, password_hash, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_auth_credentials(&self) -> Result<()> {
+        let conn = self.writer.lock().unwrap();
+        conn.execute("DELETE FROM auth_credentials", [])?;
         Ok(())
     }
 

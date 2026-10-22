@@ -60,6 +60,7 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub bridge: Arc<Mutex<BatteryBridge>>,
     pub poll_interval_tx: Arc<tokio::sync::watch::Sender<u64>>,
+    pub auth: Arc<crate::auth::AuthManager>,
 }
 
 #[tauri::command]
@@ -533,6 +534,50 @@ pub async fn get_device_status(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OutletState {
+    pub group: u8,
+    pub on: bool,
+}
+
+#[tauri::command]
+pub async fn get_outlet_states(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    ups_id: Option<String>,
+) -> Result<Vec<OutletState>, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let lookup_key = ups_id.as_deref().or(port_name.as_deref());
+        let Some(key) = lookup_key else {
+            return Ok(Vec::new());
+        };
+
+        if !state_clone.manager.is_connected(key) {
+            return Ok(Vec::new());
+        }
+
+        let gate_arc = state_clone
+            .manager
+            .get_gate(key)
+            .unwrap_or_else(|| Arc::clone(&state_clone.gate));
+        let gate = gate_arc.lock().unwrap();
+
+        let mut results = Vec::new();
+        for group in 1..=2 {
+            let cmd = VoltronicCommand::QueryOutletState { group };
+            if let Ok(resp) = state_clone.manager.execute_gated_command(key, &cmd, &gate) {
+                if let Ok(is_on) = crate::protocol::p_series::parse_qsk(&resp) {
+                    results.push(OutletState { group, on: is_on });
+                }
+            }
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> String {
     let base = match cmd {
         VoltronicCommand::BuzzerToggle => "User toggled hardware alarm buzzer".to_string(),
@@ -649,58 +694,185 @@ pub async fn send_command(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AuthStatus {
+    pub configured: bool,
+    pub authenticated: bool,
+    pub username: Option<String>,
+}
+
 #[tauri::command]
-pub fn get_safety_stage(state: State<AppState>, ups_id: Option<String>) -> UnlockStage {
-    if let Some(ref uid) = ups_id {
-        if let Some(stage) = state.manager.get_safety_stage(uid) {
-            return stage;
+pub fn auth_status(state: State<AppState>) -> AuthStatus {
+    AuthStatus {
+        configured: state.auth.is_configured(),
+        authenticated: state.auth.is_authenticated(),
+        username: state.auth.current_user(),
+    }
+}
+
+#[tauri::command]
+pub fn auth_setup(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    state
+        .auth
+        .setup(&username, &password)
+        .map_err(|e| e.to_string())?;
+
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "Security setup: Initial user '{}' configured and authenticated",
+            username.trim()
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auth_login(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let result = state.auth.login(&username, &password);
+    let now = chrono::Utc::now().to_rfc3339();
+    match &result {
+        Ok(()) => {
+            let event = EventLogRecord {
+                id: None,
+                timestamp: now,
+                ups_id: None,
+                event_type: "USER_ACTION".into(),
+                severity: "info".into(),
+                message: format!("Security login: User '{}' authenticated", username.trim()),
+                acknowledged: true,
+            };
+            let _ = state.db.insert_event(&event);
+            let _ = app.emit("ups-event", &event);
+            Ok(())
+        }
+        Err(err) => {
+            let event = EventLogRecord {
+                id: None,
+                timestamp: now,
+                ups_id: None,
+                event_type: "USER_ACTION".into(),
+                severity: "warning".into(),
+                message: format!(
+                    "Security login failure for user '{}': {}",
+                    username.trim(),
+                    err
+                ),
+                acknowledged: false,
+            };
+            let _ = state.db.insert_event(&event);
+            let _ = app.emit("ups-event", &event);
+            Err(err.to_string())
         }
     }
-    let gate = state.gate.lock().unwrap();
-    gate.current_stage()
+}
+
+#[tauri::command]
+pub fn auth_logout(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    let user = state.auth.current_user().unwrap_or_else(|| "unknown".into());
+    state.auth.logout();
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!("Security logout: User '{}' logged out", user),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auth_change_password(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    old_password: String,
+    new_password: String,
+) -> Result<(), String> {
+    state
+        .auth
+        .change_password(&old_password, &new_password)
+        .map_err(|e| e.to_string())?;
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!("Security update: Password changed for user '{}'", user),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auth_reset(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.auth.reset().map_err(|e| e.to_string())?;
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "warning".into(),
+        message:
+            "Security reset: All credentials wiped and security barrier restored to unconfigured state"
+                .into(),
+        acknowledged: false,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_safety_stage(state: State<AppState>, _ups_id: Option<String>) -> UnlockStage {
+    if state.auth.is_authenticated() {
+        UnlockStage::T4PowerControl
+    } else {
+        UnlockStage::T1ReadOnly
+    }
 }
 
 #[tauri::command]
 pub fn unlock_safety_stage(
-    app: tauri::AppHandle,
     state: State<AppState>,
     target_stage: UnlockStage,
-    ups_id: Option<String>,
+    _ups_id: Option<String>,
 ) -> Result<(), String> {
-    let prev_stage;
-    if let Some(ref uid) = ups_id {
-        if let Some(gate_arc) = state.manager.get_gate(uid) {
-            let mut gate = gate_arc.lock().unwrap();
-            prev_stage = gate.current_stage();
-            gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
-        } else {
-            let mut gate = state.gate.lock().unwrap();
-            prev_stage = gate.current_stage();
-            gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
-        }
+    if target_stage == UnlockStage::T1ReadOnly {
+        state.auth.logout();
+        Ok(())
+    } else if state.auth.is_authenticated() {
+        Ok(())
     } else {
-        let mut gate = state.gate.lock().unwrap();
-        prev_stage = gate.current_stage();
-        gate.unlock_stage(target_stage).map_err(|e| e.to_string())?;
+        Err(format!(
+            "Command blocked by safety gate: requires {:?} privileges; user authentication is required",
+            target_stage
+        ))
     }
-
-    let audit_event = EventLogRecord {
-        id: None,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        ups_id: ups_id.clone(),
-        event_type: "USER_ACTION".into(),
-        severity: "info".into(),
-        message: format!(
-            "User Action: Changed firmware safety gate from {:?} to {:?}.",
-            prev_stage, target_stage
-        ),
-        acknowledged: true,
-    };
-
-    let _ = state.db.insert_event(&audit_event);
-    let _ = app.emit("ups-event", &audit_event);
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -1283,6 +1455,29 @@ pub fn detect_status_events(
             event_type: "BATTERY_TEST_COMPLETED".into(),
             severity: "info".into(),
             message: "Battery Self-Test Completed: Self-test completed; normal AC line mode restored.".into(),
+            acknowledged: false,
+        });
+    }
+
+    // 6. Shutdown Countdown Lifecycle
+    if !prev.shutdown_active && curr.shutdown_active {
+        events.push(EventLogRecord {
+            id: None,
+            timestamp: now.clone(),
+            ups_id: target_ups_id.clone(),
+            event_type: "SHUTDOWN_ACTIVE".into(),
+            severity: "warning".into(),
+            message: "UPS Shutdown Active: Delayed output shutdown sequence is in progress. Save open work and prepare for power cutoff.".into(),
+            acknowledged: false,
+        });
+    } else if prev.shutdown_active && !curr.shutdown_active {
+        events.push(EventLogRecord {
+            id: None,
+            timestamp: now.clone(),
+            ups_id: target_ups_id.clone(),
+            event_type: "SHUTDOWN_CANCELLED".into(),
+            severity: "info".into(),
+            message: "UPS Shutdown Cancelled: Pending shutdown sequence was cancelled or completed; output state preserved.".into(),
             acknowledged: false,
         });
     }

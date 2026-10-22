@@ -17,6 +17,7 @@ pub struct Q1Status {
     pub bypass_active: bool,
     pub ups_failed: bool,
     pub test_in_progress: bool,
+    pub shutdown_active: bool,
     pub beeper_on: bool,
     pub raw_status_bits: String,
 }
@@ -66,6 +67,7 @@ impl Q1Status {
             let bypass_active = bytes.get(2).copied().unwrap_or(b'0') == b'1';
             let ups_failed = bytes.get(3).copied().unwrap_or(b'0') == b'1';
             let test_in_progress = bytes.get(5).copied().unwrap_or(b'0') == b'1';
+            let shutdown_active = bytes.get(6).copied().unwrap_or(b'0') == b'1';
             let beeper_on = bytes.get(7).copied().unwrap_or(b'0') == b'1';
 
             return Ok(Self {
@@ -82,6 +84,7 @@ impl Q1Status {
                 bypass_active,
                 ups_failed,
                 test_in_progress,
+                shutdown_active,
                 beeper_on,
                 raw_status_bits: status_bits,
             });
@@ -171,6 +174,7 @@ impl Q1Status {
         let bypass_active = bytes.get(2).copied().unwrap_or(b'0') == b'1';
         let ups_failed = bytes.get(3).copied().unwrap_or(b'0') == b'1';
         let test_in_progress = bytes.get(5).copied().unwrap_or(b'0') == b'1';
+        let shutdown_active = bytes.get(6).copied().unwrap_or(b'0') == b'1';
         let beeper_on = bytes.get(7).copied().unwrap_or(b'0') == b'1';
 
         Ok(Self {
@@ -187,6 +191,7 @@ impl Q1Status {
             bypass_active,
             ups_failed,
             test_in_progress,
+            shutdown_active,
             beeper_on,
             raw_status_bits: status_bits,
         })
@@ -236,6 +241,7 @@ impl Q1Status {
         let bypass_active = bytes.get(2).copied().unwrap_or(b'0') == b'1';
         let ups_failed = bytes.get(3).copied().unwrap_or(b'0') == b'1';
         let test_in_progress = bytes.get(5).copied().unwrap_or(b'0') == b'1';
+        let shutdown_active = bytes.get(6).copied().unwrap_or(b'0') == b'1';
         let beeper_on = bytes.get(7).copied().unwrap_or(b'0') == b'1';
 
         Ok(Self {
@@ -252,6 +258,7 @@ impl Q1Status {
             bypass_active,
             ups_failed,
             test_in_progress,
+            shutdown_active,
             beeper_on,
             raw_status_bits: status_bits,
         })

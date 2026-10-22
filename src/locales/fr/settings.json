@@ -105,6 +105,27 @@
     "saveError": "Impossible d'enregistrer les paramètres : {{error}}",
     "discardTitle": "Modifications annulées",
     "discardSuccess": "Paramètres restaurés à leur dernier état enregistré."
+  },
+  "securitySection": {
+    "title": "Sécurité et contrôle d'accès",
+    "desc": "Gérez les identifiants administrateur protégeant les opérations d'écriture et les commandes d'alimentation.",
+    "authenticatedAs": "Authentifié en tant que {{username}}",
+    "sessionActiveDesc": "Commandes déverrouillées jusqu'à expiration de la session après 15 min d'inactivité.",
+    "notAuthenticated": "Protégé / Verrouillé",
+    "notAuthenticatedDesc": "Connectez-vous pour modifier la configuration matérielle ou les états d'alimentation.",
+    "notConfigured": "Identifiants non configurés",
+    "notConfiguredDesc": "Configurez les identifiants pour protéger les portes de sécurité matérielles.",
+    "setupCredentials": "Configurer les accès",
+    "unlockSession": "Se connecter et déverrouiller",
+    "changePassword": "Changer le mot de passe administrateur",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmNewPassword": "Confirmer le nouveau mot de passe",
+    "updatePasswordBtn": "Mettre à jour le mot de passe",
+    "resetTitle": "Réinitialiser les identifiants",
+    "resetDesc": "Efface les identifiants administrateur et réinitialise l'application à l'état initial.",
+    "resetBtn": "Réinitialiser les identifiants",
+    "confirmResetBtn": "Confirmer la réinitialisation"
   }
 }
 

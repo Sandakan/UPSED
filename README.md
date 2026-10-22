@@ -23,11 +23,25 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Safely auto-discovers connected hardware on both USB HID and COM ports using strictly non-destructive Stage T1 read-only queries (`QPI\r`).
 - Concurrent multi-UPS management with independent communication channels and telemetry caches.
 
-### 🛡️ Safety-First Command Gate (4-Stage Tiering)
+### 🛡️ Safety-First Command Gate & Authenticated Permission Barrier
 
-- Enforces an incremental 4-stage safety unlock hierarchy (`T1ReadOnly` → `T2NonDestructive` → `T3ConfigWrite` → `T4PowerControl`).
+- Enforces a ViewPower-style user permission barrier atop a 4-tier risk classification:
+  - **Stage T1 (Read-Only):** Non-modifying telemetry queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`) remain open without authentication for auto-discovery and telemetry monitoring.
+  - **Stages T2–T4 (Protected):** Diagnostic self-tests (`T`, `CT`), persistent EEPROM writes (`MCHGC`, `PBVH`, `PBVL`), and power control require an active authenticated administrator session.
+  - **Stage T4 (Power Control):** Live load-drop operations (`ShutdownWithDelay`, `ShutdownAndRestore`, `OutputOff`, `OutletOff`) require typed confirmation ("type UPS name or SHUTDOWN") before transmission.
+- Credential protection using **Argon2id** password hashing stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) with secure SQLite fallback.
+- In-memory sliding session expires after 15 minutes of inactivity; brute-force protection locks out login after 5 failed attempts.
 - Completely eliminates raw string command injection vulnerabilities (such as ViewPower's `controlNew` flaw). Every interaction is a strongly typed variant of the `VoltronicCommand` enum.
-- Strict parameter bounds validation in Rust before any byte payload reaches the transport layer.
+- Strict physical parameter bounds validation in Rust before any byte payload reaches the transport layer.
+
+### ⚡ Comprehensive UPS Power Management
+
+- **Delayed Output Shutdown (`S.<M>` / `S<M>`):** Safely power off AC inverter output after a configurable delay (presets from 18 seconds to 10 minutes, or custom minutes 0.1–99).
+- **Shutdown & Auto-Restore (`S..R..`):** Shuts down AC output after delay, then automatically re-engages output once mains AC returns and a restore timer elapses.
+- **Inverter Output Toggle (`SON` / `SOFF`):** Directly toggle inverter output on/off for P-series hardware without powering down internal monitoring logic.
+- **Switchable Outlet Groups (`SKON` / `SKOFF`):** Independently control outlet banks 1 and 2 for smart load shedding and peripheral equipment cycling.
+- **Active Shutdown Countdown & Abort:** Real-time ticker synchronized with the hardware status bit (`shutdown_active`) and one-click immediate abort (`CS`).
+- **Host PC Power Safety Guard:** Prominent warnings prevent accidental power cuts to the machine running UPSED.
 
 ### 📉 Real-Time Outage Interval Detection
 
@@ -163,16 +177,16 @@ flowchart TD
 
 ---
 
-## 🛡️ Safety Command Gate: Incremental Unlock
+## 🛡️ Safety Command Gate & Authenticated Permission Barrier
 
-To safeguard connected equipment and prevent persistent EEPROM corruption or unintended power cuts, UPSED categorizes every hardware command into 4 strict safety stages:
+To safeguard connected equipment and prevent persistent EEPROM corruption or unintended power cuts, UPSED categorizes every hardware command into 4 risk tiers guarded by an authenticated user barrier:
 
-| Stage | Risk Level | Allowed Commands | Unlock Condition & Invariants |
+| Stage | Risk Level | Allowed Commands | Access Barrier & Invariants |
 | --- | --- | --- | --- |
-| **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.) | **Default at startup.** Automated hardware scans and live probing MUST strictly and exclusively use T1 commands. |
-| **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | Unlocks after automated T1 queries verify protocol compatibility. Does not modify non-volatile memory or drop load. |
-| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | Requires parameter pre-validation against physical equipment safety limits in Rust before transmission. |
-| **Stage T4 (Power Control)** | High | `S.3` (Delayed shutdown), `CS` (Cancel shutdown), `OLON`/`OLOFF` (Outlet group control) | Requires explicit user confirmation dialogs with countdown verification to prevent accidental power drops. |
+| **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.), `QSK1`/`QSK2` (Outlet states) | **Open unconditionally.** Automated hardware scans, discovery probes, and telemetry polling strictly use Stage T1 commands. |
+| **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | **Requires Authenticated Session.** Observable diagnostics that do not alter flash/EEPROM or drop live load. |
+| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | **Requires Authenticated Session.** Persistent EEPROM writes; parameters must pass pre-validation against physical equipment safety limits in Rust before transmission. |
+| **Stage T4 (Power Control)** | High | `S.<M>` / `S<M>` (Delayed shutdown), `S..R..` (Shutdown & restore), `SON`/`SOFF` (Inverter toggle), `SKON`/`SKOFF` (Outlet control), `CS` (Cancel shutdown) | **Requires Authenticated Session + Typed Confirmation.** High-risk commands that cut output power require typing the target UPS name or `SHUTDOWN` to prevent accidental load drops. |
 
 ---
 

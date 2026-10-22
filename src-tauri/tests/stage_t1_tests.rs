@@ -202,15 +202,15 @@ fn t1_007_no_write_commands_executed_in_t1() {
     // T1 strictly BLOCKS all non-read commands
     assert!(matches!(
         gate.check_command(&VoltronicCommand::BuzzerToggle),
-        Err(GateError::StageLocked { .. })
+        Err(GateError::AuthRequired { .. })
     ));
     assert!(matches!(
         gate.check_command(&VoltronicCommand::SetBypassHighVoltage(260)),
-        Err(GateError::StageLocked { .. })
+        Err(GateError::AuthRequired { .. })
     ));
     assert!(matches!(
         gate.check_command(&VoltronicCommand::ShutdownWithDelay { minutes: 1.0 }),
-        Err(GateError::StageLocked { .. })
+        Err(GateError::AuthRequired { .. })
     ));
 }
 

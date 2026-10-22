@@ -4,6 +4,12 @@ export type UnlockStage =
   | 'T3ConfigWrite'
   | 'T4PowerControl';
 
+export interface AuthStatus {
+  configured: boolean;
+  authenticated: boolean;
+  username?: string | null;
+}
+
 export interface DeviceCapabilities {
   protocol_id: string;
   supports_qpigs: boolean;
@@ -60,8 +66,25 @@ export interface Q1Status {
   bypass_active: boolean;
   ups_failed: boolean;
   test_in_progress?: boolean;
+  shutdown_active?: boolean;
   beeper_on?: boolean;
   raw_status_bits: string;
+}
+
+export interface OutletState {
+  group: number;
+  on: boolean;
+}
+
+const P_SERIES_FAMILIES = new Set([
+  '00', '01', '02', '03', '05', '08', '09', '10', '13', '14', '31', '33', '35', '39', '44',
+  '45', '71', '73', '74', '99',
+]);
+
+export function isPSeries(protocolId?: string | null): boolean {
+  if (!protocolId) return false;
+  const id = protocolId.trim().replace(/^[Pp]/, '');
+  return P_SERIES_FAMILIES.has(id);
 }
 
 export interface UpsTelemetryPayload {

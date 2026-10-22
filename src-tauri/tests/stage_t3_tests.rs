@@ -5,12 +5,7 @@ use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
 use upsed_lib::serial::SerialTransport;
 
 fn t3_gate() -> CommandGate {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    gate.set_test_passed(UnlockStage::T2NonDestructive);
-    gate.unlock_stage(UnlockStage::T3ConfigWrite).unwrap();
-    gate
+    CommandGate::new_authenticated()
 }
 
 #[test]
@@ -109,46 +104,39 @@ fn t3_003c_all_config_writes_require_t3_and_p_series() {
         VoltronicCommand::SetAlarmEnabled(true),
         VoltronicCommand::SetAlarmEnabled(false),
     ];
-    let mut t2_gate = CommandGate::new();
-    t2_gate.set_test_passed(UnlockStage::T1ReadOnly);
-    t2_gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let unauth_gate = CommandGate::new();
     for w in &writes {
         assert_eq!(w.required_stage(), UnlockStage::T3ConfigWrite, "{:?}", w);
         assert!(w.is_p_series_only(), "{:?}", w);
         assert!(!w.supports_protocol("17"), "{:?}", w);
         assert!(w.as_cmd_str_for("17").is_err(), "{:?}", w);
         assert!(w.as_cmd_str_for("01").is_ok(), "{:?}", w);
-        assert!(t2_gate.check_command(w).is_err(), "{:?}", w);
+        assert!(unauth_gate.check_command(w).is_err(), "{:?}", w);
         assert!(t3_gate().check_command(w).is_ok(), "{:?}", w);
     }
 }
 
 #[test]
 fn t3_004_t3_cannot_execute_t4_power_control() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    gate.set_test_passed(UnlockStage::T2NonDestructive);
-    gate.unlock_stage(UnlockStage::T3ConfigWrite).unwrap();
-
+    let gate = CommandGate::new();
     let shutdown = VoltronicCommand::ShutdownWithDelay { minutes: 1.0 };
-    assert!(matches!(
+    assert_eq!(
         gate.check_command(&shutdown),
-        Err(GateError::StageLocked {
+        Err(GateError::AuthRequired {
             required: UnlockStage::T4PowerControl,
-            current: UnlockStage::T3ConfigWrite,
         })
-    ));
+    );
 }
 
 #[test]
 fn t3_005_gate_blocks_t3_if_t2_tests_not_passed() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    // Intentionally NOT marking t2_tests_passed
-
-    let result = gate.unlock_stage(UnlockStage::T3ConfigWrite);
-    assert!(matches!(result, Err(GateError::PrerequisiteNotMet(_))));
+    let gate = CommandGate::new();
+    let cmd = VoltronicCommand::SetBypassHighVoltage(240);
+    assert_eq!(
+        gate.check_command(&cmd),
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T3ConfigWrite,
+        })
+    );
 }
 

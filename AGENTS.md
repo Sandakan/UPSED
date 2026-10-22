@@ -7,11 +7,12 @@ This document establishes the universal rules, safety constraints, and architect
 ## 🛡️ 1. Hardware Safety & Command Gate Invariants
 
 - **NEVER bypass the CommandGate:** Every command dispatched to a serial transport or hardware port MUST flow through `CommandGate::check_command`.
-- **Incremental Safety Progression:** Commands must strictly obey the four-tier hierarchy:
-  - `T1ReadOnly`: Non-modifying queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`, `QPIRI`, `QID`, `QVFW`).
-  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`Q`, `T`, `CT`).
-  - `T3ConfigWrite`: Persistent parameters (`MCHGC`, `PBVH`, `PBVL`, `PSDV`).
-  - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`).
+- **Command Gate & Permission Barrier Invariant:** Commands obey a four-tier risk classification, enforced by an authenticated user permission barrier:
+  - `T1ReadOnly`: Non-modifying queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`, `QPIRI`, `QID`, `QVFW`, `QSK1`, `QSK2`). Always permitted without authentication.
+  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`Q`, `T`, `CT`). Requires an active authenticated session.
+  - `T3ConfigWrite`: Persistent parameters (`MCHGC`, `PBVH`, `PBVL`, `PSDV`). Requires an active authenticated session.
+  - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`, `SON`, `SOFF`, `SKON`, `SKOFF`). Requires an active authenticated session and explicit typed user confirmation.
+- **Credential Storage & Session Security:** Privileged access is authenticated via Argon2id hashed credentials stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) with secure SQLite fallback. Sessions expire after 15 minutes of inactivity.
 - **NO Raw Command Injection:** Never implement or expose raw string command endpoints (such as ViewPower's vulnerable `controlNew` method). All hardware interactions must be strongly typed variants of the `VoltronicCommand` enum.
 - **Pre-Transmission Validation:** All parameters (charging current, bypass voltages, battery cutoff thresholds) must be validated against physical safety limits and device-rated specs in Rust before any bytes are transmitted to the serial port.
 - **Port Discovery & Probing Invariant:** Serial and USB HID auto-discovery and automated live hardware probes must strictly and exclusively send Stage T1 Read-Only commands (`QPI\r`, fallback `Q1\r`, `QID\r`, `QVFW\r`). Probing unknown or live hardware with Stage T2 diagnostic commands (such as `T` 10-second battery test or `C` cancel test), Stage T3 configuration writes, or Stage T4 power control is strictly prohibited.

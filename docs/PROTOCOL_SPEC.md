@@ -153,10 +153,17 @@ This document provides a comprehensive technical reference for the ASCII line-or
 
 ## ⚠️ 7. Power Control Commands (Stage T4 Power Control)
 
+All Stage T4 power operations require an active authenticated administrator session and typed confirmation ("type UPS name or SHUTDOWN") before transmission.
+
 | Command | Syntax | Description | Expected Response |
 |---|---|---|---|
-| **Delayed Shutdown** | `S.<M>\r` or `S<M.M>\r` | Initiates delayed shutdown. Minimum allowed floor: 0.1 minutes (~6 seconds). E.g. `S.3\r` (~18s). | `(OK\r` |
-| **Cancel Shutdown** | `CS\r` | Immediately aborts any pending shutdown countdown timer. | `(OK\r` |
-| **Outlet Group On** | `OLON<G>,<D>\r` | Powers on outlet group `G` (1-3) after delay `D` (minutes). | `(OK\r` |
-| **Outlet Group Off** | `OLOFF<G>,<D>\r` | Powers off outlet group `G` (1-3) after delay `D` (minutes). | `(OK\r` |
+| **Delayed Shutdown** | `S.<M>\r` or `S<MM>\r` | Initiates delayed shutdown. Range: 0.1–0.9 min (e.g. `S.3\r` for ~18s) or 1–99 min (e.g. `S05\r`). | `(OK\r` / `(NAK\r` |
+| **Shutdown & Restore** | `S.<M>R<NNNN>\r` or `S<MM>R<NNNN>\r` | Shuts down output after delay `M`, then auto-restores `NNNN` minutes after utility AC returns. E.g. `S.3R0002\r`. | `(OK\r` / `(NAK\r` |
+| **Cancel Shutdown** | `CS\r` | Immediately aborts any pending shutdown countdown timer. | `(OK\r` / `(NAK\r` |
+| **Inverter Output ON** | `SON\r` | Powers ON inverter output directly without cycling logic power (P-series units). | `(OK\r` / `(NAK\r` |
+| **Inverter Output OFF** | `SOFF\r` | Cuts inverter output power immediately while keeping monitoring microcontrollers alive (P-series units). | `(OK\r` / `(NAK\r` |
+| **Outlet Group ON** | `SKON<N>\r` | Powers ON switchable outlet group `N` (1 or 2). | `(OK\r` / `(NAK\r` |
+| **Outlet Group OFF** | `SKOFF<N>\r` | Cuts power to switchable outlet group `N` (1 or 2). | `(OK\r` / `(NAK\r` |
+| **Query Outlet Status** | `QSK1\r` / `QSK2\r` | Stage T1 Read-Only query for live outlet group state (`(1` = ON, `(0` = OFF). | `(1\r` / `(0\r` / `(NAK\r` |
+| **Outlet Group Timer** | `OLON<G>,<D>\r` / `OLOFF<G>,<D>\r` | Legacy outlet timed switching for group `G` (1-3) after delay `D` (minutes). | `(OK\r` / `(NAK\r` |
 

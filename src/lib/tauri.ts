@@ -1,7 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
+  AuthStatus,
   DiscoveredDevice,
   EventLogRecord,
+  OutletState,
   Q1Status,
   TelemetryRecord,
   UnlockStage,
@@ -34,8 +36,26 @@ export const api = {
   getDeviceStatus: (portName: string, upsId?: string) =>
     invoke<Q1Status>('get_device_status', { portName, upsId: upsId || null }),
 
+  getOutletStates: (upsId?: string, portName?: string) =>
+    invoke<OutletState[]>('get_outlet_states', { upsId: upsId || null, portName: portName || null }),
+
   sendCommand: (portName: string, command: VoltronicCommand, upsId?: string) =>
     invoke<string>('send_command', { portName, command, upsId: upsId || null }),
+
+  authStatus: () => invoke<AuthStatus>('auth_status'),
+
+  authSetup: (username: string, password: string) =>
+    invoke<void>('auth_setup', { username, password }),
+
+  authLogin: (username: string, password: string) =>
+    invoke<void>('auth_login', { username, password }),
+
+  authLogout: () => invoke<void>('auth_logout'),
+
+  authChangePassword: (oldPassword: string, newPassword: string) =>
+    invoke<void>('auth_change_password', { oldPassword, newPassword }),
+
+  authReset: () => invoke<void>('auth_reset'),
 
   getSafetyStage: (upsId?: string) =>
     invoke<UnlockStage>('get_safety_stage', { upsId: upsId || null }),

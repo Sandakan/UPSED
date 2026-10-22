@@ -101,6 +101,16 @@ export const EVENT_DETAILS: Record<
     defaultDescription:
       'Battery self-test finished successfully; normal AC line mode restored.',
   },
+  SHUTDOWN_ACTIVE: {
+    title: 'UPS Output Shutdown Active',
+    defaultDescription:
+      'Delayed output shutdown sequence is in progress. Save all open work and prepare for power cutoff.',
+  },
+  SHUTDOWN_CANCELLED: {
+    title: 'UPS Output Shutdown Cancelled',
+    defaultDescription:
+      'Pending shutdown sequence was cancelled or completed; output power preserved.',
+  },
   USER_ACTION: {
     title: 'User Action Audit Log',
     defaultDescription:

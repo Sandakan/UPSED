@@ -4,15 +4,32 @@ use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
 
 #[test]
 fn sec_001_cannot_skip_stages() {
-    let mut gate = CommandGate::new();
+    let gate = CommandGate::new();
 
-    // Trying to jump directly from T1 to T3
-    let result_t3 = gate.unlock_stage(UnlockStage::T3ConfigWrite);
-    assert!(matches!(result_t3, Err(GateError::PrerequisiteNotMet(_))));
+    // Trying to execute T2, T3 or T4 while unauthenticated
+    let result_t2 = gate.check_command(&VoltronicCommand::TenSecondTest);
+    assert_eq!(
+        result_t2,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T2NonDestructive
+        })
+    );
 
-    // Trying to jump directly from T1 to T4
-    let result_t4 = gate.unlock_stage(UnlockStage::T4PowerControl);
-    assert!(matches!(result_t4, Err(GateError::PrerequisiteNotMet(_))));
+    let result_t3 = gate.check_command(&VoltronicCommand::SetBypassHighVoltage(240));
+    assert_eq!(
+        result_t3,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T3ConfigWrite
+        })
+    );
+
+    let result_t4 = gate.check_command(&VoltronicCommand::ShutdownWithDelay { minutes: 0.3 });
+    assert_eq!(
+        result_t4,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T4PowerControl
+        })
+    );
 }
 
 #[test]
@@ -29,20 +46,21 @@ fn sec_002_all_commands_strictly_typed_no_arbitrary_string_passthrough() {
 
 #[test]
 fn sec_003_gate_downgrade_to_t1_immediately_relocks_higher_commands() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    assert_eq!(gate.current_stage(), UnlockStage::T2NonDestructive);
+    let mut gate = CommandGate::new_authenticated();
+    assert_eq!(gate.current_stage(), UnlockStage::T4PowerControl);
+    assert!(gate.check_command(&VoltronicCommand::BuzzerToggle).is_ok());
 
-    // Downgrade back to T1
+    // Downgrade back to T1 (logout)
     gate.unlock_stage(UnlockStage::T1ReadOnly).unwrap();
     assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
 
-    // T2 command must now be rejected
-    assert!(matches!(
+    // Privileged command must now be rejected
+    assert_eq!(
         gate.check_command(&VoltronicCommand::BuzzerToggle),
-        Err(GateError::StageLocked { .. })
-    ));
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T2NonDestructive
+        })
+    );
 }
 
 #[test]
@@ -227,6 +245,7 @@ fn sec_007_hardware_event_transition_detection() {
         bypass_active: false,
         ups_failed: false,
         test_in_progress: false,
+        shutdown_active: false,
         beeper_on: false,
         raw_status_bits: "00000000".into(),
     };
@@ -283,7 +302,23 @@ fn sec_007_hardware_event_transition_detection() {
     assert_eq!(temp_events[0].event_type, "OVER_TEMP");
     assert_eq!(temp_events[0].severity, "warning");
 
-    // Test 7: No change produces no events
+    // Test 7: Shutdown active rising edge
+    let shutdown_status = Q1Status {
+        shutdown_active: true,
+        ..base_status.clone()
+    };
+    let shut_events = detect_status_events(Some(&base_status), &shutdown_status, Some("UPS-TEST-1"));
+    assert_eq!(shut_events.len(), 1);
+    assert_eq!(shut_events[0].event_type, "SHUTDOWN_ACTIVE");
+    assert_eq!(shut_events[0].severity, "warning");
+
+    // Test 8: Shutdown cancelled falling edge
+    let cancelled_events = detect_status_events(Some(&shutdown_status), &base_status, Some("UPS-TEST-1"));
+    assert_eq!(cancelled_events.len(), 1);
+    assert_eq!(cancelled_events[0].event_type, "SHUTDOWN_CANCELLED");
+    assert_eq!(cancelled_events[0].severity, "info");
+
+    // Test 9: No change produces no events
     let no_events = detect_status_events(Some(&base_status), &base_status, Some("UPS-TEST-1"));
     assert!(no_events.is_empty());
 }

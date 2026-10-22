@@ -15,6 +15,7 @@ import { IoT } from './pages/IoT';
 import { Settings, SettingsHandle } from './pages/Settings';
 import { UpsedToaster } from './components/UpsedToaster';
 import { AboutModal } from './components/AboutModal';
+import { LoginModal } from './components/LoginModal';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
@@ -714,6 +715,9 @@ export function App() {
               upsId={selectedUpsId}
               safetyStage={safetyStage}
               onRefreshStage={refreshMetadata}
+              device={activeDevice}
+              deviceName={activeDeviceLabel}
+              status={status}
             />
           )}
 
@@ -776,6 +780,9 @@ export function App() {
 
       {/* Headless Bespoke Toast Notification Container */}
       <UpsedToaster />
+
+      {/* Authentication & Security Login Modal */}
+      <LoginModal />
 
       {/* About UPSED Modal */}
       <AboutModal

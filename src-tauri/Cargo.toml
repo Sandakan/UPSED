@@ -33,6 +33,9 @@ tauri-plugin-autostart = "2"
 tungstenite = "0.24"
 dotenvy = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
+argon2 = { version = "0.5", features = ["std"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+rand = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

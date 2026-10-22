@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod battery_bridge;
 pub mod commands;
 pub mod db;
@@ -104,12 +105,19 @@ pub fn run() {
                 tracing::warn!("Failed to initialize battery tray icon: {}", e);
             }
 
+            let db_arc = Arc::new(db);
+            let auth_store = Box::new(auth::FallbackStore::new(Arc::clone(&db_arc)));
+            let auth = Arc::new(auth::AuthManager::new(auth_store));
+            let gate = Arc::new(Mutex::new(CommandGate::with_auth(Arc::clone(&auth))));
+            let manager = Arc::new(MultiPortManager::with_auth(Arc::clone(&auth)));
+
             let app_state = AppState {
-                gate: Arc::new(Mutex::new(CommandGate::new())),
-                manager: Arc::new(MultiPortManager::new()),
-                db: Arc::new(db),
+                gate,
+                manager,
+                db: db_arc,
                 bridge: Arc::new(Mutex::new(bridge)),
                 poll_interval_tx: Arc::new(poll_interval_tx),
+                auth,
             };
 
             // Log application startup
@@ -245,7 +253,14 @@ pub fn run() {
             commands::disconnect_device,
             commands::list_connected_devices,
             commands::get_device_status,
+            commands::get_outlet_states,
             commands::send_command,
+            commands::auth_status,
+            commands::auth_setup,
+            commands::auth_login,
+            commands::auth_logout,
+            commands::auth_change_password,
+            commands::auth_reset,
             commands::get_safety_stage,
             commands::unlock_safety_stage,
             commands::get_recent_telemetry,

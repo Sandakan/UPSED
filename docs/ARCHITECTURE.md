@@ -32,8 +32,14 @@ This document describes the architectural layers, data flows, thread models, and
 │            ▼                       ▼                      ▼            │
 │   ┌─────────────────┐    ┌──────────────────┐   ┌──────────────────┐  │
 │   │  CommandGate    │    │ MultiPortManager │   │  SQLite Database │  │
-│   │ (Safety Stages) │    │  (Device Map)    │   │ (Telemetry/Logs) │  │
+│   │(Auth & Safety)  │    │  (Device Map)    │   │ (Telemetry/Logs) │  │
 │   └────────┬────────┘    └────────┬─────────┘   └──────────────────┘  │
+│            │                      │                      ▲             │
+│            ▼                      │                      │ fallback    │
+│   ┌─────────────────┐             │             ┌────────┴─────────┐  │
+│   │   AuthManager   │─────────────┼────────────►│ OS Native Keyring│  │
+│   │ (Argon2id/Sess) │             │             │ (macOS/Win/Linux)│  │
+│   └─────────────────┘             │             └──────────────────┘  │
 │            │                      │                                    │
 │            └───────────────┬──────┘                                    │
 │                            ▼                                           │
@@ -56,7 +62,7 @@ This document describes the architectural layers, data flows, thread models, and
 
 ## 🔒 2. Safety Command Gate Flow
 
-The `CommandGate` (in `src-tauri/src/gate/command_gate.rs`) acts as an immutable firewall between the UI and physical hardware ports:
+The `CommandGate` (in `src-tauri/src/gate/command_gate.rs`) acts as an immutable firewall between the UI and physical hardware ports, backed by the `AuthManager`:
 
 ```
 UI: sendCommand(port, cmd)
@@ -67,9 +73,17 @@ Tauri IPC: commands::send_command
               ▼
 CommandGate::check_command(&cmd)
    │
-   ├── Is cmd.required_stage() <= current_stage?
-   │      ├── NO  ──► Return Err(GateError::StageLocked) (ZERO bytes sent)
-   │      └── YES ──► Continue
+   ├── Is cmd.required_stage() == T1ReadOnly?
+   │      └── YES ──► Pass immediately (Unconditional telemetry & probing)
+   │
+   └── Stages T2, T3, T4 (Protected):
+          ├── Is session authenticated in AuthManager?
+          │      ├── NO  ──► Return Err(GateError::AuthRequired) (ZERO bytes sent)
+          │      └── YES ──► Continue
+          │
+          └── Stage T4 only: Did user confirm with TypedConfirmModal in UI?
+                 ├── NO  ──► Blocked in UI
+                 └── YES ──► Continue
    │
    ▼
 cmd.as_cmd_str()
@@ -117,6 +131,14 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_credentials (
+    user TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 ```
 
