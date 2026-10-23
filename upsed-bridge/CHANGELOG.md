@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-10-23
+
+### Added
+- **Multi-App Concurrency Support:** Allowed concurrent management of the UPS across up to 8 desktop/laptop UPSED client instances over Wi-Fi WebSocket (`WEBSOCKETS_SERVER_CLIENT_MAX=8`) and USB CDC without serial bus contention.
+- **Hardware Bridge Serial Command Cache:** Implemented a fixed 16-slot ring-buffer command cache (`UpsCommandCache`) with tiered TTLs (1.5s for live telemetry queries, 10s for configuration queries, and 60s for static identity queries). Includes negative caching for unsupported static commands (e.g. `QPI`/`QID`/`QVFW` on Megatec P00) and immediate dynamic invalidation upon any mutating command.
+- **Dual-Source RTC Real-World Clock:** Built `BridgeClock` supporting automatic background Wi-Fi NTP synchronization alongside host RPC timestamp piggybacking (`host_ts` + `tz_offset_min`). Provides retroactive real-world timestamp backfilling for early boot diagnostic logs and offline PSRAM backlog records.
+- **Real-Time Cross-Client Event Broadcasting:** Broadcasts `bridge.cmdExecuted` JSON-RPC notifications to all other connected clients whenever any client dispatches a mutating UPS command.
+- **Non-Destructive Backlog Pagination:** Upgraded `bridge.getBacklog` with `offset` and `limit` support, allowing multiple apps to pull offline backlog without clearing or racing data.
+- **Bridge RPC Endpoints:** Added `bridge.syncTime` and `bridge.clearCache` endpoints.
+
+---
+
 ## [1.0.2] - 2026-10-20
 
 ### Changed

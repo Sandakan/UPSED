@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "devtools": "react-devtools",
+    "lint-ui": "tsc --noEmit",
     "app:preview": "start ./src-tauri/target/release/upsed.exe",
     "app:build": "tauri build",
     "sync:logo": "node scripts/generate-logo.js",

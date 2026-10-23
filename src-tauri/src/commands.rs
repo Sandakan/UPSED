@@ -129,22 +129,19 @@ pub fn commit_bridge_backlog_to_db(
                 .unwrap_or_else(chrono::Utc::now)
                 .to_rfc3339();
 
-            if db
-                .insert_telemetry(&TelemetryRecord {
-                    id: None,
-                    timestamp: ts_rfc3339,
-                    ups_id: ups_id.to_string(),
-                    grid_voltage: status.grid_voltage_v,
-                    output_voltage: status.output_voltage_v,
-                    grid_frequency: status.grid_frequency_hz,
-                    output_frequency: status.output_frequency_hz,
-                    load_pct: status.output_load_pct,
-                    output_watts: status.output_watts,
-                    battery_voltage: status.battery_voltage_v,
-                    temperature_c: status.temperature_c,
-                })
-                .is_ok()
-            {
+            if let Ok(true) = db.insert_telemetry_if_not_exists(&TelemetryRecord {
+                id: None,
+                timestamp: ts_rfc3339,
+                ups_id: ups_id.to_string(),
+                grid_voltage: status.grid_voltage_v,
+                output_voltage: status.output_voltage_v,
+                grid_frequency: status.grid_frequency_hz,
+                output_frequency: status.output_frequency_hz,
+                load_pct: status.output_load_pct,
+                output_watts: status.output_watts,
+                battery_voltage: status.battery_voltage_v,
+                temperature_c: status.temperature_c,
+            }) {
                 inserted += 1;
             }
         }
@@ -1852,6 +1849,38 @@ pub async fn clear_bridge_backlog(
         state_clone
             .manager
             .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.clear_backlog())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn bridge_sync_time(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<BridgeStatus, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.sync_time())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn bridge_clear_cache(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<usize, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.clear_cache())
             .map_err(|e| e.to_string())
     })
     .await

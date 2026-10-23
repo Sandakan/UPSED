@@ -281,6 +281,34 @@ impl Database {
         Ok(())
     }
 
+    pub fn insert_telemetry_if_not_exists(&self, record: &TelemetryRecord) -> Result<bool> {
+        let conn = self.writer.lock().unwrap();
+        let mut check_stmt = conn.prepare_cached(
+            "SELECT 1 FROM telemetry WHERE ups_id = ?1 AND timestamp = ?2 LIMIT 1",
+        )?;
+        let exists: bool = check_stmt.exists(params![record.ups_id, record.timestamp])?;
+        if exists {
+            return Ok(false);
+        }
+        conn.execute(
+            "INSERT INTO telemetry (timestamp, ups_id, grid_voltage, output_voltage, grid_frequency, output_frequency, load_pct, output_watts, battery_voltage, temperature_c)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                record.timestamp,
+                record.ups_id,
+                record.grid_voltage,
+                record.output_voltage,
+                record.grid_frequency,
+                record.output_frequency,
+                record.load_pct,
+                record.output_watts,
+                record.battery_voltage,
+                record.temperature_c,
+            ],
+        )?;
+        Ok(true)
+    }
+
     pub fn query_recent_telemetry(
         &self,
         ups_id: &str,

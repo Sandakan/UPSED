@@ -10,6 +10,8 @@
 #include <time.h>
 
 #include "config.h"
+#include "rtc_clock.h"
+#include "cmd_cache.h"
 #include "backlog_store.h"
 #include "diag_log.h"
 #include "LedController.h"
@@ -26,9 +28,25 @@ WebServer otaServer(BRIDGE_OTA_PORT);
 Preferences prefs;
 BacklogStore backlogStore;
 DiagLogger diagLog;
+BridgeClock bridgeClock;
+UpsCommandCache cmdCache;
 static LedController ledController;
 static UpsTelemetrySnapshot upsTelemetry;
 static TuyaMqttController tuyaController;
+
+// Connected Client Tracking
+struct WsClientSession {
+    bool active = false;
+    uint8_t clientNum = 0;
+    String ip = "";
+    uint32_t connectedMs = 0;
+    uint32_t lastSeenMs = 0;
+    uint64_t reqCount = 0;
+};
+
+static WsClientSession wsClients[BRIDGE_MAX_WS_CLIENTS];
+static uint32_t usbLastSeenMs = 0;
+static uint64_t usbReqCount = 0;
 
 enum BridgeOperatingMode {
     MODE_PROXY = 0,
@@ -66,13 +84,40 @@ void broadcastLogNotification(const String& jsonNotif) {
     }
 }
 
+// Real-time broadcast sink for Stage T2/T3/T4 commands executed by any client
+void broadcastCommandExecuted(const String& cmd, const String& rawResp, const String& source) {
+    JsonDocument notifDoc;
+    notifDoc["jsonrpc"] = "2.0";
+    notifDoc["method"] = "bridge.cmdExecuted";
+    JsonObject params = notifDoc["params"].to<JsonObject>();
+    params["cmd"] = cmd;
+    params["raw"] = rawResp;
+    params["source"] = source;
+
+    uint32_t ts = bridgeClock.nowEpochSec();
+    if (ts > 1700000000) {
+        params["ts"] = ts;
+        String iso = bridgeClock.formatIso8601(ts);
+        if (iso.length() > 0) {
+            params["iso_ts"] = iso;
+        }
+    }
+
+    String serialized;
+    serializeJson(notifDoc, serialized);
+    Serial.println(serialized);
+    if (wsServerStarted) {
+        wsServer.broadcastTXT(serialized);
+    }
+}
+
 // ============================================================================
-// Helper: Current Timestamp (Unix Epoch if NTP synced, else Uptime Seconds)
+// Helper: Current Timestamp (Unix Epoch if synced, else Uptime Seconds)
 // ============================================================================
 uint32_t getCurrentTimestampSec() {
-    time_t now = time(nullptr);
-    if (now > 1700000000) {
-        return static_cast<uint32_t>(now);
+    uint32_t nowSec = bridgeClock.nowEpochSec();
+    if (nowSec > 1700000000) {
+        return nowSec;
     }
     return static_cast<uint32_t>(millis() / 1000UL);
 }
@@ -161,10 +206,25 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
 
     lastUpsCmdEndMs = millis();
 
-    // Update LED controller & telemetry snapshot based on UPS response
+    // Update command cache based on query type and outcome
     if (response.length() == 0 || response.startsWith("(NAK")) {
         ledController.setUpsState(UPS_LED_ERROR);
+        if (cleanCmd == "Q1") {
+            // Live poll failed: clear negative cache so subsequent identity queries aren't falsely rejected
+            cmdCache.clearNegative();
+        } else if (upsTelemetry.valid && UpsCommandCache::isStaticIdentityQuery(cleanCmd)) {
+            // UPS is confirmed online via Q1, but ignores unsupported identity command (e.g. Megatec P00):
+            // Cache negative result for 60s to prevent 1.4s UART timeouts on subsequent client connections
+            cmdCache.put(cleanCmd, response, true);
+        }
     } else if (response.startsWith("(")) {
+        if (UpsCommandCache::isReadOnlyQuery(cleanCmd)) {
+            cmdCache.put(cleanCmd, response, false);
+        } else {
+            // Stage T2/T3/T4 control or configuration write: invalidate dynamic telemetry cache
+            cmdCache.invalidateDynamic();
+        }
+
         if (cleanCmd == "Q1") {
             upsTelemetry.parseQ1Response(response);
             tuyaController.updateContextState(upsTelemetry, currentMode == MODE_PROXY);
@@ -226,7 +286,7 @@ void ensureNetworkServicesStarted() {
             arduinoOtaStarted = true;
             diagLog.info("[OTA] ArduinoOTA listener started on port 3232");
         }
-        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        configTime(bridgeClock.tzOffsetMin() * 60, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
     }
 }
 
@@ -472,12 +532,56 @@ void populateStatusObject(JsonObject& res) {
     res["tuya_connected"] = tuyaController.isConnected();
     res["tuya_region"] = tuyaController.getRegion();
     res["tuya_last_error"] = tuyaController.getLastError();
+
+    // Dual-source RTC clock telemetry
+    uint32_t rtcNow = bridgeClock.nowEpochSec();
+    res["rtc_ts"] = rtcNow;
+    res["rtc_iso"] = bridgeClock.formatIso8601(rtcNow);
+    res["time_synced"] = bridgeClock.isSynced();
+    res["time_source"] = bridgeClock.timeSource();
+    res["tz_offset_min"] = bridgeClock.tzOffsetMin();
+
+    // Multi-client telemetry
+    size_t activeWsCount = 0;
+    for (size_t i = 0; i < BRIDGE_MAX_WS_CLIENTS; i++) {
+        if (wsClients[i].active) activeWsCount++;
+    }
+    res["ws_clients"] = activeWsCount;
+    bool usbActive = (usbLastSeenMs > 0 && (millis() - usbLastSeenMs <= PROXY_TIMEOUT_MS));
+    res["usb_client_active"] = usbActive;
+
+    JsonArray clientsArr = res["connected_clients"].to<JsonArray>();
+    if (usbActive) {
+        JsonObject usbObj = clientsArr.add<JsonObject>();
+        usbObj["id"] = "usb:0";
+        usbObj["medium"] = "usb";
+        usbObj["ip"] = "USB-CDC";
+        usbObj["connected_sec"] = (millis() - usbLastSeenMs) / 1000UL;
+        usbObj["req_count"] = usbReqCount;
+    }
+    for (size_t i = 0; i < BRIDGE_MAX_WS_CLIENTS; i++) {
+        if (wsClients[i].active) {
+            JsonObject wsObj = clientsArr.add<JsonObject>();
+            wsObj["id"] = "ws:" + String(wsClients[i].clientNum);
+            wsObj["medium"] = "websocket";
+            wsObj["ip"] = wsClients[i].ip;
+            wsObj["connected_sec"] = (millis() - wsClients[i].connectedMs) / 1000UL;
+            wsObj["req_count"] = wsClients[i].reqCount;
+        }
+    }
+
+    // Cache telemetry
+    res["cache_hits"] = cmdCache.hits();
+    res["cache_misses"] = cmdCache.misses();
+    res["cache_entries"] = cmdCache.validEntries();
+    res["cache_capacity"] = cmdCache.capacity();
+    res["cache_ttl_ms"] = cmdCache.telemetryTtlMs();
 }
 
 // ============================================================================
 // JSON-RPC 2.0 Request Router (Shared by USB Serial & Wi-Fi WebSocket)
 // ============================================================================
-void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
+void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int clientNum = -1) {
     JsonDocument reqDoc;
     DeserializationError err = deserializeJson(reqDoc, jsonLine);
 
@@ -499,10 +603,26 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
         resDoc["id"] = reqDoc["id"];
     }
 
-    // Flush any unacknowledged log notifications before responding
+    // 1. Piggybacked Host Real-Time Clock Synchronization
+    if (!reqDoc["params"].isNull() && reqDoc["params"]["host_ts"].is<uint32_t>()) {
+        uint32_t hostTs = reqDoc["params"]["host_ts"].as<uint32_t>();
+        int32_t tzMin = reqDoc["params"]["tz_offset_min"] | 0;
+        bridgeClock.syncFromHost(hostTs, tzMin);
+    }
+
+    // 2. Unicast Unacknowledged Log Notifications (Send only to requesting client)
     if (!reqDoc["params"].isNull() && reqDoc["params"]["ack_seq"].is<uint32_t>()) {
         uint32_t ackSeq = reqDoc["params"]["ack_seq"].as<uint32_t>();
-        diagLog.flushUnacked(ackSeq, broadcastLogNotification);
+        if (clientNum >= 0 && wsServerStarted) {
+            uint8_t cNum = static_cast<uint8_t>(clientNum);
+            diagLog.flushUnacked(ackSeq, [cNum](const String& notif) {
+                wsServer.sendTXT(cNum, notif.c_str());
+            });
+        } else {
+            diagLog.flushUnacked(ackSeq, [](const String& notif) {
+                Serial.println(notif);
+            });
+        }
     }
 
     const char* method = reqDoc["method"] | "";
@@ -526,19 +646,68 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
             errObj["code"] = -32602;
             errObj["message"] = "Missing 'cmd' parameter";
         } else {
-            String upsReply = executeUpsCommand(String(cmd), false);
-            if (upsReply.length() == 0) {
-                JsonObject errObj = resDoc["error"].to<JsonObject>();
-                errObj["code"] = -32000;
-                errObj["message"] = "UPS serial read timeout";
+            bool forceRefresh = reqDoc["params"]["force_refresh"] | false;
+            String cachedRaw;
+            unsigned long cachedAgeMs = 0;
+            bool isNegative = false;
+            uint32_t cachedRtcTs = 0;
+
+            if (!forceRefresh && cmdCache.get(String(cmd), cachedRaw, cachedAgeMs, isNegative, cachedRtcTs)) {
+                if (isNegative || cachedRaw.length() == 0) {
+                    JsonObject errObj = resDoc["error"].to<JsonObject>();
+                    errObj["code"] = -32000;
+                    errObj["message"] = "UPS serial read timeout (cached)";
+                } else {
+                    JsonObject result = resDoc["result"].to<JsonObject>();
+                    result["raw"] = cachedRaw;
+                    result["cached"] = true;
+                    result["cache_age_ms"] = cachedAgeMs;
+                    result["rtc_ts"] = cachedRtcTs;
+                    result["backlog_records"] = backlogStore.count();
+                    result["log_seq"] = diagLog.latestSeq();
+                    result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+                }
             } else {
-                JsonObject result = resDoc["result"].to<JsonObject>();
-                result["raw"] = upsReply;
-                result["backlog_records"] = backlogStore.count();
-                result["log_seq"] = diagLog.latestSeq();
-                result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+                String upsReply = executeUpsCommand(String(cmd), false);
+                if (upsReply.length() == 0) {
+                    JsonObject errObj = resDoc["error"].to<JsonObject>();
+                    errObj["code"] = -32000;
+                    errObj["message"] = "UPS serial read timeout";
+                } else {
+                    // Broadcast command execution notification to all other connected clients if state-modifying
+                    if (!UpsCommandCache::isReadOnlyQuery(String(cmd))) {
+                        String source = (clientNum >= 0 && clientNum < BRIDGE_MAX_WS_CLIENTS)
+                            ? ("ws:" + wsClients[clientNum].ip)
+                            : "usb";
+                        broadcastCommandExecuted(String(cmd), upsReply, source);
+                    }
+
+                    JsonObject result = resDoc["result"].to<JsonObject>();
+                    result["raw"] = upsReply;
+                    result["cached"] = false;
+                    result["cache_age_ms"] = 0;
+                    result["rtc_ts"] = bridgeClock.nowEpochSec();
+                    result["backlog_records"] = backlogStore.count();
+                    result["log_seq"] = diagLog.latestSeq();
+                    result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+                }
             }
         }
+    }
+    else if (strcmp(method, "bridge.syncTime") == 0) {
+        uint32_t hostTs = reqDoc["params"]["host_ts"] | 0;
+        int32_t tzMin = reqDoc["params"]["tz_offset_min"] | 0;
+        bool ok = bridgeClock.syncFromHost(hostTs, tzMin);
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        result["synced"] = ok;
+        result["time_source"] = bridgeClock.timeSource();
+        result["rtc_ts"] = bridgeClock.nowEpochSec();
+        result["rtc_iso"] = bridgeClock.formatIso8601(bridgeClock.nowEpochSec());
+    }
+    else if (strcmp(method, "bridge.clearCache") == 0) {
+        cmdCache.clear();
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        result["cleared"] = true;
     }
     else if (strcmp(method, "bridge.scanWifi") == 0) {
         diagLog.info("[WIFI] Scanning 2.4GHz Wi-Fi networks...");
@@ -610,14 +779,18 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
         }
     }
     else if (strcmp(method, "bridge.getBacklog") == 0) {
+        size_t offset = reqDoc["params"]["offset"] | 0;
         size_t limit = reqDoc["params"]["limit"] | 50;
         if (limit > 100) limit = 100;
 
         JsonObject result = resDoc["result"].to<JsonObject>();
         JsonArray recordsArr = result["records"].to<JsonArray>();
-        size_t fetched = backlogStore.peekRecordsToJson(recordsArr, limit);
+        uint32_t bootSec = bridgeClock.bootEpochSec();
+        size_t fetched = backlogStore.peekRecordsToJson(recordsArr, offset, limit, bootSec);
         result["fetched"] = fetched;
+        result["offset"] = offset;
         result["total_remaining"] = backlogStore.count();
+        result["has_more"] = ((offset + fetched) < backlogStore.count());
     }
     else if (strcmp(method, "bridge.clearBacklog") == 0) {
         size_t countToPop = reqDoc["params"]["count"] | 0;
@@ -691,14 +864,29 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t
     if (type == WStype_CONNECTED) {
         IPAddress ip = wsServer.remoteIP(clientNum);
         diagLog.info("[WS] Client #%u connected from %s", clientNum, ip.toString().c_str());
+        if (clientNum < BRIDGE_MAX_WS_CLIENTS) {
+            wsClients[clientNum].active = true;
+            wsClients[clientNum].clientNum = clientNum;
+            wsClients[clientNum].ip = ip.toString();
+            wsClients[clientNum].connectedMs = millis();
+            wsClients[clientNum].lastSeenMs = millis();
+            wsClients[clientNum].reqCount = 0;
+        }
     } else if (type == WStype_DISCONNECTED) {
         diagLog.info("[WS] Client #%u disconnected", clientNum);
+        if (clientNum < BRIDGE_MAX_WS_CLIENTS) {
+            wsClients[clientNum].active = false;
+        }
     } else if (type == WStype_TEXT && payload != nullptr && length > 0) {
+        if (clientNum < BRIDGE_MAX_WS_CLIENTS) {
+            wsClients[clientNum].lastSeenMs = millis();
+            wsClients[clientNum].reqCount++;
+        }
         String reqStr = String(reinterpret_cast<const char*>(payload), length);
         reqStr.trim();
         if (reqStr.length() > 0) {
             String resStr;
-            handleJsonRpcRequest(reqStr, resStr);
+            handleJsonRpcRequest(reqStr, resStr, clientNum);
             wsServer.sendTXT(clientNum, resStr);
         }
     }
@@ -758,6 +946,7 @@ void setup() {
     ledController.setWifiState(WIFI_LED_BOOT);
     ledController.forceUpdate();
 
+    bridgeClock.begin();
     diagLog.setNotificationSink(broadcastLogNotification);
     backlogStore.begin();
     tuyaController.begin(&diagLog, executeUpsCommand);
@@ -795,8 +984,10 @@ void loop() {
             serialLineBuf.trim();
             if (serialLineBuf.length() > 0) {
                 if (serialLineBuf.startsWith("{")) {
+                    usbLastSeenMs = millis();
+                    usbReqCount++;
                     String response;
-                    handleJsonRpcRequest(serialLineBuf, response);
+                    handleJsonRpcRequest(serialLineBuf, response, -1);
                     Serial.println(response);
                 }
                 serialLineBuf = "";

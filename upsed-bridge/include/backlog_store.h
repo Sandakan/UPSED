@@ -79,18 +79,20 @@ public:
         return true;
     }
 
-    // Read up to `limit` records from the oldest end without removing them yet,
+    // Read up to `limit` records starting at `offset` from the oldest end without removing them,
     // deserializing each stored MessagePack record into the target JsonArray.
-    size_t peekRecordsToJson(JsonArray& outArray, size_t limit) const {
-        if (!buffer_ || count_ == 0) {
+    // If bootEpochSec is provided (>1.7B), any early record stored with uptime seconds is retroactively converted.
+    size_t peekRecordsToJson(JsonArray& outArray, size_t offset, size_t limit, uint32_t bootEpochSec = 0) const {
+        if (!buffer_ || count_ == 0 || offset >= count_) {
             return 0;
         }
 
-        size_t toRead = (limit < count_) ? limit : count_;
+        size_t available = count_ - offset;
+        size_t toRead = (limit < available) ? limit : available;
         size_t fetched = 0;
 
         for (size_t i = 0; i < toRead; i++) {
-            size_t idx = (tail_ + i) % capacity_;
+            size_t idx = (tail_ + offset + i) % capacity_;
             const uint8_t* slot = slotPtr(idx);
             uint8_t packedLen = slot[0];
             if (packedLen == 0 || packedLen >= BACKLOG_SLOT_BYTES) {
@@ -101,12 +103,21 @@ public:
             DeserializationError err = deserializeMsgPack(itemDoc, slot + 1, packedLen);
             if (!err) {
                 JsonObject obj = outArray.add<JsonObject>();
-                obj["ts"] = itemDoc["ts"].as<uint32_t>();
+                uint32_t recTs = itemDoc["ts"].as<uint32_t>();
+                // Retroactive boot epoch backfill for samples captured before clock sync
+                if (recTs < 1700000000 && bootEpochSec > 1700000000) {
+                    recTs = bootEpochSec + recTs;
+                }
+                obj["ts"] = recTs;
                 obj["raw"] = itemDoc["raw"].as<const char*>();
                 fetched++;
             }
         }
         return fetched;
+    }
+
+    size_t peekRecordsToJson(JsonArray& outArray, size_t limit) const {
+        return peekRecordsToJson(outArray, 0, limit, 0);
     }
 
     // Remove `numToPop` oldest records (or clear all if numToPop == 0 or >= count_)

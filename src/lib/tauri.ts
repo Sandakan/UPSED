@@ -239,6 +239,12 @@ export const api = {
 
   testBridgeTuyaPublish: (portName?: string) =>
     invoke<TuyaBridgeConfig>('test_bridge_tuya_publish', { portName }),
+
+  bridgeSyncTime: (portName?: string) =>
+    invoke<BridgeStatus>('bridge_sync_time', { portName }),
+
+  bridgeClearCache: (portName?: string) =>
+    invoke<number>('bridge_clear_cache', { portName }),
 };
 
 

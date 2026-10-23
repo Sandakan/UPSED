@@ -34,8 +34,18 @@ pub fn is_bridge_fw_compatible(fw: &str, min_supported: &str) -> bool {
     fw_parts >= min_parts
 }
 
+/// Connected client session tracked on the ESP32 Hardware Bridge.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BridgeClientInfo {
+    pub id: String,
+    pub medium: String,
+    pub ip: String,
+    pub connected_sec: u64,
+    pub req_count: u64,
+}
+
 /// Status snapshot returned by the ESP32-S3 Hardware Bridge (`bridge.ping` / `bridge.getStatus`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BridgeStatus {
     pub bridge: String,
     pub fw: String,
@@ -79,6 +89,38 @@ pub struct BridgeStatus {
     pub tuya_region: String,
     #[serde(default)]
     pub tuya_last_error: String,
+
+    // Real-Time Clock (RTC) Telemetry
+    #[serde(default)]
+    pub rtc_ts: u64,
+    #[serde(default)]
+    pub rtc_iso: String,
+    #[serde(default)]
+    pub time_synced: bool,
+    #[serde(default)]
+    pub time_source: String,
+    #[serde(default)]
+    pub tz_offset_min: i32,
+
+    // Multi-Client Telemetry
+    #[serde(default)]
+    pub ws_clients: usize,
+    #[serde(default)]
+    pub usb_client_active: bool,
+    #[serde(default)]
+    pub connected_clients: Vec<BridgeClientInfo>,
+
+    // Command Cache Telemetry
+    #[serde(default)]
+    pub cache_hits: u64,
+    #[serde(default)]
+    pub cache_misses: u64,
+    #[serde(default)]
+    pub cache_entries: usize,
+    #[serde(default)]
+    pub cache_capacity: usize,
+    #[serde(default)]
+    pub cache_ttl_ms: u64,
 }
 
 /// Configuration and live state of the ESP32-S3 TuyaLink MQTT Controller.
@@ -213,6 +255,27 @@ pub fn emit_transport_status(port_name: &str, active_transport: &str, ip: Option
                 active_transport: active_transport.to_string(),
                 ip: ip.map(|s| s.to_string()),
                 host: ip.map(|s| s.to_string()),
+            },
+        );
+    }
+}
+
+/// Real-time event emitted when another connected client executes a command on the shared bridge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeCmdExecutedEvent {
+    pub cmd: String,
+    pub source: String,
+    pub ts: u64,
+}
+
+pub fn emit_bridge_cmd_executed(cmd: &str, source: &str, ts: u64) {
+    if let Some(app) = get_bridge_app_handle() {
+        let _ = app.emit(
+            "ups-bridge-cmd-executed",
+            &BridgeCmdExecutedEvent {
+                cmd: cmd.to_string(),
+                source: source.to_string(),
+                ts,
             },
         );
     }
@@ -462,8 +525,9 @@ impl BridgeTransport {
 
     pub fn drain_backlog(&mut self) -> Result<Vec<BridgeBacklogRecord>, ProtocolError> {
         let mut all_records = Vec::new();
+        let mut offset = 0;
         for _ in 0..200 {
-            let (val, _) = self.call_rpc("bridge.getBacklog", json!({ "limit": 50 }))?;
+            let (val, _) = self.call_rpc("bridge.getBacklog", json!({ "offset": offset, "limit": 50 }))?;
             let batch: Vec<BridgeBacklogRecord> = val
                 .get("records")
                 .cloned()
@@ -476,13 +540,22 @@ impl BridgeTransport {
             let fetched_count = batch.len();
             all_records.extend(batch);
 
-            let _ = self.call_rpc("bridge.clearBacklog", json!({ "count": fetched_count }))?;
-            let total_remaining = val
-                .get("total_remaining")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-            if total_remaining <= fetched_count {
-                break;
+            // If the bridge supports non-destructive pagination (v1.2.0+), it returns "has_more"
+            if let Some(has_more) = val.get("has_more").and_then(|v| v.as_bool()) {
+                if !has_more {
+                    break;
+                }
+                offset += fetched_count;
+            } else {
+                // Legacy bridge firmware (v1.0.0 / v1.1.0): destructive drain using clearBacklog
+                let _ = self.call_rpc("bridge.clearBacklog", json!({ "count": fetched_count }))?;
+                let total_remaining = val
+                    .get("total_remaining")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                if total_remaining <= fetched_count {
+                    break;
+                }
             }
         }
         Ok(all_records)
@@ -495,6 +568,35 @@ impl BridgeTransport {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize;
         Ok(remaining)
+    }
+
+    /// Explicitly synchronize real-world time to the ESP32 RTC via host epoch seconds and timezone offset.
+    pub fn sync_time(&mut self) -> Result<BridgeStatus, ProtocolError> {
+        let now = chrono::Local::now();
+        let offset_secs = now.offset().local_minus_utc();
+        let (val, medium) = self.call_rpc(
+            "bridge.syncTime",
+            json!({
+                "host_ts": now.timestamp(),
+                "tz_offset_min": offset_secs / 60,
+            }),
+        )?;
+        let mut status: BridgeStatus = serde_json::from_value(val)
+            .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.syncTime payload: {}", e)))?;
+        status.active_transport = medium;
+        status.enrich_compatibility();
+
+        if let Ok(mut guard) = self.last_status.lock() {
+            *guard = Some(status.clone());
+        }
+        Ok(status)
+    }
+
+    /// Explicitly invalidate all cached UPS query responses on the ESP32 command cache.
+    pub fn clear_cache(&mut self) -> Result<usize, ProtocolError> {
+        let (val, _) = self.call_rpc("bridge.clearCache", json!({}))?;
+        let cleared = val.get("cleared").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        Ok(cleared)
     }
 
     pub fn start_ota(&mut self, token: &str) -> Result<OtaLeaseInfo, ProtocolError> {
@@ -612,9 +714,14 @@ impl BridgeTransport {
         let rpc_id = self.next_rpc_id;
         self.next_rpc_id = self.next_rpc_id.wrapping_add(1);
 
-        // Option 1: Attach ack_seq so the ESP32 flushes unacknowledged real-time logs
+        // Attach ack_seq and host RTC piggyback so the ESP32 flushes unacknowledged real-time logs
+        // and synchronizes real-world time without requiring NTP.
         if let Some(obj) = params.as_object_mut() {
             obj.insert("ack_seq".to_string(), json!(GLOBAL_LAST_ACK_SEQ.load(Ordering::Relaxed)));
+            let now = chrono::Local::now();
+            obj.insert("host_ts".to_string(), json!(now.timestamp()));
+            let offset_secs = now.offset().local_minus_utc();
+            obj.insert("tz_offset_min".to_string(), json!(offset_secs / 60));
         }
 
         let request_json = json!({
@@ -773,8 +880,12 @@ impl BridgeTransport {
                     if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
                         // Check if this is an unprompted real-time notification
                         if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
-                            if doc.get("method").and_then(|m| m.as_str()) == Some("bridge.log") {
-                                process_bridge_notification(&doc);
+                            if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
+                                if method == "bridge.log" {
+                                    process_bridge_notification(&doc);
+                                } else if method == "bridge.cmdExecuted" {
+                                    process_bridge_cmd_executed(&doc);
+                                }
                             }
                             continue;
                         }
@@ -837,8 +948,12 @@ impl BridgeTransport {
                             let trimmed = txt.trim();
                             if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
                                 if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
-                                    if doc.get("method").and_then(|m| m.as_str()) == Some("bridge.log") {
-                                        process_bridge_notification(&doc);
+                                    if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
+                                        if method == "bridge.log" {
+                                            process_bridge_notification(&doc);
+                                        } else if method == "bridge.cmdExecuted" {
+                                            process_bridge_cmd_executed(&doc);
+                                        }
                                     }
                                     continue;
                                 }
@@ -877,6 +992,12 @@ fn process_bridge_notification(doc: &Value) {
         let ms = params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
         let level = params.get("level").and_then(|v| v.as_str()).unwrap_or("INFO").to_string();
         let msg = params.get("msg").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let timestamp = params
+            .get("iso_ts")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
         let current = GLOBAL_LAST_ACK_SEQ.load(Ordering::Relaxed);
         if seq > current || (seq <= 5 && current > 100) {
@@ -888,9 +1009,28 @@ fn process_bridge_notification(doc: &Value) {
             ms,
             level,
             msg,
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp,
             source: "ESP32-FW".to_string(),
         });
+    }
+}
+
+fn process_bridge_cmd_executed(doc: &Value) {
+    if let Some(params) = doc.get("params") {
+        let cmd = params.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+        let source = params.get("source").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let ts = params.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: format!("Remote client ({}) executed UPS command: {}", source, cmd),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "ESP32-FW".into(),
+        });
+
+        emit_bridge_cmd_executed(cmd, source, ts);
     }
 }
 
@@ -1340,6 +1480,7 @@ mod tests {
             tuya_connected: false,
             tuya_region: "eu".into(),
             tuya_last_error: "None".into(),
+            ..Default::default()
         };
 
         valid_status.enrich_compatibility();
@@ -1350,5 +1491,60 @@ mod tests {
         outdated_status.fw = "0.9.0".into();
         outdated_status.enrich_compatibility();
         assert!(!outdated_status.is_compatible);
+    }
+
+    #[test]
+    fn test_bridge_status_v120_deserialization() {
+        let json_str = r#"{
+            "bridge": "UPSED_BRIDGE_V1",
+            "fw": "1.2.0",
+            "mac": "24:DC:C3:98:81:6C",
+            "mode": "proxy",
+            "wifi_connected": true,
+            "ssid": "MyHomeWiFi",
+            "ip": "192.168.1.150",
+            "ws_port": 81,
+            "uptime_sec": 3600,
+            "rtc_ts": 1740000000,
+            "rtc_iso": "2025-02-19T14:40:00Z",
+            "time_synced": true,
+            "time_source": "NTP",
+            "tz_offset_min": 330,
+            "ws_clients": 2,
+            "usb_client_active": true,
+            "connected_clients": [
+                {
+                    "id": "ws:3",
+                    "medium": "websocket",
+                    "ip": "192.168.1.100",
+                    "connected_sec": 450,
+                    "req_count": 120
+                },
+                {
+                    "id": "usb:0",
+                    "medium": "usb",
+                    "ip": "local",
+                    "connected_sec": 3600,
+                    "req_count": 890
+                }
+            ],
+            "cache_hits": 45,
+            "cache_misses": 12,
+            "cache_entries": 4,
+            "cache_capacity": 16,
+            "cache_ttl_ms": 1500
+        }"#;
+
+        let status: BridgeStatus = serde_json::from_str(json_str).expect("Should deserialize v1.2.0 status");
+        assert_eq!(status.fw, "1.2.0");
+        assert!(status.time_synced);
+        assert_eq!(status.time_source, "NTP");
+        assert_eq!(status.tz_offset_min, 330);
+        assert_eq!(status.ws_clients, 2);
+        assert!(status.usb_client_active);
+        assert_eq!(status.connected_clients.len(), 2);
+        assert_eq!(status.cache_hits, 45);
+        assert_eq!(status.cache_misses, 12);
+        assert_eq!(status.cache_entries, 4);
     }
 }

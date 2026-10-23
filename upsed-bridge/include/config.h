@@ -7,7 +7,7 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.1.0"
+#define BRIDGE_FIRMWARE_VER    "1.2.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
@@ -16,6 +16,13 @@
 #ifndef BRIDGE_OTA_SECRET
 #define BRIDGE_OTA_SECRET      "upsed-ota-default-secret"
 #endif
+
+// Multi-Client WebSocket & Command Cache Configuration
+#define BRIDGE_MAX_WS_CLIENTS      8
+#define CMD_CACHE_CAPACITY         16
+#define UPS_CACHE_TELEMETRY_TTL_MS 1500UL
+#define UPS_CACHE_CONFIG_TTL_MS    10000UL
+#define UPS_CACHE_STATIC_TTL_MS    60000UL
 
 // UART0 (USB Serial Bridge to Desktop PC)
 #define PC_SERIAL_BAUD         115200

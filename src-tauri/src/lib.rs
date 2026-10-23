@@ -302,6 +302,8 @@ pub fn run() {
             commands::set_bridge_fallback_host,
             commands::scan_bridge_wifi,
             commands::clear_bridge_backlog,
+            commands::bridge_sync_time,
+            commands::bridge_clear_cache,
             commands::test_bridge_websocket,
             commands::discover_bridge_on_lan,
             commands::get_bridge_log_history,

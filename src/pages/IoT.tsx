@@ -14,7 +14,6 @@ import {
   Copy,
   Trash2,
   Radio,
-  Server,
   Lock,
   Unlock,
   Eye,
@@ -42,6 +41,7 @@ import {
   ChevronDown,
   ChevronUp,
   Sliders,
+  Users,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { useQueryClient } from '@tanstack/react-query';
@@ -57,6 +57,7 @@ import {
   BridgeFirmwareCheckResult,
   OtaProgressEvent,
   TuyaBridgeConfig,
+  BridgeCmdExecutedEvent,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -222,6 +223,8 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   const [wsTestResult, setWsTestResult] = useState<WsTestResult | null>(null);
   const [isTestingWs, setIsTestingWs] = useState(false);
   const [isDiscoveringLan, setIsDiscoveringLan] = useState(false);
+  const [isSyncingTime, setIsSyncingTime] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
 
   // Backlog Manager
   const [isSyncingBacklog, setIsSyncingBacklog] = useState(false);
@@ -545,6 +548,43 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
       if (unlistenFn) unlistenFn();
     };
   }, [refreshStatus, queryClient]);
+
+  // Real-time remote command execution listener across concurrent UPSED app instances
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+
+    listen<BridgeCmdExecutedEvent>('ups-bridge-cmd-executed', (event) => {
+      if (!isMounted) return;
+      const { cmd, source } = event.payload;
+      queryClient.invalidateQueries({ queryKey: ['device_status'] });
+      queryClient.invalidateQueries({ queryKey: ['outlet_states'] });
+      queryClient.invalidateQueries({ queryKey: ['device_ratings'] });
+      refreshStatus();
+      toast.custom(
+        JSON.stringify({
+          title: 'Remote UPS Command Executed',
+          description: `Client "${source}" dispatched command "${cmd}" to the UPS. Local telemetry cache refreshed.`,
+          event: {
+            severity: 'info',
+            event_type: 'BRIDGE_REMOTE_CMD',
+            timestamp: new Date().toISOString(),
+          },
+        })
+      );
+    }).then((unlisten) => {
+      if (!isMounted) {
+        unlisten();
+      } else {
+        unlistenFn = unlisten;
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, [queryClient, refreshStatus]);
 
   // Initial firmware check when status loads
   useEffect(() => {
@@ -882,6 +922,36 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
     }
   };
 
+  // Sync Host Time to ESP32 RTC
+  const handleSyncTime = async () => {
+    setIsSyncingTime(true);
+    try {
+      const res = await api.bridgeSyncTime(portName ?? undefined);
+      setStatus(res);
+      toast.success(
+        `ESP32 RTC synchronized: ${res.rtc_iso ? new Date(res.rtc_iso).toLocaleTimeString() : 'OK'} (${res.time_source || 'Host'})`
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSyncingTime(false);
+    }
+  };
+
+  // Invalidate Command Cache
+  const handleClearCache = async () => {
+    setIsClearingCache(true);
+    try {
+      const count = await api.bridgeClearCache(portName ?? undefined);
+      await refreshStatus();
+      toast.success(`Bridge query cache cleared (${count} entries removed)`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
+
   // Sync Backlog
   const handleSyncBacklog = async () => {
     setIsSyncingBacklog(true);
@@ -1158,21 +1228,41 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
           </div>
         </div>
 
-        {/* Card 4: Uptime & Diagnostics */}
+        {/* Card 4: Uptime & RTC Diagnostics */}
         <div className="rounded-2xl p-4 border border-white/[0.08] bg-[#1e232d]/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ESP32 Uptime</span>
-            <span className="text-[11px] font-mono text-slate-400">
-              Seq #{status?.log_seq ?? 0}
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ESP32 Uptime &amp; RTC</span>
+            <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${
+              status?.time_synced
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+            }`}>
+              {status?.time_synced ? `${status.time_source || 'NTP'} Synced` : 'Unsynced'}
             </span>
           </div>
           <div className="mt-3">
-            <div className="text-lg font-bold text-white font-mono">
-              {status?.uptime_sec ? formatUptime(status.uptime_sec) : '0s'}
+            <div className="text-lg font-bold text-white font-mono flex items-center justify-between">
+              <span>{status?.uptime_sec ? formatUptime(status.uptime_sec) : '0s'}</span>
+              <button
+                onClick={handleSyncTime}
+                disabled={isSyncingTime}
+                title="Synchronize host real-world time to ESP32 RTC"
+                className="text-[10px] text-emerald-400 hover:text-emerald-300 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 font-sans"
+              >
+                <Clock className={`w-3 h-3 ${isSyncingTime ? 'animate-spin' : ''}`} />
+                <span>Sync</span>
+              </button>
             </div>
-            <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
-              <Server className="w-3.5 h-3.5 text-slate-500" />
-              <span className="font-mono">Port {status?.ws_port ?? 81} • wsServer</span>
+            <div className="text-xs text-slate-400 mt-1 flex items-center justify-between gap-1.5 font-mono">
+              <span className="flex items-center gap-1 truncate text-slate-300">
+                <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span className="truncate">
+                  {status?.rtc_iso ? new Date(status.rtc_iso).toLocaleTimeString() : 'RTC --:--'}
+                </span>
+              </span>
+              <span className="text-[10px] text-slate-500 shrink-0">
+                Port {status?.ws_port ?? 81}
+              </span>
             </div>
           </div>
         </div>
@@ -1767,6 +1857,118 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
             </div>
           </div>
         )}
+
+        {/* Multi-App Concurrency & Connected Client Sessions */}
+        <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center space-x-2.5">
+              <Users className="w-5 h-5 text-emerald-400" />
+              <div>
+                <h3 className="text-base font-semibold text-white">Multi-App Concurrency Sessions</h3>
+                <p className="text-xs text-slate-400">
+                  The ESP32 bridge allows concurrent connections from multiple UPSED app instances across your LAN.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full text-xs font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {(status?.ws_clients ?? 0) + (status?.usb_client_active ? 1 : 0)} Active Client{(status?.ws_clients ?? 0) + (status?.usb_client_active ? 1 : 0) === 1 ? '' : 's'}
+              </span>
+              <span className="text-[11px] font-mono text-slate-500">Max: 8</span>
+            </div>
+          </div>
+
+          {status?.connected_clients && status.connected_clients.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-black/30 text-slate-400 text-[11px] font-semibold uppercase tracking-wider border-b border-white/[0.06]">
+                  <tr>
+                    <th className="py-2.5 px-3">Session ID</th>
+                    <th className="py-2.5 px-3">Transport Medium</th>
+                    <th className="py-2.5 px-3">Remote Address</th>
+                    <th className="py-2.5 px-3">Connected Duration</th>
+                    <th className="py-2.5 px-3 text-right">Requests Serviced</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {status.connected_clients.map((client) => (
+                    <tr key={client.id} className="hover:bg-white/[0.02] transition">
+                      <td className="py-2.5 px-3 font-mono text-slate-200">{client.id}</td>
+                      <td className="py-2.5 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
+                          client.medium === 'websocket'
+                            ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        }`}>
+                          {client.medium === 'websocket' ? 'Wi-Fi WebSocket' : 'USB CDC'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-slate-400">{client.ip}</td>
+                      <td className="py-2.5 px-3 text-slate-400">{formatUptime(client.connected_sec)}</td>
+                      <td className="py-2.5 px-3 font-mono text-right text-emerald-400">{client.req_count.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-black/20 border border-white/[0.04] text-xs text-slate-500 text-center">
+              No active remote client sessions reported by ESP32.
+            </div>
+          )}
+        </div>
+
+        {/* Hardware Serial Bus Query Cache */}
+        <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center space-x-2.5">
+              <Zap className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="text-base font-semibold text-white">Serial Bus Command Cache</h3>
+                <p className="text-xs text-slate-400">
+                  Caches previous UPS responses on the ESP32 to eliminate 2400-baud RS-232 serial contention across concurrent apps.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleClearCache}
+              disabled={isClearingCache || (status?.cache_entries ?? 0) === 0}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition cursor-pointer disabled:opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isClearingCache ? 'Clearing...' : 'Invalidate Cache'}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <div className="text-[10px] text-slate-500 mb-0.5">Cache Hit Ratio</div>
+              <div className="text-base font-bold text-emerald-400 font-mono">
+                {(status?.cache_hits ?? 0) + (status?.cache_misses ?? 0) > 0
+                  ? `${Math.round(((status?.cache_hits ?? 0) / ((status?.cache_hits ?? 0) + (status?.cache_misses ?? 0))) * 100)}%`
+                  : '—'}
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <div className="text-[10px] text-slate-500 mb-0.5">Cache Hits / Misses</div>
+              <div className="text-base font-bold text-slate-200 font-mono">
+                {status?.cache_hits ?? 0} <span className="text-xs text-slate-500 font-normal">/ {status?.cache_misses ?? 0}</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <div className="text-[10px] text-slate-500 mb-0.5">Occupied Slots</div>
+              <div className="text-base font-bold text-slate-200 font-mono">
+                {status?.cache_entries ?? 0} <span className="text-xs text-slate-500 font-normal">/ {status?.cache_capacity ?? 16}</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <div className="text-[10px] text-slate-500 mb-0.5">Telemetry TTL</div>
+              <div className="text-base font-bold text-cyan-400 font-mono">
+                {status?.cache_ttl_ms ?? 1500} ms
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Hardware Status LED Diagnostic Guide */}
         <BridgeLedGuide />

@@ -195,6 +195,14 @@ export interface DbStats {
   newest_telemetry?: string | null;
 }
 
+export interface BridgeClientInfo {
+  id: string;
+  medium: 'websocket' | 'usb' | string;
+  ip: string;
+  connected_sec: number;
+  req_count: number;
+}
+
 export interface BridgeStatus {
   bridge: string;
   fw: string;
@@ -220,6 +228,25 @@ export interface BridgeStatus {
   tuya_connected?: boolean;
   tuya_region?: string;
   tuya_last_error?: string;
+
+  // Real-Time Clock (RTC) Telemetry
+  rtc_ts?: number;
+  rtc_iso?: string;
+  time_synced?: boolean;
+  time_source?: string;
+  tz_offset_min?: number;
+
+  // Multi-Client Telemetry
+  ws_clients?: number;
+  usb_client_active?: boolean;
+  connected_clients?: BridgeClientInfo[];
+
+  // Command Cache Telemetry
+  cache_hits?: number;
+  cache_misses?: number;
+  cache_entries?: number;
+  cache_capacity?: number;
+  cache_ttl_ms?: number;
 }
 
 export interface TuyaBridgeConfig {
@@ -297,6 +324,12 @@ export interface OtaProgressEvent {
   bytes_transferred: number;
   total_bytes: number;
   message: string;
+}
+
+export interface BridgeCmdExecutedEvent {
+  cmd: string;
+  source: string;
+  ts: number;
 }
 
 

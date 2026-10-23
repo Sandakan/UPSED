@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <esp_wifi.h>
+#include "rtc_clock.h"
 
 // ============================================================================
 // UPSED ESP32 Diagnostic Logger & Real-Time Notification Broadcaster
@@ -97,8 +98,9 @@ public:
     }
 
     // Flush any unacknowledged entries (seq > ackSeq)
-    void flushUnacked(uint32_t ackSeq, LogNotificationSink outSink) {
-        if (!outSink || count_ == 0) return;
+    template<typename F>
+    void flushUnacked(uint32_t ackSeq, F&& outSink) {
+        if (count_ == 0) return;
 
         // Oldest entry index
         size_t oldestIdx = (head_ + DIAG_LOG_CAPACITY - count_) % DIAG_LOG_CAPACITY;
@@ -164,6 +166,16 @@ private:
         params["ms"] = entry.ms;
         params["level"] = entry.level;
         params["msg"] = entry.msg;
+
+        extern BridgeClock bridgeClock;
+        uint32_t epochSec = bridgeClock.epochForMillis(entry.ms);
+        if (epochSec > 1700000000) {
+            params["ts"] = epochSec;
+            String iso = bridgeClock.formatIso8601(epochSec);
+            if (iso.length() > 0) {
+                params["iso_ts"] = iso;
+            }
+        }
         serializeJson(doc, outStr);
     }
 
