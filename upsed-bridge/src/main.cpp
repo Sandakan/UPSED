@@ -13,6 +13,8 @@
 #include "backlog_store.h"
 #include "diag_log.h"
 #include "LedController.h"
+#include "q1_parser.h"
+#include "tuya_mqtt.h"
 
 // ============================================================================
 // Global Instances & State
@@ -25,6 +27,8 @@ Preferences prefs;
 BacklogStore backlogStore;
 DiagLogger diagLog;
 static LedController ledController;
+static UpsTelemetrySnapshot upsTelemetry;
+static TuyaMqttController tuyaController;
 
 enum BridgeOperatingMode {
     MODE_PROXY = 0,
@@ -157,10 +161,19 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
 
     lastUpsCmdEndMs = millis();
 
-    // Update LED controller based on UPS response
+    // Update LED controller & telemetry snapshot based on UPS response
     if (response.length() == 0 || response.startsWith("(NAK")) {
         ledController.setUpsState(UPS_LED_ERROR);
     } else if (response.startsWith("(")) {
+        if (cleanCmd == "Q1") {
+            upsTelemetry.parseQ1Response(response);
+            tuyaController.updateContextState(upsTelemetry, currentMode == MODE_PROXY);
+        } else if (cleanCmd == "QSK1") {
+            upsTelemetry.parseQskResponse(1, response);
+        } else if (cleanCmd == "QSK2") {
+            upsTelemetry.parseQskResponse(2, response);
+        }
+
         // Check if this is a Q1 status response with Utility Fail bit
         int lastSpace = response.lastIndexOf(' ');
         if (lastSpace > 0 && (response.length() - lastSpace - 1) == 8) {
@@ -455,6 +468,10 @@ void populateStatusObject(JsonObject& res) {
     res["psram_active"] = backlogStore.isUsingPsram();
     res["psram_free"] = ESP.getFreePsram();
     res["uptime_sec"] = millis() / 1000UL;
+    res["tuya_enabled"] = tuyaController.isEnabled();
+    res["tuya_connected"] = tuyaController.isConnected();
+    res["tuya_region"] = tuyaController.getRegion();
+    res["tuya_last_error"] = tuyaController.getLastError();
 }
 
 // ============================================================================
@@ -630,6 +647,34 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut) {
         JsonObject result = resDoc["result"].to<JsonObject>();
         result["aborted"] = true;
     }
+    else if (strcmp(method, "bridge.getTuyaConfig") == 0) {
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
+    }
+    else if (strcmp(method, "bridge.setTuyaConfig") == 0) {
+        bool en = reqDoc["params"]["enabled"] | false;
+        const char* reg = reqDoc["params"]["region"] | "eu";
+        const char* prodId = reqDoc["params"]["product_id"] | "";
+        const char* devId = reqDoc["params"]["device_id"] | "";
+        const char* secret = reqDoc["params"]["device_secret"] | "";
+        const char* offMd = reqDoc["params"]["off_mode"] | "SOFF";
+        int interlock = reqDoc["params"]["interlock_pct"] | 8;
+
+        tuyaController.saveConfig(en, String(reg), String(prodId), String(devId),
+                                  String(secret), String(offMd), interlock);
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
+    }
+    else if (strcmp(method, "bridge.testTuyaPublish") == 0) {
+        if (!upsTelemetry.valid) {
+            String q1Raw = executeUpsCommand("Q1", false);
+            upsTelemetry.parseQ1Response(q1Raw);
+        }
+        bool ok = tuyaController.publishTelemetryReport(upsTelemetry, currentMode == MODE_PROXY);
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        result["published"] = ok;
+        tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
+    }
     else {
         JsonObject errObj = resDoc["error"].to<JsonObject>();
         errObj["code"] = -32601;
@@ -715,6 +760,7 @@ void setup() {
 
     diagLog.setNotificationSink(broadcastLogNotification);
     backlogStore.begin();
+    tuyaController.begin(&diagLog, executeUpsCommand);
 
     diagLog.info("[BOOT] UPSED ESP32-S3 Bridge v%s initialized (MAC: %s)",
                  BRIDGE_FIRMWARE_VER, WiFi.macAddress().c_str());
@@ -813,6 +859,10 @@ void loop() {
         }
     }
 
-    // 6. Non-blocking Status LED Update
+    // 6. Maintain TuyaLink MQTT Controller & Telemetry Stream
+    tuyaController.updateContextState(upsTelemetry, currentMode == MODE_PROXY);
+    tuyaController.loop(upsTelemetry, currentMode == MODE_PROXY, otaServerActive || currentMode == MODE_OTA);
+
+    // 7. Non-blocking Status LED Update
     ledController.update();
 }

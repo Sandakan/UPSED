@@ -71,6 +71,59 @@ pub struct BridgeStatus {
     pub min_supported_fw: String,
     #[serde(default = "default_compatible")]
     pub is_compatible: bool,
+    #[serde(default)]
+    pub tuya_enabled: bool,
+    #[serde(default)]
+    pub tuya_connected: bool,
+    #[serde(default)]
+    pub tuya_region: String,
+    #[serde(default)]
+    pub tuya_last_error: String,
+}
+
+/// Configuration and live state of the ESP32-S3 TuyaLink MQTT Controller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TuyaBridgeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_tuya_region")]
+    pub region: String,
+    #[serde(default)]
+    pub broker: String,
+    #[serde(default)]
+    pub product_id: String,
+    #[serde(default)]
+    pub device_id: String,
+    #[serde(default)]
+    pub device_secret: String,
+    #[serde(default)]
+    pub has_secret: bool,
+    #[serde(default = "default_tuya_off_mode")]
+    pub off_mode: String,
+    #[serde(default = "default_tuya_interlock")]
+    pub interlock_pct: u32,
+    #[serde(default)]
+    pub connected: bool,
+    #[serde(default)]
+    pub last_error: String,
+    #[serde(default)]
+    pub output_enabled: bool,
+    #[serde(default)]
+    pub pc_online: bool,
+    #[serde(default)]
+    pub published: bool,
+}
+
+fn default_tuya_region() -> String {
+    "eu".to_string()
+}
+
+fn default_tuya_off_mode() -> String {
+    "SOFF".to_string()
+}
+
+fn default_tuya_interlock() -> u32 {
+    8
 }
 
 impl BridgeStatus {
@@ -485,6 +538,61 @@ impl BridgeTransport {
     pub fn abort_ota(&mut self) -> Result<(), ProtocolError> {
         let _ = self.call_rpc("bridge.abortOta", json!({}))?;
         Ok(())
+    }
+
+    pub fn get_tuya_config(&mut self) -> Result<TuyaBridgeConfig, ProtocolError> {
+        let (val, _) = self.call_rpc("bridge.getTuyaConfig", json!({}))?;
+        let cfg: TuyaBridgeConfig = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.getTuyaConfig payload: {}", e))
+        })?;
+        Ok(cfg)
+    }
+
+    pub fn set_tuya_config(
+        &mut self,
+        config: &TuyaBridgeConfig,
+    ) -> Result<TuyaBridgeConfig, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: format!(
+                "Saving TuyaLink MQTT config (enabled={}, region={}, device_id={}, off_mode={}, interlock={}%)...",
+                config.enabled, config.region, config.device_id, config.off_mode, config.interlock_pct
+            ),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let (val, _) = self.call_rpc(
+            "bridge.setTuyaConfig",
+            json!({
+                "enabled": config.enabled,
+                "region": config.region,
+                "product_id": config.product_id,
+                "device_id": config.device_id,
+                "device_secret": config.device_secret,
+                "off_mode": config.off_mode,
+                "interlock_pct": config.interlock_pct,
+            }),
+        )?;
+
+        let cfg: TuyaBridgeConfig = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.setTuyaConfig payload: {}", e))
+        })?;
+        Ok(cfg)
+    }
+
+    pub fn test_tuya_publish(&mut self) -> Result<TuyaBridgeConfig, ProtocolError> {
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.testTuyaPublish",
+            json!({}),
+            Duration::from_secs(5),
+        )?;
+        let cfg: TuyaBridgeConfig = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.testTuyaPublish payload: {}", e))
+        })?;
+        Ok(cfg)
     }
 
     pub fn call_rpc(
@@ -1228,6 +1336,10 @@ mod tests {
             active_transport: "usb".into(),
             min_supported_fw: "".into(),
             is_compatible: false,
+            tuya_enabled: false,
+            tuya_connected: false,
+            tuya_region: "eu".into(),
+            tuya_last_error: "None".into(),
         };
 
         valid_status.enrich_compatibility();

@@ -16,6 +16,7 @@ import {
   WsTestResult,
   BridgeLogEntry,
   BridgeFirmwareCheckResult,
+  TuyaBridgeConfig,
 } from './types';
 
 export const api = {
@@ -229,6 +230,15 @@ export const api = {
       customPath: args.customPath,
       downloadUrl: args.downloadUrl,
     }),
+
+  getBridgeTuyaConfig: (portName?: string) =>
+    invoke<TuyaBridgeConfig>('get_bridge_tuya_config', { portName }),
+
+  setBridgeTuyaConfig: (config: TuyaBridgeConfig, portName?: string) =>
+    invoke<TuyaBridgeConfig>('set_bridge_tuya_config', { portName, config }),
+
+  testBridgeTuyaPublish: (portName?: string) =>
+    invoke<TuyaBridgeConfig>('test_bridge_tuya_publish', { portName }),
 };
 
 

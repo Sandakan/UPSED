@@ -216,6 +216,27 @@ export interface BridgeStatus {
   active_transport: 'usb' | 'websocket' | string;
   min_supported_fw?: string;
   is_compatible?: boolean;
+  tuya_enabled?: boolean;
+  tuya_connected?: boolean;
+  tuya_region?: string;
+  tuya_last_error?: string;
+}
+
+export interface TuyaBridgeConfig {
+  enabled: boolean;
+  region: 'eu' | 'us' | 'cn' | 'in' | string;
+  broker?: string;
+  product_id: string;
+  device_id: string;
+  device_secret: string;
+  has_secret?: boolean;
+  off_mode: 'SOFF' | 'S.2' | string;
+  interlock_pct: number;
+  connected?: boolean;
+  last_error?: string;
+  output_enabled?: boolean;
+  pc_online?: boolean;
+  published?: boolean;
 }
 
 export interface WifiScanNetwork {

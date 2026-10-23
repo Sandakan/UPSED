@@ -56,6 +56,7 @@ import {
   WifiProvisionStatusEvent,
   BridgeFirmwareCheckResult,
   OtaProgressEvent,
+  TuyaBridgeConfig,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 
@@ -226,6 +227,21 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   const [isSyncingBacklog, setIsSyncingBacklog] = useState(false);
   const [isClearingBacklog, setIsClearingBacklog] = useState(false);
 
+  // TuyaLink MQTT Controller State
+  const [tuyaConfig, setTuyaConfig] = useState<TuyaBridgeConfig>({
+    enabled: false,
+    region: 'eu',
+    product_id: '',
+    device_id: '',
+    device_secret: '',
+    off_mode: 'SOFF',
+    interlock_pct: 8,
+  });
+  const [showTuyaSecret, setShowTuyaSecret] = useState(false);
+  const [isSavingTuya, setIsSavingTuya] = useState(false);
+  const [isTestingTuya, setIsTestingTuya] = useState(false);
+  const [isTuyaRecipeOpen, setIsTuyaRecipeOpen] = useState(false);
+
   // Real-Time Log Console
   const [logs, setLogs] = useState<BridgeLogEntry[]>([]);
   const [logFilter, setLogFilter] = useState<'ALL' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'>('ALL');
@@ -266,6 +282,92 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
       })
       .catch(() => {});
   }, [refreshStatus]);
+
+  // Fetch TuyaLink configuration when opening the Smart Home tab
+  const refreshTuyaConfig = useCallback(async () => {
+    try {
+      const cfg = await api.getBridgeTuyaConfig(portName ?? undefined);
+      setTuyaConfig((prev) => ({
+        ...cfg,
+        device_secret: cfg.has_secret ? (prev.device_secret || '********') : '',
+      }));
+    } catch {
+      // Bridge may be offline or on older firmware
+    }
+  }, [portName]);
+
+  useEffect(() => {
+    if (activeTab === 'smart-home') {
+      refreshTuyaConfig();
+    }
+  }, [activeTab, refreshTuyaConfig]);
+
+  const handleSaveTuyaConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingTuya(true);
+    try {
+      const updated = await api.setBridgeTuyaConfig(tuyaConfig, portName ?? undefined);
+      setTuyaConfig({
+        ...updated,
+        device_secret: updated.has_secret ? '********' : '',
+      });
+      await refreshStatus();
+      toast.success('TuyaLink MQTT configuration saved to ESP32 NVS');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingTuya(false);
+    }
+  };
+
+  const handleTestTuyaPublish = async () => {
+    setIsTestingTuya(true);
+    try {
+      const res = await api.testBridgeTuyaPublish(portName ?? undefined);
+      setTuyaConfig((prev) => ({
+        ...res,
+        device_secret: res.has_secret ? (prev.device_secret || '********') : '',
+      }));
+      if (res.published) {
+        toast.success('Published 19-DP telemetry snapshot to TuyaLink MQTT');
+      } else {
+        toast.error(`TuyaLink publish failed: ${res.last_error || 'MQTT not connected'}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsTestingTuya(false);
+    }
+  };
+
+  const handleCopyTuyaSchema = () => {
+    const schema = {
+      properties: [
+        { code: 'ups_power_switch', name: 'UPS Power Switch', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'force_shutdown', name: 'Force Shutdown Override', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'cancel_shutdown', name: 'Cancel Shutdown', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'output_enabled', name: 'AC Output Enabled', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { code: 'pc_online', name: 'PC Host Online', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { code: 'grid_voltage', name: 'Grid Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
+        { code: 'output_voltage', name: 'Output Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
+        { code: 'load_pct', name: 'Load Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
+        { code: 'battery_pct', name: 'Battery Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
+        { code: 'battery_voltage', name: 'Battery Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 10000, scale: 2, step: 1, unit: 'V' } },
+        { code: 'temperature_c', name: 'Internal Temperature', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 1000, scale: 1, step: 1, unit: '°C' } },
+        { code: 'ups_mode', name: 'UPS Operating Mode', accessMode: 'ro', typeSpec: { type: 'enum', range: ['standby', 'line', 'battery', 'bypass', 'fault'] } },
+        { code: 'utility_fail', name: 'Utility Grid Fail', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { code: 'battery_low', name: 'Battery Low Alarm', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { code: 'buzzer_mute', name: 'Buzzer Mute', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'battery_test_10s', name: '10s Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'deep_battery_test', name: 'Deep Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'cancel_test', name: 'Cancel Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'outlet_1_switch', name: 'Programmable Outlet 1', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { code: 'outlet_2_switch', name: 'Programmable Outlet 2', accessMode: 'rw', typeSpec: { type: 'bool' } },
+      ],
+    };
+    navigator.clipboard.writeText(JSON.stringify(schema, null, 2));
+    toast.success('Copied 19-DP TuyaLink Things Data Model JSON to clipboard');
+  };
 
   // Real-time log listener from Tauri backend
   useEffect(() => {
@@ -1879,71 +1981,351 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
       {/* 5. Smart Home Integrations Tab */}
       {activeTab === 'smart-home' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Home Assistant MQTT Card */}
-          <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <Share2 className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-base font-semibold text-white">Home Assistant MQTT Auto-Discovery</h3>
-              </div>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                MQTT JSON-RPC
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-400">
-              UPSED publishes MQTT Home Assistant discovery payloads so your Voltronic UPS appears instantly as a native battery and sensor device in Home Assistant without custom YAML.
-            </p>
-
-            <div className="p-4 rounded-xl bg-black/40 border border-white/[0.06] font-mono text-xs space-y-2 text-slate-300">
-              <div className="text-slate-500 uppercase tracking-wider text-[10px]">Discovery Topic:</div>
-              <div className="text-cyan-300 break-all">homeassistant/sensor/upsed_ups/state</div>
-              <div className="text-slate-500 uppercase tracking-wider text-[10px] mt-2">Mapped Entities:</div>
-              <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-400">
-                <div>• sensor.ups_grid_voltage</div>
-                <div>• sensor.ups_output_voltage</div>
-                <div>• sensor.ups_load_percent</div>
-                <div>• sensor.ups_battery_voltage</div>
-                <div>• binary_sensor.ups_on_battery</div>
-                <div>• binary_sensor.ups_beeper</div>
-              </div>
-            </div>
-
-            <div className="pt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Full MQTT broker connector available in upcoming v0.2.0 release.</span>
-            </div>
-          </div>
-
-          {/* Tuya Cloud / Matter IoT Card */}
-          <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
-            <div className="flex items-center justify-between">
+          {/* Left Column: TuyaLink MQTT Cloud Controller Configuration */}
+          <form
+            onSubmit={handleSaveTuyaConfig}
+            className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-5"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center space-x-2.5">
                 <Radio className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-semibold text-white">Tuya Smart & Matter IoT Bridge</h3>
+                <div>
+                  <h3 className="text-base font-semibold text-white">TuyaLink MQTT Cloud Controller</h3>
+                  <p className="text-xs text-slate-400">
+                    Direct ESP32-S3 TLS 8883 connection for Smart Life scenes & remote UPS control
+                  </p>
+                </div>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                Roadmap
-              </span>
+
+              {tuyaConfig.connected ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Connected ({tuyaConfig.region.toUpperCase()})
+                </span>
+              ) : tuyaConfig.enabled ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Disconnected
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-slate-800 text-slate-400 border border-white/5">
+                  Disabled
+                </span>
+              )}
             </div>
 
-            <p className="text-xs text-slate-400">
-              Enables local Matter over Wi-Fi commissioning directly on the ESP32-S3, allowing Apple HomeKit, Google Home, and Tuya Smart Life apps to view UPS power metrics and receive grid fail alarms.
-            </p>
-
-            <div className="p-4 rounded-xl bg-black/40 border border-white/[0.06] text-xs space-y-2 text-slate-300">
-              <div className="font-semibold text-white">Features in Active Development:</div>
-              <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
-                <li>Apple Home / Google Home native Matter Power Source cluster</li>
-                <li>Tuya IoT Developer Platform TuyaLink telemetry stream</li>
-                <li>Grid outage push notifications to iOS and Android smartphones</li>
-                <li>Hardware outlet group toggle from smart home dashboard</li>
-              </ul>
+            {/* Live Interlock & Output Status Strip */}
+            <div className="grid grid-cols-3 gap-2.5 text-xs">
+              <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.06]">
+                <span className="text-slate-400 text-[11px] block">TLS Broker</span>
+                <span className="font-mono text-white font-medium text-[11px]">
+                  {tuyaConfig.broker || `m1.tuya${tuyaConfig.region || 'eu'}.com`}:8883
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.06]">
+                <span className="text-slate-400 text-[11px] block">UPS AC Output</span>
+                <span
+                  className={`font-semibold text-[11px] ${
+                    tuyaConfig.output_enabled ? 'text-emerald-400' : 'text-slate-400'
+                  }`}
+                >
+                  {tuyaConfig.output_enabled ? 'Energized (ON)' : 'Standby / Off'}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.06]">
+                <span className="text-slate-400 text-[11px] block">Host Interlock</span>
+                <span
+                  className={`font-semibold text-[11px] ${
+                    tuyaConfig.pc_online ? 'text-amber-400' : 'text-cyan-400'
+                  }`}
+                >
+                  {tuyaConfig.pc_online ? 'PC Online (Protected)' : 'PC Offline (Ready)'}
+                </span>
+              </div>
             </div>
 
-            <div className="pt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span>Built on the same JSON-RPC 2.0 and PSRAM ring-buffer architecture.</span>
+            {tuyaConfig.last_error && tuyaConfig.last_error !== 'None' && tuyaConfig.last_error !== 'Idle' && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span className="font-mono text-[11px]">{tuyaConfig.last_error}</span>
+              </div>
+            )}
+
+            {/* Enable Toggle & Region */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="flex items-center justify-between p-3 rounded-xl bg-black/25 border border-white/[0.06] cursor-pointer">
+                <div>
+                  <div className="text-xs font-semibold text-white">Enable TuyaLink MQTT</div>
+                  <div className="text-[11px] text-slate-400">24/7 autonomous ESP32 link</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={tuyaConfig.enabled}
+                  onChange={(e) => setTuyaConfig({ ...tuyaConfig, enabled: e.target.checked })}
+                  className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                />
+              </label>
+
+              <div>
+                <label className="block text-xs text-slate-300 mb-1">Tuya Data Center Region</label>
+                <select
+                  value={tuyaConfig.region}
+                  onChange={(e) => setTuyaConfig({ ...tuyaConfig, region: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                >
+                  <option value="eu">Central Europe (m1.tuyaeu.com)</option>
+                  <option value="us">Western America (m1.tuyaus.com)</option>
+                  <option value="cn">China Data Center (m1.tuyacn.com)</option>
+                  <option value="in">India Data Center (m1.tuyain.com)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Tuya Credentials */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Product ID (PID)</label>
+                  <input
+                    type="text"
+                    value={tuyaConfig.product_id}
+                    onChange={(e) => setTuyaConfig({ ...tuyaConfig, product_id: e.target.value.trim() })}
+                    placeholder="e.g. vu8x9a2b..."
+                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Device ID</label>
+                  <input
+                    type="text"
+                    value={tuyaConfig.device_id}
+                    onChange={(e) => setTuyaConfig({ ...tuyaConfig, device_id: e.target.value.trim() })}
+                    placeholder="e.g. 6c92d8f1..."
+                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-300 mb-1">Device Secret (HMAC-SHA256 Key)</label>
+                <div className="relative">
+                  <input
+                    type={showTuyaSecret ? 'text' : 'password'}
+                    value={tuyaConfig.device_secret}
+                    onChange={(e) => setTuyaConfig({ ...tuyaConfig, device_secret: e.target.value })}
+                    placeholder={tuyaConfig.has_secret ? '******** (Stored in ESP32 NVS)' : 'Enter Tuya Device Secret'}
+                    className="w-full pl-3 pr-9 py-2 rounded-xl bg-black/40 border border-white/10 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTuyaSecret(!showTuyaSecret)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {showTuyaSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Hardware Safety Policy & Interlock */}
+            <div className="p-3.5 rounded-xl bg-black/25 border border-white/[0.06] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  Smart Load & Host Safety Interlock
+                </span>
+                <span className="text-[10px] font-mono text-emerald-400">
+                  Threshold: {tuyaConfig.interlock_pct}% Load
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Power-Off Command Mode</label>
+                  <select
+                    value={tuyaConfig.off_mode}
+                    onChange={(e) => setTuyaConfig({ ...tuyaConfig, off_mode: e.target.value })}
+                    className="w-full px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                  >
+                    <option value="SOFF">SOFF (Standby Off — Online / P-Series)</option>
+                    <option value="S.2">S.2 (12s Delayed Shutdown — Megatec)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Block Power-Off When Load &gt; {tuyaConfig.interlock_pct}%
+                  </label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={30}
+                    value={tuyaConfig.interlock_pct}
+                    onChange={(e) =>
+                      setTuyaConfig({ ...tuyaConfig, interlock_pct: Number(e.target.value) })
+                    }
+                    className="w-full accent-emerald-500 cursor-pointer mt-1"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Turning the UPS <strong>ON</strong> (<code className="text-emerald-300">SON</code>) is always allowed. Turning the UPS <strong>OFF</strong> via <code className="text-cyan-300">ups_power_switch</code> is automatically blocked if UPSED Desktop is connected or load exceeds {tuyaConfig.interlock_pct}% (use <code className="text-rose-300">force_shutdown</code> DP to override).
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2.5 pt-1 flex-wrap">
+              <PrimaryButton
+                type="submit"
+                disabled={isSavingTuya}
+                icon={<CheckCircle2 className="w-4 h-4" />}
+              >
+                {isSavingTuya ? 'Saving to ESP32...' : 'Save TuyaLink Config'}
+              </PrimaryButton>
+
+              <button
+                type="button"
+                onClick={handleTestTuyaPublish}
+                disabled={isTestingTuya || !tuyaConfig.enabled}
+                className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-200 hover:text-white bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] transition cursor-pointer disabled:opacity-50"
+              >
+                <Send className={`w-3.5 h-3.5 text-cyan-400 ${isTestingTuya ? 'animate-pulse' : ''}`} />
+                <span>{isTestingTuya ? 'Publishing...' : 'Push Telemetry Now'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={refreshTuyaConfig}
+                className="p-2 rounded-xl text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition cursor-pointer"
+                title="Refresh Tuya status from ESP32"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+
+          {/* Right Column: 19-DP Tuya Schema & Cold-Boot / Wake Workflow Guide */}
+          <div className="space-y-6">
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center space-x-2.5">
+                  <Sliders className="w-5 h-5 text-cyan-400" />
+                  <div>
+                    <h3 className="text-base font-semibold text-white">19-DP TuyaLink Things Data Model</h3>
+                    <p className="text-xs text-slate-400">
+                      Import directly into Tuya IoT Platform under Product $\rightarrow$ Function Definition
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyTuyaSchema}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy 19-DP JSON Schema</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px]">
+                <div className="p-3 rounded-xl bg-black/35 border border-white/[0.06] space-y-1">
+                  <div className="text-amber-400 font-semibold uppercase tracking-wider text-[10px]">
+                    Power & Boot Control (R/W)
+                  </div>
+                  <div className="font-mono text-slate-300 space-y-0.5">
+                    <div>• ups_power_switch (bool)</div>
+                    <div>• force_shutdown (bool)</div>
+                    <div>• cancel_shutdown (bool)</div>
+                    <div>• outlet_1_switch / outlet_2_switch</div>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-black/35 border border-white/[0.06] space-y-1">
+                  <div className="text-emerald-400 font-semibold uppercase tracking-wider text-[10px]">
+                    Diagnostics & Audio (R/W)
+                  </div>
+                  <div className="font-mono text-slate-300 space-y-0.5">
+                    <div>• buzzer_mute (bool)</div>
+                    <div>• battery_test_10s (bool)</div>
+                    <div>• deep_battery_test (bool)</div>
+                    <div>• cancel_test (bool)</div>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-black/35 border border-white/[0.06] space-y-1 sm:col-span-2">
+                  <div className="text-cyan-400 font-semibold uppercase tracking-wider text-[10px]">
+                    Live Telemetry & Scene Condition Triggers (Read-Only)
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 font-mono text-slate-300">
+                    <div>• output_enabled</div>
+                    <div>• pc_online</div>
+                    <div>• ups_mode (enum)</div>
+                    <div>• grid_voltage (V)</div>
+                    <div>• output_voltage (V)</div>
+                    <div>• load_pct (%)</div>
+                    <div>• battery_pct (%)</div>
+                    <div>• battery_voltage (V)</div>
+                    <div>• temperature_c (°C)</div>
+                    <div>• utility_fail</div>
+                    <div>• battery_low</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Collapsible Cold Boot & Sleep Wake Scene Recipe */}
+              <div className="pt-1 border-t border-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => setIsTuyaRecipeOpen(!isTuyaRecipeOpen)}
+                  className="w-full flex items-center justify-between text-xs font-medium text-slate-300 hover:text-white py-1.5 cursor-pointer"
+                >
+                  <span>Smart Plug + UPS + PCIe Wake Card Scene Setup Guide</span>
+                  {isTuyaRecipeOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+
+                {isTuyaRecipeOpen && (
+                  <div className="mt-2 p-3.5 rounded-xl bg-black/40 border border-white/[0.06] text-xs text-slate-300 space-y-2 leading-relaxed">
+                    <div className="font-semibold text-white">
+                      Single-Tap Cold Boot & Sleep Wake Workflow (Tuya Smart Life App):
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-300">
+                      <li>
+                        <strong>Step 1 (Smart Plug):</strong> Set upstream Smart Plug switch to <code className="text-emerald-400">ON</code>.
+                      </li>
+                      <li>
+                        <strong>Step 2 (Timer Delay):</strong> Add a <code className="text-cyan-300">5s Delay</code> in the Tuya Scene so the UPS MCU stabilizes on AC mains.
+                      </li>
+                      <li>
+                        <strong>Step 3 (UPSED Bridge):</strong> Set <code className="text-amber-300">ups_power_switch = true</code> (ESP32 dispatches <code className="text-emerald-400">SON\r</code> to energize UPS AC output).
+                      </li>
+                      <li>
+                        <strong>Step 4 (Timer Delay):</strong> Add a <code className="text-cyan-300">3s Delay</code> so the PC ATX PSU +5VSB standby rail charges the PCIe card.
+                      </li>
+                      <li>
+                        <strong>Step 5 (PCIe Wake Card):</strong> Trigger PCIe Wake Card <code className="text-emerald-400">Power ON</code> to boot or wake the PC!
+                      </li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Home Assistant MQTT Card */}
+            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <Share2 className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-sm font-semibold text-white">Home Assistant MQTT Auto-Discovery</h3>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  Companion
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                The same telemetry snapshot parsed on the ESP32-S3 also powers local WebSocket failover and Home Assistant sensor discovery.
+              </p>
             </div>
           </div>
         </div>

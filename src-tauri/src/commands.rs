@@ -7,8 +7,8 @@ use crate::serial::{
     get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge,
     push_bridge_log, scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection,
     BridgeBacklogRecord, BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice,
-    HidTransport, PhysicalSerialPort, SerialTransport, WifiScanNetwork, WsTestResult,
-    BRIDGE_DEFAULT_MDNS_HOST,
+    HidTransport, PhysicalSerialPort, SerialTransport, TuyaBridgeConfig, WifiScanNetwork,
+    WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
 };
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -2188,5 +2188,124 @@ pub async fn flash_bridge_firmware(
 
     Ok("Bridge firmware updated successfully".into())
 }
+
+fn execute_on_any_bridge<T, F>(
+    state: &AppState,
+    port_name: Option<&str>,
+    mut f: F,
+) -> Result<T, String>
+where
+    F: FnMut(&mut BridgeTransport) -> Result<T, crate::protocol::ProtocolError>,
+{
+    // 1. Try active BridgeTransport in MultiPortManager
+    if let Ok(res) = state
+        .manager
+        .with_bridge_transport(port_name, |bridge, _key| f(bridge))
+    {
+        return Ok(res);
+    }
+
+    // 2. Try USB serial ports
+    if let Ok(ports) = serialport::available_ports() {
+        for p in ports {
+            if probe_serial_bridge(&p.port_name).is_some() {
+                let bridge_id = format!("BRIDGE:{}", p.port_name);
+                if let Ok(mut temp_bridge) = BridgeTransport::open(&bridge_id, None) {
+                    return f(&mut temp_bridge).map_err(|e| e.to_string());
+                }
+            }
+        }
+    }
+
+    // 3. Try WebSocket fallback host or mDNS
+    let fallback_host = state
+        .db
+        .get_setting("bridge_fallback_host")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| BRIDGE_DEFAULT_MDNS_HOST.to_string());
+
+    let ws_id = format!("BRIDGE:WS:{}", fallback_host);
+    if let Ok(mut temp_bridge) = BridgeTransport::open(&ws_id, Some(fallback_host)) {
+        return f(&mut temp_bridge).map_err(|e| e.to_string());
+    }
+
+    Err("No connected ESP32 Hardware Bridge found over USB or Wi-Fi".into())
+}
+
+#[tauri::command]
+pub async fn get_bridge_tuya_config(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<TuyaBridgeConfig, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.get_tuya_config()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_bridge_tuya_config(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    config: TuyaBridgeConfig,
+) -> Result<TuyaBridgeConfig, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to modify TuyaLink configuration"
+                .into(),
+        );
+    }
+
+    let state_clone = state.inner().clone();
+    let cfg_clone = config.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.set_tuya_config(&cfg_clone)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' updated ESP32 TuyaLink configuration (Enabled: {}, Region: {}, OffMode: {}, Interlock: {}%)",
+            user, res.enabled, res.region, res.off_mode, res.interlock_pct
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn test_bridge_tuya_publish(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<TuyaBridgeConfig, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.test_tuya_publish()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 
 

@@ -7,7 +7,7 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.0.2"
+#define BRIDGE_FIRMWARE_VER    "1.1.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
@@ -44,9 +44,9 @@
 
 inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
 #ifdef RGB_BUILTIN
-    neopixelWrite(RGB_BUILTIN, r, g, b);
+    rgbLedWrite(RGB_BUILTIN, r, g, b);
 #else
-    neopixelWrite(RGB_PIN_PRIMARY, r, g, b);
+    rgbLedWrite(RGB_PIN_PRIMARY, r, g, b);
 #endif
 
     uint8_t primaryPin = 48;
@@ -55,6 +55,6 @@ inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
 #endif
     if (RGB_PIN_ALT != primaryPin) {
         delayMicroseconds(60); // Allow WS2812 latch reset (>50us) to avoid RMT channel collision
-        neopixelWrite(RGB_PIN_ALT, r, g, b);
+        rgbLedWrite(RGB_PIN_ALT, r, g, b);
     }
 }

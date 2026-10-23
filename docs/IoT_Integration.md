@@ -317,81 +317,63 @@ mode: single
 
 ---
 
-## 6. Tuya TuyaLink — Virtual Device Flow
+## 6. Tuya TuyaLink — ESP32-S3 Direct TLS 8883 Controller & Cold Boot Workflow
 
-### One-Time Setup (Developer Console)
+### One-Time Setup (Tuya IoT Developer Platform)
 
 ```mermaid
 flowchart TD
-    A["1️⃣ Create account\niot.tuya.com"] --> B["2️⃣ Create Product\nCategory: Power Strip\nMode: TuyaLink Custom"]
-    B --> C["3️⃣ Define Things Data Model\nDP1: grid_voltage (Int)\nDP3: load_pct (Int)\nDP6: utility_fail (Bool)\nDP8: output_switch (Bool, writable)"]
-    C --> D["4️⃣ Note credentials:\nProductID\nDeviceID\nDeviceSecret"]
-    D --> E["5️⃣ Enter in UPSED Settings\nIoT → Tuya section"]
-    E --> F["✅ Smart Life app shows\nUPS as virtual device"]
+    A["1️⃣ Create account\niot.tuya.com"] --> B["2️⃣ Create Product\nCategory: Power / UPS\nProtocol: TuyaLink Custom"]
+    B --> C["3️⃣ Import 19-DP JSON Schema\nClick 'Copy 19-DP JSON Schema'\nin UPSED IoT -> Smart Home tab"]
+    C --> D["4️⃣ Copy Device Credentials:\nProduct ID, Device ID,\nDevice Secret"]
+    D --> E["5️⃣ Save in UPSED IoT Tab\n(Authenticated via UPSED Session\n& persisted to ESP32 NVS)"]
+    E --> F["✅ ESP32-S3 connects to\nm1.tuya<region>.com:8883"]
 ```
 
-### Runtime Data Flow (Uplink: UPSED → Tuya Cloud → App)
+### 19-Property TuyaLink Things Data Model (DPs)
 
-Every poll cycle, UPSED maps `Q1Status` fields to Tuya DP integers and publishes upward:
+The ESP32-S3 firmware (`upsed-bridge/include/tuya_mqtt.h`) publishes and subscribes to a standardized 19-DP model at `tylink/{device_id}/thing/property/report` and `tylink/{device_id}/thing/property/set`:
 
-```
-Q1Status.grid_voltage_v = 231.2   →  DP1 = 2312   (integer × 10, no floats in Tuya)
-Q1Status.load_pct       = 38      →  DP3 = 38
-Q1Status.battery_voltage_v = 27.4 →  DP4 = 274
-Q1Status.temperature_c  = 35      →  DP5 = 35
-Q1Status.utility_fail   = false   →  DP6 = false
-Q1Status.battery_low    = false   →  DP7 = false
-```
+| Category | DP Identifier | Type | Access | Hardware Mapping |
+| :--- | :--- | :--- | :--- | :--- |
+| **Power & Boot** | `ups_power_switch` | `bool` | R/W | `true` $\rightarrow$ `SON\r`; `false` $\rightarrow$ `SOFF\r` or `S.2\r` (guarded by Smart Load/Host Interlock) |
+| **Power & Boot** | `force_shutdown` | `bool` | R/W | Bypasses Load/Host Interlock and immediately dispatches `SOFF\r` or `S.2\r` |
+| **Power & Boot** | `cancel_shutdown` | `bool` | R/W | Dispatches `CS\r` to abort an active UPS shutdown countdown |
+| **Power & Boot** | `output_enabled` | `bool` | R | `true` when `output_voltage >= 80V` |
+| **Power & Boot** | `pc_online` | `bool` | R | `true` when UPSED Desktop is connected (`MODE_PROXY`) or `load_pct > interlock_pct` |
+| **Telemetry** | `grid_voltage` | `float` | R | Input AC grid voltage (`V`) |
+| **Telemetry** | `output_voltage` | `float` | R | Output AC voltage (`V`) |
+| **Telemetry** | `load_pct` | `int` | R | Output load percentage (`0–100%`) |
+| **Telemetry** | `battery_pct` | `int` | R | Estimated battery SoC (`0–100%`) |
+| **Telemetry** | `battery_voltage` | `float` | R | Raw DC battery voltage (`V`) |
+| **Telemetry** | `temperature_c` | `float` | R | Internal heatsink temperature (`°C`) |
+| **Telemetry** | `ups_mode` | `enum` | R | `"standby"`, `"line"`, `"battery"`, `"bypass"`, `"fault"` |
+| **Telemetry** | `utility_fail` | `bool` | R | `Q1` Bit 7 (`true` = Grid Outage / On Battery) |
+| **Telemetry** | `battery_low` | `bool` | R | `Q1` Bit 6 (`true` = Critical Low Battery) |
+| **Diagnostics** | `buzzer_mute` | `bool` | R/W | Synced with `Q1` Bit 0; writing dispatches `Q\r` |
+| **Diagnostics** | `battery_test_10s` | `bool` | R/W | Writing `true` dispatches `T\r` (10s self-test) |
+| **Diagnostics** | `deep_battery_test` | `bool` | R/W | Writing `true` dispatches `TL\r` (deep battery test) |
+| **Diagnostics** | `cancel_test` | `bool` | R/W | Writing `true` dispatches `CT\r` |
+| **Outlets** | `outlet_1_switch` / `outlet_2_switch` | `bool` | R/W | Dispatches `SKON1`/`SKOFF1` and `SKON2`/`SKOFF2` |
 
-Published to: `tylink/{device_id}/thing/property/report`
-```json
-{
-  "msgId": "uuid-abc123",
-  "time": 1727636400000,
-  "data": {
-    "dp1": { "value": 2312 },
-    "dp3": { "value": 38 },
-    "dp4": { "value": 274 },
-    "dp5": { "value": 35 },
-    "dp6": { "value": false },
-    "dp7": { "value": false }
-  }
-}
-```
+### Single-Tap Cold Boot & Sleep Wake Scene (Smart Plug + UPS + PCIe Wake Card)
 
-### Runtime Data Flow (Downlink: App → Tuya Cloud → UPSED)
+Because the ESP32-S3 connects directly to TuyaLink MQTT over Wi-Fi (`Port 8883`), you can orchestrate an upstream **Tuya Smart Plug**, the **UPSED ESP32-S3 Bridge**, and a **PC PCIe Wake Card** using native Tuya Smart Life Scene timers:
+1. **Step 1 (Smart Plug):** Turn ON upstream Smart Plug (applies 230V/120V AC mains to UPS input).
+2. **Step 2 (Tuya Scene Delay):** Wait `5s` for the UPS MCU to initialize on AC mains.
+3. **Step 3 (UPSED Bridge):** Set `ups_power_switch = true` (ESP32 dispatches `SON\r` to energize UPS AC output).
+4. **Step 4 (Tuya Scene Delay):** Wait `3s` for the PC ATX PSU `+5VSB` standby rail to charge the PCIe card.
+5. **Step 5 (PCIe Wake Card):** Trigger PCIe Wake Card `Power ON` to cold-boot or wake the PC from sleep.
 
-When you tap "Output ON" in Smart Life:
+### TuyaLink Authentication (ESP32 Hardware `mbedtls` HMAC-SHA256)
 
-```mermaid
-sequenceDiagram
-    participant APP as 📱 Smart Life App
-    participant TUYA as ☁️ Tuya Cloud
-    participant MQTT as UPSED TuyaLink Client
-    participant GATE as 🔒 CommandGate
-    participant UPS as 🔋 UPS
-
-    APP->>TUYA: Tap "Output: ON" (DP8 = true)
-    TUYA->>MQTT: PUBLISH tylink/{id}/thing/property/set\n{ "dp8": { "value": true } }
-    MQTT->>GATE: check_command(VoltronicCommand::OutputOn)
-    GATE-->>MQTT: ✅ Allowed (if T4 unlocked)
-    MQTT->>UPS: send OLON\r
-    UPS-->>MQTT: ACK
-    MQTT->>TUYA: PUBLISH tylink/{id}/thing/property/set_response\n{ "dp8": { "value": true } }
-    TUYA->>APP: Update UI → "Output: ON" ✅
-```
-
-### TuyaLink Authentication
-
-Tuya requires a signed MQTT username/password using HMAC-SHA256. UPSED computes this at connection time in `tuya_link.rs`:
+The ESP32-S3 synchronizes epoch time via NTP (`pool.ntp.org`) and computes the TuyaLink signature using hardware SHA-256 (`mbedtls_md_hmac`):
 
 ```
-clientId  = ProductID + DeviceID
-username  = clientId|signMethod=hmacSha256,timestamp=<epoch_ms>,secureMode=1,accessType=1
-password  = HMAC-SHA256( key=DeviceSecret, data=clientId+timestamp )
+clientId  = "tuyalink_" + DeviceID
+username  = DeviceID + "|signMethod=hmacSha256,timestamp=" + <epoch_sec> + ",secureMode=1,accessType=1"
+password  = hex(HMAC-SHA256(key=DeviceSecret, data="deviceId=" + DeviceID + ",timestamp=" + <epoch_sec> + ",secureMode=1,accessType=1"))
 ```
-
-This happens automatically — the user only enters the three console credentials in Settings.
 
 ---
 
@@ -726,8 +708,8 @@ stateDiagram-v2
 | NVS buffering | Yes (for outage coverage) | Yes (main store) |
 | Inbound commands | Forwarded to UPSED → CommandGate | ESP32 executes directly (T1 only\*) |
 
-> [!CAUTION]
-> **Standalone Mode command safety:** When the PC is off, the CommandGate in UPSED is unreachable. In this state, the ESP32 only accepts and executes **T1 Read-Only commands** from MQTT inbound topics. T2/T3/T4 commands are rejected with an MQTT event response. This is a hard firmware constraint — the ESP32 never sends T3/T4 commands on its own.
+> [!IMPORTANT]
+> **Standalone Mode & Smart Load/Host Safety Interlock:** When the PC is off (`MODE_STANDALONE`), the ESP32-S3 allows TuyaLink MQTT to turn the UPS **ON** (`SON\r`) so Cold Boot scenes can energize the UPS before waking the PC. Conversely, turning the UPS **OFF** via `ups_power_switch = false` is guarded by the ESP32's local **Smart Load & Host Interlock**: if UPSED Desktop is connected (`MODE_PROXY`) or `load_pct > interlock_pct` (default `8%`), the ESP32 blocks the power-off request to prevent accidental power loss to a running PC (unless explicitly overridden via the `force_shutdown` DP).
 
 ---
 
