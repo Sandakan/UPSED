@@ -343,30 +343,68 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   const handleCopyTuyaSchema = () => {
     const schema = {
       properties: [
-        { code: 'ups_power_switch', name: 'UPS Power Switch', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'force_shutdown', name: 'Force Shutdown Override', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'cancel_shutdown', name: 'Cancel Shutdown', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'output_enabled', name: 'AC Output Enabled', accessMode: 'ro', typeSpec: { type: 'bool' } },
-        { code: 'pc_online', name: 'PC Host Online', accessMode: 'ro', typeSpec: { type: 'bool' } },
-        { code: 'grid_voltage', name: 'Grid Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
-        { code: 'output_voltage', name: 'Output Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
-        { code: 'load_pct', name: 'Load Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
-        { code: 'battery_pct', name: 'Battery Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
-        { code: 'battery_voltage', name: 'Battery Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 10000, scale: 2, step: 1, unit: 'V' } },
-        { code: 'temperature_c', name: 'Internal Temperature', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 1000, scale: 1, step: 1, unit: '°C' } },
-        { code: 'ups_mode', name: 'UPS Operating Mode', accessMode: 'ro', typeSpec: { type: 'enum', range: ['standby', 'line', 'battery', 'bypass', 'fault'] } },
-        { code: 'utility_fail', name: 'Utility Grid Fail', accessMode: 'ro', typeSpec: { type: 'bool' } },
-        { code: 'battery_low', name: 'Battery Low Alarm', accessMode: 'ro', typeSpec: { type: 'bool' } },
-        { code: 'buzzer_mute', name: 'Buzzer Mute', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'battery_test_10s', name: '10s Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'deep_battery_test', name: 'Deep Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'cancel_test', name: 'Cancel Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'outlet_1_switch', name: 'Programmable Outlet 1', accessMode: 'rw', typeSpec: { type: 'bool' } },
-        { code: 'outlet_2_switch', name: 'Programmable Outlet 2', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 101, code: 'ups_power_switch', name: 'UPS Power Switch', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 102, code: 'force_shutdown', name: 'Force Shutdown Override', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 103, code: 'cancel_shutdown', name: 'Cancel Shutdown', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 104, code: 'output_enabled', name: 'AC Output Enabled', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { abilityId: 105, code: 'pc_online', name: 'PC Host Online', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { abilityId: 106, code: 'grid_voltage', name: 'Grid Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
+        { abilityId: 107, code: 'output_voltage', name: 'Output Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 3000, scale: 1, step: 1, unit: 'V' } },
+        { abilityId: 108, code: 'load_pct', name: 'Load Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
+        { abilityId: 109, code: 'battery_pct', name: 'Battery Percentage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 100, scale: 0, step: 1, unit: '%' } },
+        { abilityId: 110, code: 'battery_voltage', name: 'Battery Voltage', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 10000, scale: 2, step: 1, unit: 'V' } },
+        { abilityId: 111, code: 'temperature_c', name: 'Internal Temperature', accessMode: 'ro', typeSpec: { type: 'value', min: 0, max: 1000, scale: 1, step: 1, unit: '°C' } },
+        { abilityId: 112, code: 'ups_mode', name: 'UPS Operating Mode', accessMode: 'ro', typeSpec: { type: 'enum', range: ['standby', 'line', 'battery', 'bypass', 'fault'] } },
+        { abilityId: 113, code: 'utility_fail', name: 'Utility Grid Fail', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { abilityId: 114, code: 'battery_low', name: 'Battery Low Alarm', accessMode: 'ro', typeSpec: { type: 'bool' } },
+        { abilityId: 115, code: 'buzzer_mute', name: 'Buzzer Mute', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 116, code: 'battery_test_10s', name: '10s Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 117, code: 'deep_battery_test', name: 'Deep Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 118, code: 'cancel_test', name: 'Cancel Battery Test', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 119, code: 'outlet_1_switch', name: 'Programmable Outlet 1', accessMode: 'rw', typeSpec: { type: 'bool' } },
+        { abilityId: 120, code: 'outlet_2_switch', name: 'Programmable Outlet 2', accessMode: 'rw', typeSpec: { type: 'bool' } },
       ],
     };
     navigator.clipboard.writeText(JSON.stringify(schema, null, 2));
     toast.success('Copied 19-DP TuyaLink Things Data Model JSON to clipboard');
+  };
+
+  const handleDownloadTuyaCsv = () => {
+    const csvContent =
+      '\uFEFF"Description (Do Not Delete)\nThis template supports custom data points of Property with either of these data types, namely value, string, date, boolean, enumeration, raw, and fault.",,,,,,,,,,,\n' +
+      '"Required\nEnter a number from 101 to 499.","Required\nThe function name can contain Chinese and alphanumeric characters, dashes, underscores, slashes, and periods, and should start with Chinese or alphanumeric characters.","Required\nThe identifier can contain alphanumeric characters and underscores.","Required\nSingle select\nFor Send and Report, enter rw\nFor Report Only, enter ro\nFor Send Only, enter wr","Required\nSingle select\nFor Value type, enter value\nFor String type, enter string\nFor Date type, enter date\nFor Boolean type, enter bool\nFor Enumeration type, enter enum\nFor Raw type, enter raw\nFor Fault type, enter fault\nFor Single-Precision Floating-Point type, enter float\nFor Double-Precision Floating-Point type, enter double\n","For Value type, leave this field empty\nFor String type, this field is required. Enter a value from 0 to 1024 to specify the maximum length.\nFor Date type, leave this field empty\nFor Boolean type, leave this field empty\nFor Enumeration type, this field is required. Enter enum values, separated by commas (,).\nFor Raw type, leave this field empty\nFor Fault type, this field is required. Enter fault values, separated by commas (,).\nFor Single-Precision Floating-Point type, leave this field empty\nFor Double-Precision Floating-Point type, leave this field empty","Optional\nYou can write a remark in Chinese or English.","This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe minimum value must be less than the maximum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe maximum value must be greater than the minimum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point",This field is required for value type.,"Optional\nThis field is required for value, single-precision and double-precision floating-point"\n' +
+      'DP ID,Function Name,Identifier,Data Transfer Type,Data Type,Data Definition,Remark,Minimum Value,Maximum Value,Pitch,Scale,Unit\n' +
+      '101,UPS Power Switch,ups_power_switch,Send and Report (rw),bool,,Turns UPS inverter ON (SON) or OFF (SOFF),,,,,\n' +
+      '102,Force Shutdown Override,force_shutdown,Send and Report (rw),bool,,Bypasses safety interlock and immediately powers off output,,,,,\n' +
+      '103,Cancel Shutdown,cancel_shutdown,Send and Report (rw),bool,,Aborts pending hardware shutdown countdown (CS),,,,,\n' +
+      '104,AC Output Status,output_enabled,Report Only (ro),bool,,Reported true when AC output voltage >= 80V,,,,,\n' +
+      '105,PC Host Online,pc_online,Report Only (ro),bool,,Reported true when Desktop proxy active or load > threshold,,,,,\n' +
+      '106,Grid Voltage,grid_voltage,Report Only (ro),value,,Input AC grid voltage,0,3000,1,1,V\n' +
+      '107,Output Voltage,output_voltage,Report Only (ro),value,,Output AC voltage,0,3000,1,1,V\n' +
+      '108,Load Percentage,load_pct,Report Only (ro),value,,Real-time output load percentage,0,100,1,0,%\n' +
+      '109,Battery Percentage,battery_pct,Report Only (ro),value,,Estimated battery state-of-charge,0,100,1,0,%\n' +
+      '110,Battery Voltage,battery_voltage,Report Only (ro),value,,Raw DC battery bank voltage,0,10000,1,2,V\n' +
+      '111,Internal Temperature,temperature_c,Report Only (ro),value,,Internal heatsink temperature,0,1000,1,1,℃\n' +
+      '112,UPS Operating Mode,ups_mode,Report Only (ro),enum,"standby, line, battery, bypass, fault",Current UPS operating mode,,,,,\n' +
+      '113,Utility Grid Fail,utility_fail,Report Only (ro),bool,,Reported true during blackouts (running on battery),,,,,\n' +
+      '114,Battery Low Alarm,battery_low,Report Only (ro),bool,,Reported true when battery is critically depleted,,,,,\n' +
+      '115,Buzzer Mute,buzzer_mute,Send and Report (rw),bool,,Toggles UPS audible beeper (Q),,,,,\n' +
+      '116,10s Battery Test,battery_test_10s,Send and Report (rw),bool,,Dispatches 10-second battery self-test (T),,,,,\n' +
+      '117,Deep Battery Test,deep_battery_test,Send and Report (rw),bool,,Tests battery until low threshold (TL),,,,,\n' +
+      '118,Cancel Battery Test,cancel_test,Send and Report (rw),bool,,Cancels active battery test (CT),,,,,\n' +
+      '119,Programmable Outlet 1,outlet_1_switch,Send and Report (rw),bool,,Toggles outlet group 1 (SKON1/SKOFF1),,,,,\n' +
+      '120,Programmable Outlet 2,outlet_2_switch,Send and Report (rw),bool,,Toggles outlet group 2 (SKON2/SKOFF2),,,,,';
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'tuya_upsed_bridge_dps.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Downloaded Tuya Batch Import CSV template');
   };
 
   // Real-time log listener from Tauri backend
@@ -2219,14 +2257,27 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleCopyTuyaSchema}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy 19-DP JSON Schema</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadTuyaCsv}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
+                    title="Download Excel/CSV template formatted for Tuya Batch Import"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Tuya Batch CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyTuyaSchema}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition cursor-pointer"
+                    title="Copy 19-DP TuyaLink Things Data Model JSON to clipboard"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy 19-DP JSON</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px]">

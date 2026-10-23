@@ -356,14 +356,13 @@ The ESP32-S3 firmware (`upsed-bridge/include/tuya_mqtt.h`) publishes and subscri
 | **Diagnostics** | `cancel_test` | `bool` | R/W | Writing `true` dispatches `CT\r` |
 | **Outlets** | `outlet_1_switch` / `outlet_2_switch` | `bool` | R/W | Dispatches `SKON1`/`SKOFF1` and `SKON2`/`SKOFF2` |
 
-### Single-Tap Cold Boot & Sleep Wake Scene (Smart Plug + UPS + PCIe Wake Card)
+### Single-Tap Cold Boot Automation (Tuya Smart Plug + UPSED Bridge)
 
-Because the ESP32-S3 connects directly to TuyaLink MQTT over Wi-Fi (`Port 8883`), you can orchestrate an upstream **Tuya Smart Plug**, the **UPSED ESP32-S3 Bridge**, and a **PC PCIe Wake Card** using native Tuya Smart Life Scene timers:
+Because the ESP32-S3 connects directly to TuyaLink MQTT over Wi-Fi (`Port 8883`), you can orchestrate an upstream **Tuya Smart Plug** and the **UPSED ESP32-S3 Bridge** using native Tuya Smart Life Scene timers:
 1. **Step 1 (Smart Plug):** Turn ON upstream Smart Plug (applies 230V/120V AC mains to UPS input).
 2. **Step 2 (Tuya Scene Delay):** Wait `5s` for the UPS MCU to initialize on AC mains.
-3. **Step 3 (UPSED Bridge):** Set `ups_power_switch = true` (ESP32 dispatches `SON\r` to energize UPS AC output).
-4. **Step 4 (Tuya Scene Delay):** Wait `3s` for the PC ATX PSU `+5VSB` standby rail to charge the PCIe card.
-5. **Step 5 (PCIe Wake Card):** Trigger PCIe Wake Card `Power ON` to cold-boot or wake the PC from sleep.
+3. **Step 3 (UPSED Bridge):** Set `ups_power_switch = true` (ESP32 dispatches `SON\r` to energize UPS inverter and AC output).
+4. **Step 4 (Equipment Power):** Connected loads (PC, server, networking gear) receive clean regulated AC power. Workstations configured for "Restore on AC Power Loss" boot immediately.
 
 ### TuyaLink Authentication (ESP32 Hardware `mbedtls` HMAC-SHA256)
 
