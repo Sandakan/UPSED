@@ -186,11 +186,26 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
 
                 device_summaries.push((device_label, Some(status)));
 
-                // Sync active bridge transport state if ESP32 bridge
-                if let Ok((medium, host, key)) = state.manager.with_bridge_transport(Some(&info.port_name), |b, k| {
-                    Ok((b.active_medium().to_string(), b.ws_host(), k))
+                // Sync active bridge transport state & query lightweight telemetry status
+                if let Ok(bridge_status_opt) = state.manager.with_bridge_transport(Some(&info.port_name), |b, k| {
+                    match b.ping() {
+                        Ok(st) => {
+                            crate::serial::bridge_adapter::emit_transport_status(&k, &st.active_transport, b.ws_host().as_deref());
+                            Ok(Some(st))
+                        }
+                        Err(e) => {
+                            tracing::debug!("Periodic bridge status ping skipped or failed for {}: {}", info.port_name, e);
+                            crate::serial::bridge_adapter::emit_transport_status(&k, &b.active_medium().to_string(), b.ws_host().as_deref());
+                            Ok(None)
+                        }
+                    }
                 }) {
-                    crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
+                    if let Some(ref st) = bridge_status_opt {
+                        let _ = app.emit("bridge-status", st);
+                        if st.wifi_connected && !st.ip.is_empty() {
+                            let _ = state.db.set_setting("bridge_fallback_host", &st.ip);
+                        }
+                    }
                 }
             }
             Err(err) => {

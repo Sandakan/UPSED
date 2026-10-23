@@ -28,6 +28,7 @@ import {
   TransportStatusEvent,
   DiscoveredDevice,
   UpsTelemetryPayload,
+  BridgeStatus,
 } from './lib/types';
 import { useTheme } from './lib/theme';
 import { useWindowVisibility } from './lib/useWindowVisibility';
@@ -480,6 +481,41 @@ export function App() {
     };
   }, [queryClient]);
 
+  // Listen to real-time 'bridge-status' broadcast pushed by Rust background monitor task
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<BridgeStatus>('bridge-status', (tauriEvent) => {
+      if (!isMounted) return;
+      const bridgeSt = tauriEvent.payload;
+      queryClient.setQueryData(['bridgeStatus', effectivePort], bridgeSt);
+      queryClient.setQueryData(['bridgeStatus'], bridgeSt);
+      queryClient.setQueryData(['bridgeStatus', undefined], bridgeSt);
+
+      if (bridgeSt.active_transport === 'websocket' || bridgeSt.active_transport === 'usb') {
+        setActiveTransport(bridgeSt.active_transport as 'usb' | 'websocket');
+      }
+      if (bridgeSt.ip) {
+        setTransportIp(bridgeSt.ip);
+      }
+      if (bridgeSt.is_compatible !== undefined) {
+        setBridgeCompatible(bridgeSt.is_compatible);
+      }
+    }).then((fn) => {
+      if (!isMounted) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    }).catch(console.error);
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [effectivePort, queryClient]);
+
   // Synchronize transport state based on effective port
   useEffect(() => {
     if (!effectivePort) {
@@ -559,7 +595,8 @@ export function App() {
     refetchStatus();
     refetchHistory();
     refetchEvents();
-  }, [refetchStatus, refetchHistory, refetchEvents]);
+    queryClient.invalidateQueries({ queryKey: ['bridgeStatus'] });
+  }, [refetchStatus, refetchHistory, refetchEvents, queryClient]);
 
   // Metadata refresh handler
   const refreshMetadata = useCallback(() => {
@@ -743,7 +780,11 @@ export function App() {
           )}
 
           {currentTab === 'iot' && (
-            <IoT portName={effectivePort} upsId={selectedUpsId} />
+            <IoT
+              portName={effectivePort}
+              upsId={selectedUpsId}
+              pollInterval={pollInterval}
+            />
           )}
 
           {currentTab === 'settings' && (

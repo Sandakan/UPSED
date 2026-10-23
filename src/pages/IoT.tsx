@@ -44,7 +44,7 @@ import {
   Users,
 } from 'lucide-react';
 import { marked } from 'marked';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../lib/tauri';
@@ -64,6 +64,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 export interface IoTProps {
   portName?: string | null;
   upsId?: string | null;
+  pollInterval?: number;
 }
 
 const BridgeLedGuide: React.FC = () => {
@@ -181,11 +182,35 @@ const BridgeLedGuide: React.FC = () => {
   );
 };
 
-export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
+export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) => {
   const queryClient = useQueryClient();
-  // Status & Telemetry
-  const [status, setStatus] = useState<BridgeStatus | null>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
+
+  // Status & Telemetry via TanStack Query
+  const {
+    data: status = null,
+    isFetching: isFetchingQueryStatus,
+    refetch: refetchBridgeStatusQuery,
+  } = useQuery<BridgeStatus | null>({
+    queryKey: ['bridgeStatus', portName],
+    queryFn: async () => {
+      const st = await api.getBridgeStatus(portName ?? undefined).catch(() => null);
+      return st;
+    },
+    refetchInterval: pollInterval * 1000,
+    staleTime: 5000,
+  });
+
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const isLoadingStatus = isFetchingQueryStatus || isManualRefreshing;
+
+  const setStatus = useCallback(
+    (st: BridgeStatus | null) => {
+      queryClient.setQueryData(['bridgeStatus', portName], st);
+      queryClient.setQueryData(['bridgeStatus'], st);
+    },
+    [queryClient, portName]
+  );
+
   const [activeTab, setActiveTab] = useState<'wifi' | 'ws' | 'backlog' | 'ota' | 'logs' | 'smart-home'>('wifi');
 
   // Firmware & Wireless OTA
@@ -215,6 +240,13 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
   } | null>(null);
   const [scannedNetworks, setScannedNetworks] = useState<WifiScanNetwork[]>([]);
   const [isScanningWifi, setIsScanningWifi] = useState(false);
+
+  // Keep SSID in sync when status loads
+  useEffect(() => {
+    if (status?.ssid && !ssid) {
+      setSsid(status.ssid);
+    }
+  }, [status?.ssid, ssid]);
 
   // WebSocket Failover & Discovery
   const [fallbackHost, setFallbackHost] = useState('upsed-bridge.local');
@@ -256,27 +288,31 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
 
   // Fetch status & fallback host
   const refreshStatus = useCallback(async () => {
-    setIsLoadingStatus(true);
+    setIsManualRefreshing(true);
     try {
-      const [st, savedHost] = await Promise.all([
-        api.getBridgeStatus(portName ?? undefined).catch(() => null),
+      const [res, savedHost] = await Promise.all([
+        refetchBridgeStatusQuery(),
         api.getBridgeFallbackHost().catch(() => 'upsed-bridge.local'),
       ]);
-      setStatus(st);
       if (savedHost) {
         setFallbackHost(savedHost);
       }
-      if (st?.ssid && !ssid) {
-        setSsid(st.ssid);
+      if (res.data?.ssid && !ssid) {
+        setSsid(res.data.ssid);
       }
     } finally {
-      setIsLoadingStatus(false);
+      setIsManualRefreshing(false);
     }
-  }, [portName, ssid]);
+  }, [refetchBridgeStatusQuery, ssid]);
 
-  // Initial load: status and log history
+  // Initial load: fallback host and log history
   useEffect(() => {
-    refreshStatus();
+    api.getBridgeFallbackHost()
+      .then((savedHost) => {
+        if (savedHost) setFallbackHost(savedHost);
+      })
+      .catch(() => {});
+
     api.getBridgeLogHistory()
       .then((history) => {
         if (history && history.length > 0) {
@@ -284,7 +320,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId }) => {
         }
       })
       .catch(() => {});
-  }, [refreshStatus]);
+  }, []);
 
   // Fetch TuyaLink configuration when opening the Smart Home tab
   const refreshTuyaConfig = useCallback(async () => {
