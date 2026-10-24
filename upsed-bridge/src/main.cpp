@@ -86,7 +86,7 @@ static bool inPostCmdSync = false;
 // Forward Declarations
 void populateStatusObject(JsonObject& res);
 void broadcastStateChanged(const String& rawQ1, const char* reason);
-void broadcastBridgeStatusChanged(const char* reason);
+void broadcastBridgeStatusChanged(const char* reason = "status_updated");
 
 // Real-time broadcast sink for DiagLogger
 void broadcastLogNotification(const String& jsonNotif) {
@@ -801,10 +801,9 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         int32_t tzMin = reqDoc["params"]["tz_offset_min"] | 0;
         bool ok = bridgeClock.syncFromHost(hostTs, tzMin);
         JsonObject result = resDoc["result"].to<JsonObject>();
+        populateStatusObject(result);
         result["synced"] = ok;
-        result["time_source"] = bridgeClock.timeSource();
-        result["rtc_ts"] = bridgeClock.nowEpochSec();
-        result["rtc_iso"] = bridgeClock.formatIso8601(bridgeClock.nowEpochSec());
+        broadcastBridgeStatusChanged("time_synced");
     }
     else if (strcmp(method, "bridge.clearCache") == 0) {
         cmdCache.clear();

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-10-24
+
+### Added
+- **Autonomous Master Telemetry Polling:** Implemented autonomous 5000 ms background polling (`BRIDGE_IDLE_POLL_MS`) with 6500 ms cache TTL (`UPS_CACHE_TELEMETRY_TTL_MS`), serving all host dashboard queries in <2ms with zero UART bus contention.
+- **Adaptive Urgent Event Turbo Cadence:** Bridge automatically accelerates hardware polling to 2000 ms (`BRIDGE_TURBO_POLL_MS`) with 2200 ms TTL whenever urgent operating conditions occur (`utility_fail`, `battery_low`, `test_in_progress`, or fault).
+- **Unsolicited State Transition Broadcasts:** Added `bridge.stateChanged` JSON-RPC notifications broadcast immediately over TCP/WebSocket on discrete state edge transitions.
+- **Force Refresh Hardware Bypass:** Added `force_refresh: true` support in `ups.cmd` to bypass cached responses and query live hardware on demand.
+- **Piggybacked NVS Persistent Settings:** Synchronizes host configuration (`urgent_fast_poll` and `host_poll_sec`) on RPC calls and persists to ESP32 flash without protocol overhead.
+
+### Fixed
+- **Full Status Snapshot on Time Synchronization:** Upgraded `bridge.syncTime` to populate and return full `BridgeStatus` (`populateStatusObject`) and broadcast `broadcastBridgeStatusChanged("time_synced")` to all connected clients.
+
+---
+
 ## [1.2.0] - 2026-10-23
 
 ### Added

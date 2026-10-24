@@ -220,6 +220,8 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   const [otaProgress, setOtaProgress] = useState<OtaProgressEvent | null>(null);
   const [otaSource, setOtaSource] = useState<'github' | 'local' | 'file'>('github');
   const [customBinaryPath, setCustomBinaryPath] = useState('');
+  const [isOtaConfirmOpen, setIsOtaConfirmOpen] = useState(false);
+  const [isPurgeConfirmOpen, setIsPurgeConfirmOpen] = useState(false);
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [changelogContent, setChangelogContent] = useState<string | null>(null);
   const [isChangelogLoading, setIsChangelogLoading] = useState(false);
@@ -684,19 +686,14 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     }
   }, []);
 
-  // Wireless OTA Flash
-  const handleFlashOta = async () => {
-    if (!window.confirm(
-      'Proceed with wireless firmware update?\n\n' +
-      'During this process:\n' +
-      '• The ESP32 will open an on-demand leased OTA server on port 8080.\n' +
-      '• RS-232 telemetry polling will be paused.\n' +
-      '• The onboard LED will pulse magenta.\n' +
-      '• Upon completion, the bridge will reboot and automatically reconnect.'
-    )) {
-      return;
-    }
+  // Wireless OTA Flash - Open In-App Confirmation Modal
+  const handleFlashOta = () => {
+    setIsOtaConfirmOpen(true);
+  };
 
+  // Execute Wireless OTA Flash after explicit confirmation
+  const executeFlashOta = async () => {
+    setIsOtaConfirmOpen(false);
     setIsFlashingOta(true);
     setOtaProgress({
       phase: 'leasing',
@@ -1027,10 +1024,12 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   };
 
   // Clear Backlog
-  const handleClearBacklog = async () => {
-    if (!window.confirm('Are you sure you want to purge all offline telemetry records buffered in ESP32 PSRAM?')) {
-      return;
-    }
+  const handleClearBacklog = () => {
+    setIsPurgeConfirmOpen(true);
+  };
+
+  const executeClearBacklog = async () => {
+    setIsPurgeConfirmOpen(false);
     setIsClearingBacklog(true);
     try {
       await api.clearBridgeBacklog(portName ?? undefined);
@@ -3134,6 +3133,140 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               <PrimaryButton onClick={() => setIsChangelogOpen(false)} size="sm">
                 Close
               </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Wireless OTA Confirmation Modal ───────────────────────────────── */}
+      {isOtaConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div
+            className="w-full max-w-lg rounded-2xl bg-[#1a1d24] border border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-white/[0.07] flex items-center justify-between bg-black/20">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">Wireless Firmware Flash</h3>
+                  <p className="text-xs text-slate-400">
+                    Target: ESP32-S3 Bridge ({status?.ip || 'Wi-Fi Link'})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOtaConfirmOpen(false)}
+                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition cursor-pointer"
+                title="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 text-xs text-slate-300">
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.06] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Firmware Source:</span>
+                  <span className="text-white font-medium capitalize">
+                    {otaSource === 'local' ? 'Local PlatformIO Build' : otaSource === 'github' ? 'Official GitHub Release' : 'Custom Local File'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Target Version:</span>
+                  <span className="text-cyan-400 font-mono font-bold">
+                    {otaSource === 'local'
+                      ? (firmwareCheck?.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0')
+                      : otaSource === 'github'
+                      ? (firmwareCheck?.latest_version || 'Latest')
+                      : 'Custom Binary'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Size:</span>
+                  <span className="text-slate-300 font-mono">
+                    {otaSource === 'local' && firmwareCheck?.local_binary_size
+                      ? `${Math.round(firmwareCheck.local_binary_size / 1024)} KB`
+                      : otaSource === 'github' && firmwareCheck?.binary_size
+                      ? `${Math.round(firmwareCheck.binary_size / 1024)} KB`
+                      : 'Verified'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-slate-400">
+                <div className="font-semibold text-slate-200">During flashing:</div>
+                <ul className="space-y-1.5 list-disc list-inside leading-relaxed text-[11px]">
+                  <li>The bridge opens an on-demand leased OTA server on port 8080.</li>
+                  <li>RS-232 telemetry polling is paused to prevent serial collisions.</li>
+                  <li>The onboard RGB LED transitions to pulsing magenta.</li>
+                  <li>Upon completion, the bridge will reboot and automatically reconnect.</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-end space-x-3">
+              <button
+                onClick={() => setIsOtaConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition border border-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <PrimaryButton onClick={executeFlashOta} size="sm">
+                <Zap className="w-3.5 h-3.5" />
+                <span>Confirm & Flash Wirelessly</span>
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Purge Backlog Confirmation Modal ──────────────────────────────── */}
+      {isPurgeConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div
+            className="w-full max-w-md rounded-2xl bg-[#1a1d24] border border-white/[0.08] shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-white/[0.07] flex items-center justify-between bg-black/20">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">Purge ESP32 Backlog</h3>
+                  <p className="text-xs text-slate-400">Reset buffered offline telemetry</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPurgeConfirmOpen(false)}
+                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to purge all offline telemetry records buffered in the ESP32 PSRAM ring buffer? This cannot be undone.
+            </div>
+            <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-end space-x-3">
+              <button
+                onClick={() => setIsPurgeConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition border border-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeClearBacklog}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition shadow-sm cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Purge Records</span>
+              </button>
             </div>
           </div>
         </div>

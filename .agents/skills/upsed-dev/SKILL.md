@@ -103,6 +103,43 @@ npm run build
 
 ---
 
+## ⚡ 3.1 Building & Verifying ESP32 Bridge Firmware
+
+Whenever editing or extending ESP32 bridge firmware, adhere to this mandatory 3-step checklist:
+
+1. **Semantic Versioning:**
+   Update `#define BRIDGE_FIRMWARE_VER "X.Y.Z"` in `upsed-bridge/include/config.h`.
+
+2. **Update Firmware Changelog:**
+   Add an entry under `upsed-bridge/CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) standards with date and sections (`### Added`, `### Changed`, `### Fixed`).
+
+3. **Compile & Verify Local Artifact:**
+   Always compile and verify the build artifact:
+   ```bash
+   pio run --project-dir upsed-bridge
+   ```
+   *(Alternatively, run `npm run bridge:build` from the root directory).*
+
+---
+
+## 📦 3.2 Desktop Application Versioning & Changelog Workflow
+
+When releasing or bumping versions for the UPSED desktop application:
+
+1. **Synchronize All 3 Version Manifests:**
+   - `package.json`: `"version": "X.Y.Z"`
+   - `src-tauri/Cargo.toml`: `version = "X.Y.Z"`
+   - `src-tauri/tauri.conf.json`: `"version": "X.Y.Z"`
+
+2. **Update Root `CHANGELOG.md`:**
+   Add release header `## [X.Y.Z] - YYYY-MM-DD` with categorized sections:
+   `### Added`, `### Changed`, `### Fixed`, `### Security`.
+
+3. **Verify Integration:**
+   Run `npm run build` and `cargo test` to ensure zero compilation or packaging discrepancies.
+
+---
+
 ## ➕ 4. Procedure: Adding a New Voltronic Hardware Command
 
 When adding support for a new hardware command from the Voltronic / Axpert protocol:

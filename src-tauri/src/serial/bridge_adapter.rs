@@ -47,12 +47,19 @@ pub struct BridgeClientInfo {
 /// Status snapshot returned by the ESP32-S3 Hardware Bridge (`bridge.ping` / `bridge.getStatus`).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BridgeStatus {
+    #[serde(default)]
     pub bridge: String,
+    #[serde(default)]
     pub fw: String,
+    #[serde(default)]
     pub mac: String,
+    #[serde(default)]
     pub mode: String,
+    #[serde(default)]
     pub wifi_connected: bool,
+    #[serde(default)]
     pub ssid: String,
+    #[serde(default)]
     pub ip: String,
     #[serde(default = "default_hostname")]
     pub hostname: String,
@@ -612,8 +619,49 @@ impl BridgeTransport {
                 "tz_offset_min": offset_secs / 60,
             }),
         )?;
+
         let mut status: BridgeStatus = serde_json::from_value(val)
             .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.syncTime payload: {}", e)))?;
+
+        // If the payload did not include full bridge metadata (e.g. lightweight sync response from bridge firmware),
+        // enrich with current or cached status so the UI retains all hardware connection info.
+        if status.bridge.is_empty() {
+            let rtc_ts = if status.rtc_ts > 0 { status.rtc_ts } else { now.timestamp() as u64 };
+            let rtc_iso = if !status.rtc_iso.is_empty() {
+                status.rtc_iso.clone()
+            } else {
+                now.to_rfc3339()
+            };
+            let time_source = if !status.time_source.is_empty() {
+                status.time_source.clone()
+            } else {
+                "Host".to_string()
+            };
+
+            if let Ok(mut full_status) = self.ping() {
+                full_status.rtc_ts = rtc_ts;
+                full_status.rtc_iso = rtc_iso;
+                full_status.time_synced = true;
+                full_status.time_source = time_source;
+                full_status.tz_offset_min = offset_secs / 60;
+                status = full_status;
+            } else if let Some(last) = self.last_status.lock().ok().and_then(|g| g.clone()) {
+                let mut full_status = last;
+                full_status.rtc_ts = rtc_ts;
+                full_status.rtc_iso = rtc_iso;
+                full_status.time_synced = true;
+                full_status.time_source = time_source;
+                full_status.tz_offset_min = offset_secs / 60;
+                status = full_status;
+            } else {
+                status.rtc_ts = rtc_ts;
+                status.rtc_iso = rtc_iso;
+                status.time_synced = true;
+                status.time_source = time_source;
+                status.tz_offset_min = offset_secs / 60;
+            }
+        }
+
         status.active_transport = medium;
         status.enrich_compatibility();
 
@@ -1702,5 +1750,22 @@ mod tests {
         assert_eq!(status.cache_hits, 45);
         assert_eq!(status.cache_misses, 12);
         assert_eq!(status.cache_entries, 4);
+    }
+
+    #[test]
+    fn test_bridge_status_lightweight_synctime_deserialization() {
+        let json_str = r#"{
+            "synced": true,
+            "time_source": "Host",
+            "rtc_ts": 1729752000,
+            "rtc_iso": "2026-10-24T06:40:00Z"
+        }"#;
+
+        let status: BridgeStatus = serde_json::from_str(json_str)
+            .expect("BridgeStatus must tolerate lightweight payloads missing 'bridge'");
+        assert_eq!(status.bridge, "");
+        assert_eq!(status.time_source, "Host");
+        assert_eq!(status.rtc_ts, 1729752000);
+        assert_eq!(status.rtc_iso, "2026-10-24T06:40:00Z");
     }
 }
