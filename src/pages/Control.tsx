@@ -13,6 +13,7 @@ import {
   Lock,
   Sliders,
   KeyRound,
+  Activity,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { DiscoveredDevice, Q1Status, UnlockStage, VoltronicCommand } from '../lib/types';
@@ -158,6 +159,30 @@ export const Control: React.FC<ControlProps> = ({
   const [alarmEnabled, setAlarmEnabled] = useState<boolean | null>(null);
   const [flags, setFlags] = useState<Record<string, boolean> | null>(null);
   const [isRefreshingFlags, setIsRefreshingFlags] = useState(false);
+  const [testEndTime, setTestEndTime] = useState<number | null>(null);
+  const [testRemainingSec, setTestRemainingSec] = useState<number>(0);
+
+  // Sync testRemainingSec with countdown interval
+  useEffect(() => {
+    if (!status?.test_in_progress) {
+      setTestEndTime(null);
+      setTestRemainingSec(0);
+      return;
+    }
+
+    if (!testEndTime) {
+      setTestEndTime(Date.now() + 10000);
+    }
+
+    const interval = setInterval(() => {
+      if (testEndTime) {
+        const remaining = Math.max(0, Math.ceil((testEndTime - Date.now()) / 1000));
+        setTestRemainingSec(remaining);
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [status?.test_in_progress, testEndTime]);
 
   const handleSendCommand = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
@@ -167,6 +192,16 @@ export const Control: React.FC<ControlProps> = ({
 
     setIsExecuting(true);
     setCommandFeedback(null);
+
+    if (cmd.type === 'TenSecondTest') {
+      setTestEndTime(Date.now() + 10500);
+    } else if (cmd.type === 'TestForMinutes') {
+      const mins = typeof cmd.payload === 'number' ? cmd.payload : 5;
+      setTestEndTime(Date.now() + mins * 60 * 1000 + 500);
+    } else if (cmd.type === 'CancelTest') {
+      setTestEndTime(null);
+      setTestRemainingSec(0);
+    }
 
     try {
       const resp = await api.sendCommand(portName, cmd, upsId || undefined);
@@ -373,6 +408,51 @@ export const Control: React.FC<ControlProps> = ({
             </p>
           </div>
         </div>
+
+        {/* Active Battery Self-Test Banner */}
+        {Boolean(status?.test_in_progress) && (
+          <div className="mb-4 p-4 rounded-xl border border-purple-500/40 bg-purple-950/40 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-purple-950/20">
+            <div className="flex items-start sm:items-center space-x-3">
+              <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300">
+                <Activity className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-purple-200">
+                    Battery Self-Test In Progress
+                  </h5>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 animate-pulse">
+                    Live Telemetry
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-300/80 mt-0.5">
+                  Discharging battery under inverter load to verify cell health and transfer relays.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2.5 self-end sm:self-center">
+              {testRemainingSec > 0 && (
+                <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg bg-purple-900/60 border border-purple-500/30 text-purple-200">
+                  {testRemainingSec}s remaining
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  auth.requireAuth(() =>
+                    handleSendCommand({ type: 'CancelTest' }, 'Cancel Self-Test')
+                  )
+                }
+                disabled={isExecuting}
+                className="px-3 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white text-xs font-semibold shadow transition cursor-pointer flex items-center space-x-1.5"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Cancel Test (CT)</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* Audible Alarm (persistent setting, T3) */}

@@ -118,6 +118,28 @@ struct UpsTelemetrySnapshot {
         return true;
     }
 
+    bool hasDiscreteEdgeChange(const UpsTelemetrySnapshot& prev) const {
+        if (!prev.valid || !valid) return false;
+        return (utilityFail != prev.utilityFail) ||
+               (batteryLow != prev.batteryLow) ||
+               (avrActive != prev.avrActive) ||
+               (upsFailed != prev.upsFailed) ||
+               (testInProgress != prev.testInProgress) ||
+               (shutdownActive != prev.shutdownActive) ||
+               (beeperOn != prev.beeperOn) ||
+               (outputEnabled != prev.outputEnabled) ||
+               (outlet1On != prev.outlet1On) ||
+               (outlet2On != prev.outlet2On) ||
+               ((loadPct > 100) != (prev.loadPct > 100)) ||
+               ((temperatureC >= 55.0f) != (prev.temperatureC >= 55.0f));
+    }
+
+    bool isUrgentCondition() const {
+        if (!valid) return false;
+        return testInProgress || shutdownActive || utilityFail || batteryLow ||
+               avrActive || upsFailed || (loadPct > 100) || (temperatureC >= 55.0f);
+    }
+
     void parseQskResponse(int idx, const String& raw) {
         if (raw.startsWith("(1")) {
             if (idx == 1) outlet1On = true;

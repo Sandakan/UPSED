@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use serialport::SerialPort;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
@@ -281,10 +281,41 @@ pub fn emit_bridge_cmd_executed(cmd: &str, source: &str, ts: u64) {
     }
 }
 
+// Real-time event emitted when telemetry state edge transitions or urgent events occur
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeStateChangedEvent {
+    pub raw: String,
+    pub reason: String,
+    #[serde(default)]
+    pub is_urgent: bool,
+    #[serde(default)]
+    pub ts: u64,
+}
+
+pub fn emit_bridge_state_changed(event: &BridgeStateChangedEvent) {
+    if let Some(app) = get_bridge_app_handle() {
+        let _ = app.emit("ups-bridge-state-changed", event);
+    }
+}
+
 // Global buffer for recent Bridge diagnostic logs (capacity: 250)
 static BRIDGE_LOG_BUFFER: OnceLock<Mutex<Vec<BridgeLogEntry>>> = OnceLock::new();
 static BRIDGE_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 static GLOBAL_LAST_ACK_SEQ: AtomicU64 = AtomicU64::new(0);
+static GLOBAL_URGENT_FAST_POLL: AtomicBool = AtomicBool::new(true);
+static GLOBAL_HOST_POLL_SEC: AtomicU64 = AtomicU64::new(10);
+
+pub fn set_bridge_runtime_settings(urgent_fast_poll: bool, host_poll_sec: u64) {
+    GLOBAL_URGENT_FAST_POLL.store(urgent_fast_poll, Ordering::Relaxed);
+    GLOBAL_HOST_POLL_SEC.store(host_poll_sec, Ordering::Relaxed);
+}
+
+pub fn get_bridge_runtime_settings() -> (bool, u64) {
+    (
+        GLOBAL_URGENT_FAST_POLL.load(Ordering::Relaxed),
+        GLOBAL_HOST_POLL_SEC.load(Ordering::Relaxed),
+    )
+}
 
 pub fn set_bridge_app_handle(handle: tauri::AppHandle) {
     let _ = BRIDGE_APP_HANDLE.set(handle);
@@ -718,6 +749,9 @@ impl BridgeTransport {
         // and synchronizes real-world time without requiring NTP.
         if let Some(obj) = params.as_object_mut() {
             obj.insert("ack_seq".to_string(), json!(GLOBAL_LAST_ACK_SEQ.load(Ordering::Relaxed)));
+            let (urg_fast, host_poll) = get_bridge_runtime_settings();
+            obj.insert("urgent_fast_poll".to_string(), json!(urg_fast));
+            obj.insert("host_poll_sec".to_string(), json!(host_poll));
             let now = chrono::Local::now();
             obj.insert("host_ts".to_string(), json!(now.timestamp()));
             let offset_secs = now.offset().local_minus_utc();
@@ -885,6 +919,10 @@ impl BridgeTransport {
                                     process_bridge_notification(&doc);
                                 } else if method == "bridge.cmdExecuted" {
                                     process_bridge_cmd_executed(&doc);
+                                } else if method == "bridge.stateChanged" {
+                                    process_bridge_state_changed(&doc);
+                                } else if method == "bridge.statusChanged" {
+                                    process_bridge_status_changed(&doc, &self.last_status);
                                 }
                             }
                             continue;
@@ -953,6 +991,10 @@ impl BridgeTransport {
                                             process_bridge_notification(&doc);
                                         } else if method == "bridge.cmdExecuted" {
                                             process_bridge_cmd_executed(&doc);
+                                        } else if method == "bridge.stateChanged" {
+                                            process_bridge_state_changed(&doc);
+                                        } else if method == "bridge.statusChanged" {
+                                            process_bridge_status_changed(&doc, &self.last_status);
                                         }
                                     }
                                     continue;
@@ -1034,8 +1076,122 @@ fn process_bridge_cmd_executed(doc: &Value) {
     }
 }
 
+fn process_bridge_state_changed(doc: &Value) -> Option<BridgeStateChangedEvent> {
+    let params = doc.get("params")?;
+    let raw = params.get("raw").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let reason = params.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let is_urgent = params.get("is_urgent").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ts = params.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let event = BridgeStateChangedEvent {
+        raw,
+        reason,
+        is_urgent,
+        ts,
+    };
+    emit_bridge_state_changed(&event);
+    Some(event)
+}
+
+fn process_bridge_status_changed(doc: &Value, last_status: &Arc<Mutex<Option<BridgeStatus>>>) {
+    if let Some(params) = doc.get("params") {
+        if let Some(status_val) = params.get("status") {
+            if let Ok(mut st) = serde_json::from_value::<BridgeStatus>(status_val.clone()) {
+                st.enrich_compatibility();
+                if let Ok(mut guard) = last_status.lock() {
+                    *guard = Some(st.clone());
+                }
+                if let Some(app) = get_bridge_app_handle() {
+                    let _ = app.emit("bridge-status", &st);
+                }
+            }
+        }
+    }
+}
+
+impl BridgeTransport {
+    pub fn drain_notifications(&mut self) -> Vec<BridgeStateChangedEvent> {
+        let mut events = Vec::new();
+
+        // 1. Drain serial port if active
+        if let Some(ref mut port) = self.serial_port {
+            let _ = port.set_timeout(Duration::from_millis(15));
+            let mut reader = BufReader::new(port);
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(30) {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() || !trimmed.starts_with('{') {
+                            continue;
+                        }
+                        if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
+                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                                if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
+                                    match method {
+                                        "bridge.log" => process_bridge_notification(&doc),
+                                        "bridge.cmdExecuted" => process_bridge_cmd_executed(&doc),
+                                        "bridge.stateChanged" => {
+                                            if let Some(ev) = process_bridge_state_changed(&doc) {
+                                                events.push(ev);
+                                            }
+                                        }
+                                        "bridge.statusChanged" => process_bridge_status_changed(&doc, &self.last_status),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        // 2. Drain websocket if active
+        if let Some(ref mut ws) = self.ws_socket {
+            let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(15)));
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(30) {
+                match ws.read() {
+                    Ok(Message::Text(txt)) => {
+                        let trimmed = txt.trim();
+                        if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
+                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                                if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
+                                    match method {
+                                        "bridge.log" => process_bridge_notification(&doc),
+                                        "bridge.cmdExecuted" => process_bridge_cmd_executed(&doc),
+                                        "bridge.stateChanged" => {
+                                            if let Some(ev) = process_bridge_state_changed(&doc) {
+                                                events.push(ev);
+                                            }
+                                        }
+                                        "bridge.statusChanged" => process_bridge_status_changed(&doc, &self.last_status),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+        }
+
+        events
+    }
+}
+
 impl SerialTransport for BridgeTransport {
     fn send_command(&mut self, cmd_str: &str) -> Result<String, ProtocolError> {
+        self.send_command_force_refresh(cmd_str, false)
+    }
+
+    fn send_command_force_refresh(&mut self, cmd_str: &str, force_refresh: bool) -> Result<String, ProtocolError> {
         // Enforce minimum supported bridge firmware hard-block
         if let Ok(guard) = self.last_status.lock() {
             if let Some(ref st) = *guard {
@@ -1049,7 +1205,7 @@ impl SerialTransport for BridgeTransport {
         }
 
         let clean_cmd = cmd_str.trim_end_matches(['\r', '\n']);
-        let (result, _) = match self.call_rpc("ups.cmd", json!({ "cmd": clean_cmd })) {
+        let (result, _) = match self.call_rpc("ups.cmd", json!({ "cmd": clean_cmd, "force_refresh": force_refresh })) {
             Ok(res) => res,
             Err(ProtocolError::Timeout)
                 if clean_cmd == "Q"

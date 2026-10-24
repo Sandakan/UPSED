@@ -75,6 +75,19 @@ static String rollbackPass = "";
 static String serialLineBuf = "";
 static String lastWifiError = "None";
 
+// Autonomous Master Polling & Urgent Event State
+static bool urgentFastPollEnabled = true;
+static uint32_t hostPollSec = 10;
+static unsigned long postCmdSettleUntilMs = 0;
+static unsigned long lastMasterPollMs = 0;
+static UpsTelemetrySnapshot prevUpsTelemetry;
+static bool inPostCmdSync = false;
+
+// Forward Declarations
+void populateStatusObject(JsonObject& res);
+void broadcastStateChanged(const String& rawQ1, const char* reason);
+void broadcastBridgeStatusChanged(const char* reason);
+
 // Real-time broadcast sink for DiagLogger
 void broadcastLogNotification(const String& jsonNotif) {
     Serial.println(jsonNotif);
@@ -101,6 +114,56 @@ void broadcastCommandExecuted(const String& cmd, const String& rawResp, const St
         if (iso.length() > 0) {
             params["iso_ts"] = iso;
         }
+    }
+
+    String serialized;
+    serializeJson(notifDoc, serialized);
+    Serial.println(serialized);
+    if (wsServerStarted) {
+        wsServer.broadcastTXT(serialized);
+    }
+}
+
+// Real-time broadcast sink for telemetry state edge transitions or urgent events
+void broadcastStateChanged(const String& rawQ1, const char* reason) {
+    JsonDocument notifDoc;
+    notifDoc["jsonrpc"] = "2.0";
+    notifDoc["method"] = "bridge.stateChanged";
+    JsonObject params = notifDoc["params"].to<JsonObject>();
+    params["raw"] = rawQ1;
+    params["reason"] = reason;
+    params["is_urgent"] = upsTelemetry.isUrgentCondition();
+
+    uint32_t ts = bridgeClock.nowEpochSec();
+    if (ts > 1700000000) {
+        params["ts"] = ts;
+        String iso = bridgeClock.formatIso8601(ts);
+        if (iso.length() > 0) {
+            params["iso_ts"] = iso;
+        }
+    }
+
+    String serialized;
+    serializeJson(notifDoc, serialized);
+    Serial.println(serialized);
+    if (wsServerStarted) {
+        wsServer.broadcastTXT(serialized);
+    }
+}
+
+// Real-time broadcast sink for bridge connectivity / configuration changes
+void broadcastBridgeStatusChanged(const char* reason) {
+    JsonDocument notifDoc;
+    notifDoc["jsonrpc"] = "2.0";
+    notifDoc["method"] = "bridge.statusChanged";
+    JsonObject params = notifDoc["params"].to<JsonObject>();
+    params["reason"] = reason;
+    JsonObject statusObj = params["status"].to<JsonObject>();
+    populateStatusObject(statusObj);
+
+    uint32_t ts = bridgeClock.nowEpochSec();
+    if (ts > 1700000000) {
+        params["ts"] = ts;
     }
 
     String serialized;
@@ -232,6 +295,17 @@ String executeUpsCommand(const String& rawCmd, bool isStandalonePoll = false) {
             upsTelemetry.parseQskResponse(1, response);
         } else if (cleanCmd == "QSK2") {
             upsTelemetry.parseQskResponse(2, response);
+        }
+
+        // Post-command settling and immediate Q1 query for state-modifying actions
+        if (!UpsCommandCache::isReadOnlyQuery(cleanCmd) && !inPostCmdSync) {
+            inPostCmdSync = true;
+            postCmdSettleUntilMs = millis() + 15000UL;
+            String q1Resp = executeUpsCommand("Q1", false);
+            inPostCmdSync = false;
+            if (q1Resp.startsWith("(") && !q1Resp.startsWith("(NAK")) {
+                broadcastStateChanged(q1Resp, "post_command");
+            }
         }
 
         // Check if this is a Q1 status response with Utility Fail bit
@@ -576,6 +650,9 @@ void populateStatusObject(JsonObject& res) {
     res["cache_entries"] = cmdCache.validEntries();
     res["cache_capacity"] = cmdCache.capacity();
     res["cache_ttl_ms"] = cmdCache.telemetryTtlMs();
+    res["urgent_fast_poll"] = urgentFastPollEnabled;
+    res["host_poll_sec"] = hostPollSec;
+    res["is_urgent"] = upsTelemetry.isUrgentCondition();
 }
 
 // ============================================================================
@@ -608,6 +685,28 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         uint32_t hostTs = reqDoc["params"]["host_ts"].as<uint32_t>();
         int32_t tzMin = reqDoc["params"]["tz_offset_min"] | 0;
         bridgeClock.syncFromHost(hostTs, tzMin);
+    }
+
+    // 2. Piggybacked Adaptive Urgent Fast-Polling & Host Cadence Configuration
+    if (!reqDoc["params"].isNull()) {
+        if (reqDoc["params"]["urgent_fast_poll"].is<bool>()) {
+            bool en = reqDoc["params"]["urgent_fast_poll"].as<bool>();
+            if (en != urgentFastPollEnabled) {
+                urgentFastPollEnabled = en;
+                prefs.begin("upsed-conf", false);
+                prefs.putBool("urg_fast", en);
+                prefs.end();
+            }
+        }
+        if (reqDoc["params"]["host_poll_sec"].is<uint32_t>()) {
+            uint32_t hps = reqDoc["params"]["host_poll_sec"].as<uint32_t>();
+            if (hps != hostPollSec && hps >= 1) {
+                hostPollSec = hps;
+                prefs.begin("upsed-conf", false);
+                prefs.putUInt("host_poll", hostPollSec);
+                prefs.end();
+            }
+        }
     }
 
     // 2. Unicast Unacknowledged Log Notifications (Send only to requesting client)
@@ -669,6 +768,9 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
                 }
             } else {
                 String upsReply = executeUpsCommand(String(cmd), false);
+                if (String(cmd) == "Q1") {
+                    lastMasterPollMs = millis();
+                }
                 if (upsReply.length() == 0) {
                     JsonObject errObj = resDoc["error"].to<JsonObject>();
                     errObj["code"] = -32000;
@@ -872,11 +974,13 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t
             wsClients[clientNum].lastSeenMs = millis();
             wsClients[clientNum].reqCount = 0;
         }
+        broadcastBridgeStatusChanged("ws_connected");
     } else if (type == WStype_DISCONNECTED) {
         diagLog.info("[WS] Client #%u disconnected", clientNum);
         if (clientNum < BRIDGE_MAX_WS_CLIENTS) {
             wsClients[clientNum].active = false;
         }
+        broadcastBridgeStatusChanged("ws_disconnected");
     } else if (type == WStype_TEXT && payload != nullptr && length > 0) {
         if (clientNum < BRIDGE_MAX_WS_CLIENTS) {
             wsClients[clientNum].lastSeenMs = millis();
@@ -913,6 +1017,7 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
                          WiFi.RSSI());
             lastWifiError = "None";
             ensureNetworkServicesStarted();
+            broadcastBridgeStatusChanged("wifi_got_ip");
             break;
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
             uint8_t reason = info.wifi_sta_disconnected.reason;
@@ -925,6 +1030,7 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
             }
             diagLog.warn("[WIFI] Disconnected from AP: %s (Reason code %d)",
                          lastWifiError.c_str(), reason);
+            broadcastBridgeStatusChanged("wifi_disconnected");
             break;
         }
         default:
@@ -965,6 +1071,11 @@ void setup() {
     savedPass = prefs.getString("pass", "");
     prefs.end();
 
+    prefs.begin("upsed-conf", true);
+    urgentFastPollEnabled = prefs.getBool("urg_fast", true);
+    hostPollSec = prefs.getUInt("host_poll", 10);
+    prefs.end();
+
     if (savedSsid.length() > 0) {
         connectToWifi(savedSsid, savedPass, 8000);
     } else {
@@ -973,6 +1084,7 @@ void setup() {
 
     lastDesktopContactMs = millis();
     lastStandalonePollMs = millis();
+    lastMasterPollMs = millis();
     lastWifiRetryMs = millis();
 }
 
@@ -1032,20 +1144,46 @@ void loop() {
         }
     }
 
-    // 5. 15-Second Heartbeat Watchdog: Handoff to Standalone Mode if Desktop is offline (Skip during active OTA)
+    // 5. Autonomous Master Hardware Polling (Proxy & Standalone Modes)
     unsigned long nowMs = millis();
-    if (currentMode != MODE_OTA && (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS)) {
-        if (currentMode != MODE_STANDALONE) {
-            currentMode = MODE_STANDALONE;
-            ledController.setMode(MODE_LED_STANDALONE);
-            diagLog.warn("[MODE] Switched to STANDALONE mode (15s desktop silence). Standalone logging active.");
-        }
+    if (currentMode != MODE_OTA) {
+        if (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS) {
+            // Standalone Mode (Desktop offline)
+            if (currentMode != MODE_STANDALONE) {
+                currentMode = MODE_STANDALONE;
+                ledController.setMode(MODE_LED_STANDALONE);
+                diagLog.warn("[MODE] Switched to STANDALONE mode (15s desktop silence). Standalone logging active.");
+            }
 
-        if (nowMs - lastStandalonePollMs >= STANDALONE_POLL_MS) {
-            lastStandalonePollMs = nowMs;
-            String q1Raw = executeUpsCommand("Q1", true);
-            if (q1Raw.startsWith("(") && !q1Raw.startsWith("(NAK")) {
-                backlogStore.pushRecord(getCurrentTimestampSec(), q1Raw);
+            bool inUrgent = urgentFastPollEnabled && (upsTelemetry.isUrgentCondition() || (millis() < postCmdSettleUntilMs));
+            unsigned long standaloneInterval = inUrgent ? BRIDGE_TURBO_POLL_MS : STANDALONE_POLL_MS;
+
+            if (nowMs - lastStandalonePollMs >= standaloneInterval) {
+                lastStandalonePollMs = nowMs;
+                UpsTelemetrySnapshot prev = upsTelemetry;
+                String q1Raw = executeUpsCommand("Q1", true);
+                if (q1Raw.startsWith("(") && !q1Raw.startsWith("(NAK")) {
+                    backlogStore.pushRecord(getCurrentTimestampSec(), q1Raw);
+                    if (upsTelemetry.hasDiscreteEdgeChange(prev) || inUrgent) {
+                        broadcastStateChanged(q1Raw, inUrgent ? "urgent_poll" : "edge_change");
+                    }
+                }
+            }
+        } else {
+            // Proxy Mode (Desktop connected)
+            bool inUrgent = urgentFastPollEnabled && (upsTelemetry.isUrgentCondition() || (millis() < postCmdSettleUntilMs));
+            cmdCache.setTelemetryTtlMs(inUrgent ? UPS_CACHE_TURBO_TTL_MS : UPS_CACHE_TELEMETRY_TTL_MS);
+            unsigned long proxyInterval = inUrgent ? BRIDGE_TURBO_POLL_MS : (hostPollSec <= 2 ? 2000UL : BRIDGE_IDLE_POLL_MS);
+
+            if (nowMs - lastMasterPollMs >= proxyInterval) {
+                lastMasterPollMs = nowMs;
+                UpsTelemetrySnapshot prev = upsTelemetry;
+                String q1Raw = executeUpsCommand("Q1", false);
+                if (q1Raw.startsWith("(") && !q1Raw.startsWith("(NAK")) {
+                    if (upsTelemetry.hasDiscreteEdgeChange(prev) || inUrgent) {
+                        broadcastStateChanged(q1Raw, inUrgent ? "urgent_poll" : "edge_change");
+                    }
+                }
             }
         }
     }

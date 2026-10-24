@@ -17,6 +17,7 @@ import { UpsedToaster } from './components/UpsedToaster';
 import { AboutModal } from './components/AboutModal';
 import { LoginModal } from './components/LoginModal';
 import { handleIncomingUpsEvent } from './lib/notifications';
+import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
 import {
@@ -29,6 +30,7 @@ import {
   DiscoveredDevice,
   UpsTelemetryPayload,
   BridgeStatus,
+  BridgeCmdExecutedEvent,
 } from './lib/types';
 import { useTheme } from './lib/theme';
 import { useWindowVisibility } from './lib/useWindowVisibility';
@@ -375,7 +377,7 @@ export function App() {
           queryClient.setQueryData<TelemetryRecord[]>(
             ['telemetryHistory', cacheKey],
             (oldHistory = []) => {
-              const newRecord: TelemetryRecord = {
+              const recordToUse: TelemetryRecord = payload.record || {
                 timestamp: new Date().toISOString(),
                 ups_id: payload.ups_id || cacheKey,
                 grid_voltage: newStatus.grid_voltage_v,
@@ -387,8 +389,20 @@ export function App() {
                 battery_voltage: newStatus.battery_voltage_v,
                 temperature_c: newStatus.temperature_c,
               };
-              const updated = [...oldHistory, newRecord];
-              return updated.length > 50 ? updated.slice(-50) : updated;
+
+              if (payload.bucket_committed === false) {
+                // In-place bucket update: replace active leading point without warping X-axis time scale
+                if (oldHistory.length === 0) {
+                  return [recordToUse];
+                }
+                const updated = [...oldHistory];
+                updated[updated.length - 1] = recordToUse;
+                return updated;
+              } else {
+                // Bucket completed and committed: append point and cap at 50
+                const updated = [...oldHistory, recordToUse];
+                return updated.length > 50 ? updated.slice(-50) : updated;
+              }
             }
           );
         }
@@ -516,6 +530,35 @@ export function App() {
     };
   }, [effectivePort, queryClient]);
 
+  // Listen to real-time 'ups-bridge-cmd-executed' broadcast from any client or bridge
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<BridgeCmdExecutedEvent>('ups-bridge-cmd-executed', (tauriEvent) => {
+      if (!isMounted) return;
+      const payload = tauriEvent.payload;
+      queryClient.invalidateQueries({ queryKey: ['deviceStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['outletStates'] });
+      queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
+      queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
+
+      if (payload.source !== 'desktop-ui') {
+        toast(`Remote command '${payload.cmd}' executed via ${payload.source}`, {
+          icon: '⚡',
+        });
+      }
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlisten = fn;
+    }).catch(console.error);
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
   // Synchronize transport state based on effective port
   useEffect(() => {
     if (!effectivePort) {
@@ -590,13 +633,26 @@ export function App() {
     api.setPollInterval(newInterval).catch(console.error);
   }, []);
 
-  // Manual refresh handler
-  const pollTelemetry = useCallback(() => {
-    refetchStatus();
+  // Manual refresh handler with forceRefresh support
+  const pollTelemetry = useCallback((forceRefresh?: boolean) => {
+    if (forceRefresh && effectivePort) {
+      api.getDeviceStatus(effectivePort, selectedUpsId || undefined, true)
+        .then((newStatus) => {
+          const cacheKey = selectedUpsId || effectivePort;
+          if (cacheKey) {
+            queryClient.setQueryData(['deviceStatus', cacheKey], newStatus);
+          }
+        })
+        .catch(console.error);
+    } else {
+      refetchStatus();
+    }
     refetchHistory();
     refetchEvents();
     queryClient.invalidateQueries({ queryKey: ['bridgeStatus'] });
-  }, [refetchStatus, refetchHistory, refetchEvents, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['outletStates'] });
+    queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
+  }, [effectivePort, selectedUpsId, refetchStatus, refetchHistory, refetchEvents, queryClient]);
 
   // Metadata refresh handler
   const refreshMetadata = useCallback(() => {

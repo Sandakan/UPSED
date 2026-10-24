@@ -42,6 +42,7 @@ pub struct BridgeFirmwareCheckResult {
     pub local_binary_path: Option<String>,
     pub local_binary_size: Option<u64>,
     pub local_binary_modified: Option<String>,
+    pub local_binary_version: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -105,6 +106,10 @@ pub struct UpsTelemetryPayload {
     pub ups_id: Option<String>,
     pub port_name: String,
     pub status: Q1Status,
+    #[serde(default)]
+    pub record: Option<TelemetryRecord>,
+    #[serde(default)]
+    pub bucket_committed: bool,
 }
 
 pub fn commit_bridge_backlog_to_db(
@@ -438,9 +443,11 @@ pub async fn get_device_status(
     state: State<'_, AppState>,
     port_name: String,
     ups_id: Option<String>,
+    force_refresh: Option<bool>,
 ) -> Result<Q1Status, String> {
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
+    let is_force = force_refresh.unwrap_or(false);
     tokio::task::spawn_blocking(move || {
         let lookup_key = ups_id.as_deref().unwrap_or(&port_name);
         if !state_clone.manager.is_connected(lookup_key) {
@@ -469,8 +476,12 @@ pub async fn get_device_status(
             .or(ups_id.clone());
 
         let prev_status = state_clone.manager.get_last_status(lookup_key);
-        match state_clone.manager.poll_device(lookup_key) {
+        match state_clone.manager.poll_device_force_refresh(lookup_key, is_force) {
             Ok(status) => {
+                let smoothed_opt = resolved_ups_id.as_deref().map(|uid| {
+                    state_clone.manager.ingest_bucket_sample(uid, &status)
+                });
+
                 // If profile is approved, record telemetry and persistent events
                 if let Some(ref uid) = resolved_ups_id {
                     let _ = state_clone.db.insert_telemetry(&TelemetryRecord {
@@ -507,6 +518,20 @@ pub async fn get_device_status(
                     Ok((b.active_medium().to_string(), b.ws_host(), k))
                 }) {
                     crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
+                }
+
+                // If manual force refresh or explicit query, emit ups-telemetry to push instant update to frontend
+                if is_force {
+                    let _ = app_clone.emit(
+                        "ups-telemetry",
+                        &UpsTelemetryPayload {
+                            ups_id: resolved_ups_id.clone(),
+                            port_name: port_name.clone(),
+                            status: status.clone(),
+                            record: smoothed_opt,
+                            bucket_committed: false,
+                        },
+                    );
                 }
 
                 Ok(status)
@@ -671,11 +696,14 @@ pub async fn send_command(
             ),
         };
 
-        let resolved_ups_id = state_clone.manager.get_device_ups_id(lookup_key).or(target_ups_id);
+        let resolved_ups_id = state_clone
+            .manager
+            .get_device_ups_id(lookup_key)
+            .or_else(|| target_ups_id.clone());
         let audit_event = EventLogRecord {
             id: None,
             timestamp: now,
-            ups_id: resolved_ups_id,
+            ups_id: resolved_ups_id.clone(),
             event_type: "USER_ACTION".into(),
             severity: if is_success { "info".into() } else { "warning".into() },
             message: action_desc,
@@ -684,6 +712,52 @@ pub async fn send_command(
 
         let _ = state_clone.db.insert_event(&audit_event);
         let _ = app_clone.emit("ups-event", &audit_event);
+
+        // Real-Time Trigger & 1-shot post-command update for state-modifying actions
+        if result.is_ok() && cmd_clone.required_stage() != UnlockStage::T1ReadOnly {
+            let now_inst = std::time::Instant::now();
+            match &cmd_clone {
+                VoltronicCommand::TenSecondTest => {
+                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_millis(10500));
+                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                }
+                VoltronicCommand::TestForMinutes(m) => {
+                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_secs((*m as u64) * 60 + 1));
+                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs((*m as u64) * 60 + 5));
+                }
+                VoltronicCommand::ShutdownWithDelay { minutes } | VoltronicCommand::ShutdownAndRestore { minutes, .. } => {
+                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_secs((*minutes as u64) * 60 + 1));
+                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                }
+                _ => {
+                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                }
+            }
+
+            // Immediate 1-shot live status query with force_refresh = true
+            if let Ok(status) = state_clone.manager.poll_device_force_refresh(lookup_key, true) {
+                let smoothed = resolved_ups_id.as_deref().map(|uid| {
+                    state_clone.manager.ingest_bucket_sample(uid, &status)
+                });
+                let _ = app_clone.emit(
+                    "ups-telemetry",
+                    &UpsTelemetryPayload {
+                        ups_id: resolved_ups_id.clone(),
+                        port_name: port.clone(),
+                        status: status.clone(),
+                        record: smoothed,
+                        bucket_committed: false,
+                    },
+                );
+            }
+
+            // Emit command executed notification to inform all UI views
+            crate::serial::bridge_adapter::emit_bridge_cmd_executed(
+                &cmd_clone.as_cmd_str().unwrap_or_default(),
+                "desktop-ui",
+                chrono::Utc::now().timestamp() as u64,
+            );
+        }
 
         result
     })
@@ -1177,9 +1251,32 @@ pub fn get_poll_interval(state: State<AppState>) -> u64 {
 pub fn set_poll_interval(state: State<AppState>, secs: u64) -> Result<(), String> {
     let secs = secs.clamp(1, 3600);
     let _ = state.poll_interval_tx.send(secs);
+    let urg_fast = state.db.get_setting("urgent_fast_poll").ok().flatten().map(|v| v != "false").unwrap_or(true);
+    crate::serial::bridge_adapter::set_bridge_runtime_settings(urg_fast, secs);
     state
         .db
         .set_setting("poll_interval_secs", &secs.to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_urgent_fast_poll(state: State<AppState>) -> bool {
+    state
+        .db
+        .get_setting("urgent_fast_poll")
+        .ok()
+        .flatten()
+        .map(|v| v != "false")
+        .unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn set_urgent_fast_poll(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    let poll_sec = *state.poll_interval_tx.subscribe().borrow();
+    crate::serial::bridge_adapter::set_bridge_runtime_settings(enabled, poll_sec);
+    state
+        .db
+        .set_setting("urgent_fast_poll", if enabled { "true" } else { "false" })
         .map_err(|e| e.to_string())
 }
 
@@ -1938,6 +2035,43 @@ fn find_local_bridge_firmware() -> Option<std::path::PathBuf> {
     None
 }
 
+fn find_local_bridge_version(binary_path: &std::path::Path) -> Option<String> {
+    let mut candidates = vec![
+        std::path::PathBuf::from("upsed-bridge/include/config.h"),
+        std::path::PathBuf::from("../upsed-bridge/include/config.h"),
+        std::path::PathBuf::from("../../upsed-bridge/include/config.h"),
+    ];
+
+    if let Some(bridge_dir) = binary_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+    {
+        candidates.insert(0, bridge_dir.join("include").join("config.h"));
+    }
+
+    for cfg_path in candidates {
+        if let Ok(content) = std::fs::read_to_string(&cfg_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("#define") && trimmed.contains("BRIDGE_FIRMWARE_VER") {
+                    if let Some(start) = trimmed.find('"') {
+                        if let Some(end) = trimmed[start + 1..].find('"') {
+                            let ver = &trimmed[start + 1..start + 1 + end];
+                            if !ver.is_empty() {
+                                return Some(ver.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn is_version_newer(latest: &str, current: &str) -> bool {
     let parse_parts = |s: &str| -> Vec<u32> {
         let clean = s.trim_start_matches(|c: char| !c.is_ascii_digit());
@@ -1959,15 +2093,16 @@ pub async fn check_bridge_firmware_update(
     current_version: String,
 ) -> Result<BridgeFirmwareCheckResult, String> {
     // 1. Check local build binary
-    let (local_path, local_size, local_mod) = if let Some(path) = find_local_bridge_firmware() {
+    let (local_path, local_size, local_mod, local_ver) = if let Some(path) = find_local_bridge_firmware() {
         let meta = std::fs::metadata(&path).ok();
         let size = meta.as_ref().map(|m| m.len());
         let modified = meta
             .and_then(|m| m.modified().ok())
             .map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d %H:%M:%S").to_string());
-        (Some(path.to_string_lossy().to_string()), size, modified)
+        let ver = find_local_bridge_version(&path);
+        (Some(path.to_string_lossy().to_string()), size, modified, ver)
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
 
     // 2. Query GitHub Releases for Sandakan/UPSED
@@ -2024,6 +2159,7 @@ pub async fn check_bridge_firmware_update(
         local_binary_path: local_path,
         local_binary_size: local_size,
         local_binary_modified: local_mod,
+        local_binary_version: local_ver,
     })
 }
 

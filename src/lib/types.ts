@@ -91,6 +91,8 @@ export interface UpsTelemetryPayload {
   ups_id?: string | null;
   port_name: string;
   status: Q1Status;
+  record?: TelemetryRecord;
+  bucket_committed?: boolean;
 }
 
 export type TransportMedium = 'wifi' | 'usb' | 'bridge' | 'serial' | 'unknown';
@@ -316,6 +318,7 @@ export interface BridgeFirmwareCheckResult {
   local_binary_path?: string | null;
   local_binary_size?: number | null;
   local_binary_modified?: string | null;
+  local_binary_version?: string | null;
 }
 
 export interface OtaProgressEvent {
@@ -330,6 +333,13 @@ export interface BridgeCmdExecutedEvent {
   cmd: string;
   source: string;
   ts: number;
+}
+
+export interface BridgeStateChangedEvent {
+  raw: string;
+  reason: string;
+  is_urgent?: boolean;
+  ts?: number;
 }
 
 

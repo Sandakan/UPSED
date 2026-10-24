@@ -120,6 +120,15 @@ pub fn run() {
                 auth,
             };
 
+            let urg_fast = app_state
+                .db
+                .get_setting("urgent_fast_poll")
+                .ok()
+                .flatten()
+                .map(|v| v != "false")
+                .unwrap_or(true);
+            crate::serial::bridge_adapter::set_bridge_runtime_settings(urg_fast, initial_interval);
+
             // Log application startup
             tracing::info!(
                 "[LIFECYCLE] UPSED application started (v{}, pid={})",
@@ -282,6 +291,8 @@ pub fn run() {
             commands::acknowledge_all_events,
             commands::get_poll_interval,
             commands::set_poll_interval,
+            commands::get_urgent_fast_poll,
+            commands::set_urgent_fast_poll,
             commands::get_close_to_minimize,
             commands::set_close_to_minimize,
             commands::get_start_minimized,

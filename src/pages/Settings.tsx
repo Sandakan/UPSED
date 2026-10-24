@@ -79,6 +79,7 @@ interface PersistedSettings {
   inAppToast: boolean;
   outageHighlights: boolean;
   downsamplingMaxPoints: number;
+  urgentFastPoll: boolean;
   upsName: string;
   ratedVa: number;
   powerFactor: number;
@@ -119,6 +120,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const [currentTheme, setCurrentTheme] = useState<ThemeMode>(themeMode);
     const [currentLangMode, setCurrentLangMode] = useState<AppLanguageMode>(getAppLanguageMode());
     const [intervalVal, setIntervalVal] = useState(pollInterval);
+    const [urgentFastPollVal, setUrgentFastPollVal] = useState(true);
     const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
     const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
     const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
@@ -167,17 +169,20 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         isAutostartEnabled().catch(() => false),
         api.getCloseToMinimize().catch(() => true),
         api.getStartMinimized().catch(() => true),
-      ]).then(([devMode, autostart, closeToMin, startMin]) => {
+        api.getUrgentFastPoll().catch(() => true),
+      ]).then(([devMode, autostart, closeToMin, startMin, urgFast]) => {
         if (!isMounted) return;
         setIsDev(devMode);
         setAutostartVal(autostart);
         setCloseToMinimizeVal(closeToMin);
         setStartMinimizedVal(startMin);
+        setUrgentFastPollVal(urgFast);
 
         const initial: PersistedSettings = {
           theme: themeMode,
           lang: getAppLanguageMode(),
           interval: pollInterval,
+          urgentFastPoll: urgFast,
           bridge: batteryBridgeActive,
           autostart,
           startMinimized: startMin,
@@ -237,6 +242,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         currentTheme !== persisted.theme ||
         currentLangMode !== persisted.lang ||
         intervalVal !== persisted.interval ||
+        urgentFastPollVal !== persisted.urgentFastPoll ||
         bridgeVal !== persisted.bridge ||
         autostartVal !== persisted.autostart ||
         startMinimizedVal !== persisted.startMinimized ||
@@ -327,6 +333,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         await api.setBatteryBridgeStatus(bridgeVal);
         await api.setCloseToMinimize(closeToMinimizeVal);
         await api.setStartMinimized(startMinimizedVal);
+        await api.setUrgentFastPoll(urgentFastPollVal);
         await api.setTheme(currentTheme);
 
         if (!isDev) {
@@ -358,6 +365,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           theme: currentTheme,
           lang: currentLangMode,
           interval: intervalVal,
+          urgentFastPoll: urgentFastPollVal,
           bridge: bridgeVal,
           autostart: autostartVal,
           startMinimized: startMinimizedVal,
@@ -1057,6 +1065,37 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               {t('settings:pollingSection.pollSeconds', { count: sec, defaultValue: `${sec}s` })} {sec === 10 ? '(Default)' : ''}
             </button>
           ))}
+        </div>
+
+        {/* Adaptive Urgent Event Fast-Polling Toggle */}
+        <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="pr-4">
+            <h5 className="text-xs font-semibold text-slate-200">
+              Adaptive Urgent Event Fast-Polling (2s Turbo)
+            </h5>
+            <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+              Automatically steps up hardware polling to 2 seconds during active battery self-tests, shutdown sequences, and utility outages. Idles at your configured cadence during normal line operation. Supported on both ESP32 Bridge and Direct Serial connections.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={urgentFastPollVal}
+            onClick={() => {
+              const next = !urgentFastPollVal;
+              setUrgentFastPollVal(next);
+              api.setUrgentFastPoll(next).catch(console.error);
+            }}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              urgentFastPollVal ? 'bg-emerald-600' : 'bg-slate-700'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                urgentFastPollVal ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
       </div>
 

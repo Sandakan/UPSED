@@ -9,6 +9,12 @@ pub trait SerialTransport: Send {
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         None
     }
+
+    /// Optional extension for transports that support cache bypassing (BridgeTransport).
+    /// Defaults to calling `self.send_command(cmd_str)`.
+    fn send_command_force_refresh(&mut self, cmd_str: &str, _force_refresh: bool) -> Result<String, ProtocolError> {
+        self.send_command(cmd_str)
+    }
 }
 
 pub struct PhysicalSerialPort {

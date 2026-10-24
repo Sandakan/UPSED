@@ -32,7 +32,8 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
   // Operational mode determination
   const isFault = status.ups_failed;
   const isBypass = !isFault && status.bypass_active;
-  const isBatteryMode = !isFault && !isBypass && status.utility_fail;
+  const isTesting = !isFault && !isBypass && Boolean(status.test_in_progress);
+  const isBatteryMode = !isFault && !isBypass && !isTesting && status.utility_fail;
   const isLineMode = !isFault && !isBypass && !status.utility_fail;
 
   // Battery metrics using configured nominal voltage if available
@@ -74,11 +75,11 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
 
   // Conduit stroke colors and styles
   const inputActive = !status.utility_fail;
-  const rectifierActive = isLineMode;
-  const inverterActive = isLineMode || isBatteryMode;
-  const batteryCharging = isLineMode && batPct < 98;
-  const batteryDischarging = isBatteryMode;
-  const outputActive = isLineMode || isBatteryMode || isBypass;
+  const rectifierActive = isLineMode && !isTesting;
+  const inverterActive = isLineMode || isBatteryMode || isTesting;
+  const batteryCharging = isLineMode && !isTesting && batPct < 98;
+  const batteryDischarging = isBatteryMode || isTesting;
+  const outputActive = isLineMode || isBatteryMode || isBypass || isTesting;
 
   return (
     <div className="rounded-2xl p-5 shadow-sm border" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
@@ -107,6 +108,11 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
             <span className="px-2.5 py-1 rounded-lg bg-purple-950/70 border border-purple-800 text-purple-400 flex items-center space-x-1.5 font-sans font-medium">
               <Zap className="w-3.5 h-3.5" />
               <span>{t('dashboard:topology.modePill.bypass', 'Bypass Mode')}</span>
+            </span>
+          ) : isTesting ? (
+            <span className="px-2.5 py-1 rounded-lg bg-purple-950/70 border border-purple-500/80 text-purple-300 flex items-center space-x-1.5 font-sans font-medium animate-pulse shadow-sm shadow-purple-950/50">
+              <Activity className="w-3.5 h-3.5 text-purple-400" />
+              <span>{t('dashboard:topology.modePill.testing', 'Battery Self-Test')}</span>
             </span>
           ) : isBatteryMode ? (
             <span className="px-2.5 py-1 rounded-lg bg-amber-950/70 border border-amber-800 text-amber-400 flex items-center space-x-1.5 font-sans font-medium animate-pulse">
@@ -207,7 +213,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               d="M 470 140 L 585 140 M 655 140 L 750 140"
               strokeWidth="3"
               strokeLinecap="round"
-              className={`${isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'} flow-active`}
+              className={`${isTesting ? 'stroke-purple-400' : isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'} flow-active`}
               shapeRendering="optimizeSpeed"
             />
           )}
@@ -220,7 +226,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               strokeLinecap="round"
               className={
                 batteryDischarging
-                  ? 'stroke-amber-400 flow-active-reverse'
+                  ? isTesting
+                    ? 'stroke-purple-400 flow-active-reverse'
+                    : 'stroke-amber-400 flow-active-reverse'
                   : 'stroke-emerald-400 flow-active'
               }
               shapeRendering="optimizeSpeed"
@@ -277,7 +285,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
             cy="140"
             r="5"
             className={
-              isBatteryMode
+              isTesting
+                ? 'fill-purple-400'
+                : isBatteryMode
                 ? 'fill-amber-400'
                 : rectifierActive
                 ? 'fill-emerald-400'
@@ -385,7 +395,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               cy="0"
               r="22"
               className={
-                isBatteryMode
+                isTesting
+                  ? 'fill-slate-900 stroke-purple-400'
+                  : isBatteryMode
                   ? 'fill-slate-900 stroke-amber-400'
                   : batPct < 20
                   ? 'fill-slate-900 stroke-rose-500'
@@ -400,7 +412,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               width="20"
               height="12"
               rx="2"
-              className={isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
+              className={isTesting ? 'stroke-purple-300' : isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
               strokeWidth="1.5"
               fill="none"
             />
@@ -409,7 +421,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               y1="0"
               x2="-1"
               y2="0"
-              className={isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
+              className={isTesting ? 'stroke-purple-300' : isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
               strokeWidth="1.5"
             />
             <line
@@ -417,7 +429,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               y1="-2"
               x2="-3"
               y2="2"
-              className={isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
+              className={isTesting ? 'stroke-purple-300' : isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
               strokeWidth="1.5"
             />
             <line
@@ -425,7 +437,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               y1="0"
               x2="6"
               y2="0"
-              className={isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
+              className={isTesting ? 'stroke-purple-300' : isBatteryMode ? 'stroke-amber-300' : 'stroke-cyan-300'}
               strokeWidth="1.5"
             />
             <text
@@ -448,7 +460,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               rx="12"
               className={
                 inverterActive
-                  ? isBatteryMode
+                  ? isTesting
+                    ? 'fill-slate-900 stroke-purple-500/80'
+                    : isBatteryMode
                     ? 'fill-slate-900 stroke-amber-500/80'
                     : 'fill-slate-900 stroke-cyan-500/80'
                   : 'fill-slate-950 stroke-slate-800'
@@ -465,7 +479,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               y2="-16"
               className={
                 inverterActive
-                  ? isBatteryMode
+                  ? isTesting
+                    ? 'stroke-purple-400'
+                    : isBatteryMode
                     ? 'stroke-amber-400'
                     : 'stroke-cyan-400'
                   : 'stroke-slate-600'
@@ -480,7 +496,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               y2="-10"
               className={
                 inverterActive
-                  ? isBatteryMode
+                  ? isTesting
+                    ? 'stroke-purple-400'
+                    : isBatteryMode
                     ? 'stroke-amber-400'
                     : 'stroke-cyan-400'
                   : 'stroke-slate-600'
@@ -493,7 +511,9 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
               d="M 6 16 Q 12 10 18 16 Q 24 22 30 16"
               className={
                 inverterActive
-                  ? isBatteryMode
+                  ? isTesting
+                    ? 'stroke-purple-400'
+                    : isBatteryMode
                     ? 'stroke-amber-400'
                     : 'stroke-cyan-400'
                   : 'stroke-slate-600'

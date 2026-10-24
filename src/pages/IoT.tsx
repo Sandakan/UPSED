@@ -567,7 +567,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       if (progress.phase === 'success') {
         setIsFlashingOta(false);
         refreshStatus();
-        queryClient.invalidateQueries({ queryKey: ['device_status'] });
+        queryClient.invalidateQueries({ queryKey: ['deviceStatus'] });
       } else if (progress.phase === 'error') {
         setIsFlashingOta(false);
       }
@@ -593,9 +593,9 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     listen<BridgeCmdExecutedEvent>('ups-bridge-cmd-executed', (event) => {
       if (!isMounted) return;
       const { cmd, source } = event.payload;
-      queryClient.invalidateQueries({ queryKey: ['device_status'] });
-      queryClient.invalidateQueries({ queryKey: ['outlet_states'] });
-      queryClient.invalidateQueries({ queryKey: ['device_ratings'] });
+      queryClient.invalidateQueries({ queryKey: ['deviceStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['outletStates'] });
+      queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
       refreshStatus();
       toast.custom(
         JSON.stringify({
@@ -2731,8 +2731,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   <h3 className="text-base font-semibold text-white">Local PlatformIO Build</h3>
                 </div>
                 {firmwareCheck?.local_binary_path ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                    Compiled Binary Ready
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5">
+                    <span className="font-bold">
+                      {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
+                    </span>
+                    <span>• Compiled Ready</span>
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-white/5">
@@ -2746,6 +2749,12 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400 text-[11px]">Artifact:</span>
                     <span className="text-white font-mono font-medium">firmware.bin</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 text-[11px]">Build Version:</span>
+                    <span className="text-cyan-400 font-mono font-bold">
+                      {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400 text-[11px]">Size:</span>
@@ -2888,8 +2897,13 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                     <div className="text-xs">
                       <div className="font-semibold text-white flex items-center gap-2">
                         <span>Local PlatformIO Build</span>
+                        {firmwareCheck?.local_binary_version && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+                            v{firmwareCheck.local_binary_version.replace(/^v/, '')}
+                          </span>
+                        )}
                         {firmwareCheck?.local_binary_size && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
                             {Math.round(firmwareCheck.local_binary_size / 1024)} KB
                           </span>
                         )}

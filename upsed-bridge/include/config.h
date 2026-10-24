@@ -7,7 +7,7 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.2.0"
+#define BRIDGE_FIRMWARE_VER    "1.3.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
@@ -20,7 +20,8 @@
 // Multi-Client WebSocket & Command Cache Configuration
 #define BRIDGE_MAX_WS_CLIENTS      8
 #define CMD_CACHE_CAPACITY         16
-#define UPS_CACHE_TELEMETRY_TTL_MS 1500UL
+#define UPS_CACHE_TELEMETRY_TTL_MS 6500UL    // 6.5s TTL for routine 5s idle polls
+#define UPS_CACHE_TURBO_TTL_MS     2200UL    // 2.2s TTL for urgent 2s turbo polls
 #define UPS_CACHE_CONFIG_TTL_MS    10000UL
 #define UPS_CACHE_STATIC_TTL_MS    60000UL
 
@@ -33,6 +34,10 @@
 #define UPS_BAUD               2400
 #define UPS_GUARD_DELAY_MS     150       // Guard delay between RS-232 UART frames
 #define UPS_READ_TIMEOUT_MS    1400      // Turnaround timeout for 2400-baud UPS MCU ADC/telemetry calculations
+
+// Hardware Master Polling Intervals
+#define BRIDGE_IDLE_POLL_MS    5000UL    // Steady-state idle poll: 5 seconds
+#define BRIDGE_TURBO_POLL_MS   2000UL    // Urgent event turbo poll: 2 seconds
 
 // Role Handoff & Standalone Polling Intervals
 #define PROXY_TIMEOUT_MS       15000UL   // Switch to Standalone Mode after 15s of PC silence

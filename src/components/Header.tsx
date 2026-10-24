@@ -31,7 +31,7 @@ interface HeaderProps {
   transportIp?: string | null;
   bridgeUpdateAvailable?: boolean;
   bridgeCompatible?: boolean;
-  onRefresh: () => void;
+  onRefresh: (forceRefresh?: boolean) => void;
   isRefreshing: boolean;
   lastUpdatedAt?: number;
   safetyStage: UnlockStage;
@@ -383,7 +383,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             >
               {/* Refresh Telemetry */}
               <button
-                onClick={() => { onRefresh(); setOverflowOpen(false); }}
+                onClick={() => { onRefresh(true); setOverflowOpen(false); }}
                 disabled={(!selectedDevice && !activeProfile) || isRefreshing}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/[0.06] transition disabled:opacity-40 cursor-pointer"
               >

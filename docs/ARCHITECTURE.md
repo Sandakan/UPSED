@@ -171,3 +171,19 @@ CREATE TABLE IF NOT EXISTS auth_credentials (
   1. **Standard Output (`stdout`):** Colored terminal stream during development.
   2. **Webview Console:** IPC log events surfaced to browser DevTools.
   3. **Local Rotating Log File:** Stored at `%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log` (1 MB max size, 2 rotated backups).
+
+---
+
+## ⚡ 7. Dual-Timer Polling & ESP32 Bridge Event Architecture
+
+- **ESP32 Bridge Autonomous Master (v1.3.0):**
+  - The bridge acts as the hardware polling master, querying the UPS RS-232 UART every 5 seconds (6.5s cache TTL) during steady state, and automatically escalating to 2s turbo cadence (2.2s cache TTL) during urgent conditions (e.g. utility failure, battery low, or test in progress).
+  - Unsolicited JSON-RPC notifications (`bridge.stateChanged`, `bridge.cmdExecuted`, `bridge.statusChanged`) are broadcast over TCP/WebSocket on discrete state edge transitions.
+- **Dual-Timer Backend Monitor (`monitor.rs`):**
+  - **400ms Fast Watch Tick:** Drains non-blocking incoming notifications from bridge devices without polling hardware, and executes targeted 1-shot completion probes for direct serial devices (e.g. at test expiration). Direct serial ports are strictly skipped during routine Line Mode to prevent 2400-baud bus saturation.
+  - **Interval Tick (`poll_interval`):** Ingests rolling samples, flushes aggregated telemetry to SQLite, commits `bucket_committed: true` points to frontend charts, and runs full housekeeping cycles.
+- **In-Place Telemetry Chart Smoothing:**
+  - High-frequency edge updates emit with `bucket_committed: false`, updating gauges and current values in-place without distorting historical chart X-axis time scales. Steady-state flushes commit with `bucket_committed: true`.
+- **Force Refresh & Remote Sync:**
+  - Manual UI refresh dispatches with `force_refresh: true`, bypassing cached responses and querying live hardware.
+  - Commands dispatched by any client trigger unsolicited `ups-bridge-cmd-executed` broadcasts, invalidating caches across all concurrent app instances.

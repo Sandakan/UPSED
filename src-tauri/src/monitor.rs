@@ -10,42 +10,178 @@ pub async fn run_background_monitor(
     state: AppState,
     mut interval_rx: tokio::sync::watch::Receiver<u64>,
 ) {
-    tracing::info!("Starting UPSED background multi-UPS monitor task");
+    tracing::info!("Starting UPSED background multi-UPS monitor task with unified event pipeline");
 
     // Allow initial application startup to settle before first probe
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let mut is_initial = true;
-    loop {
-        if !is_initial {
-            let interval_secs = (*interval_rx.borrow()).max(1);
+    let mut fast_interval = tokio::time::interval(Duration::from_millis(400));
+    fast_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            // Immediate responsive sleep: if interval changes, reset timer instantly
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(interval_secs)) => {},
-                changed = interval_rx.changed() => {
-                    if changed.is_ok() {
-                        let new_sec = *interval_rx.borrow();
-                        tracing::info!("Background monitor: interval updated to {}s, restarting cycle", new_sec);
-                        continue;
-                    }
+    let mut last_slow_tick = tokio::time::Instant::now();
+    let mut is_initial = true;
+
+    loop {
+        let current_interval_secs = (*interval_rx.borrow()).max(1);
+
+        tokio::select! {
+            _ = fast_interval.tick() => {
+                let now = tokio::time::Instant::now();
+                let elapsed_slow = now.duration_since(last_slow_tick).as_secs();
+
+                if is_initial || elapsed_slow >= current_interval_secs {
+                    is_initial = false;
+                    last_slow_tick = now;
+                    let app_c = app.clone();
+                    let state_c = state.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        slow_poll_cycle_step(&app_c, &state_c);
+                    }).await;
+                } else {
+                    let app_c = app.clone();
+                    let state_c = state.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        fast_drain_cycle_step(&app_c, &state_c);
+                    }).await;
+                }
+            }
+            changed = interval_rx.changed() => {
+                if changed.is_ok() {
+                    let new_sec = *interval_rx.borrow();
+                    tracing::info!("Background monitor: interval updated to {}s, triggering cycle", new_sec);
+                    // Re-arm so slow cycle fires promptly
+                    last_slow_tick = tokio::time::Instant::now() - Duration::from_secs(new_sec);
                 }
             }
         }
-        is_initial = false;
-
-        // Execute one polling cycle on blocking worker thread
-        let state_clone = state.clone();
-        let app_clone = app.clone();
-
-        let _ = tokio::task::spawn_blocking(move || {
-            poll_cycle_step(&app_clone, &state_clone);
-        })
-        .await;
     }
 }
 
-fn poll_cycle_step(app: &AppHandle, state: &AppState) {
+fn fast_drain_cycle_step(app: &AppHandle, state: &AppState) {
+    let approved_profiles = state.db.list_all_ups_metadata().unwrap_or_default();
+    let primary_id = approved_profiles
+        .iter()
+        .find(|p| p.is_primary)
+        .map(|p| p.unique_id.clone())
+        .or_else(|| approved_profiles.first().map(|p| p.unique_id.clone()));
+
+    // 1. DRAIN NOTIFICATIONS FROM BRIDGE DEVICES (Zero 2400-baud UART load!)
+    let bridge_events = state.manager.drain_bridge_notifications();
+    for (port_name, mut ups_id_opt, events) in bridge_events {
+        if ups_id_opt.is_none() {
+            ups_id_opt = state.manager.get_device_ups_id(&port_name);
+        }
+
+        for ev in events {
+            if let Ok(status) = Q1Status::parse(&ev.raw) {
+                let prev_status = state.manager.get_last_status(&port_name);
+                state.manager.update_device_status(&port_name, status.clone());
+
+                let smoothed = ups_id_opt.as_deref().map(|uid| {
+                    state.manager.ingest_bucket_sample(uid, &status)
+                });
+
+                if let Some(ref uid) = ups_id_opt {
+                    let detected = detect_status_events(prev_status.as_ref(), &status, Some(uid));
+                    for event_record in detected {
+                        let _ = state.db.insert_event(&event_record);
+                        let _ = app.emit("ups-event", &event_record);
+                    }
+                }
+
+                // Update OS native battery bridge if primary
+                if (ups_id_opt.is_some() && primary_id.as_deref() == ups_id_opt.as_deref())
+                    || primary_id.is_none()
+                {
+                    let mut bridge = state.bridge.lock().unwrap();
+                    bridge.update(&status);
+                }
+
+                let _ = app.emit(
+                    "ups-telemetry",
+                    &UpsTelemetryPayload {
+                        ups_id: ups_id_opt.clone(),
+                        port_name: port_name.clone(),
+                        status,
+                        record: smoothed,
+                        bucket_committed: false,
+                    },
+                );
+            }
+        }
+    }
+
+    // 2. DIRECT SERIAL / HID INTERFACES: STRICT ISOLATION & SEGREGATION
+    // Direct serial ports are COMPLETELY SKIPPED during steady-state Line Mode!
+    let connected_list = state.manager.list_connected_details();
+    let is_urgent_fast_enabled = state
+        .db
+        .get_setting("urgent_fast_poll")
+        .ok()
+        .flatten()
+        .map(|v| v != "false")
+        .unwrap_or(true);
+
+    for (info, mut ups_id_opt, last_status) in connected_list {
+        if state.manager.is_bridge_device(&info.port_name) {
+            continue; // Already handled by bridge drain above
+        }
+
+        if ups_id_opt.is_none() {
+            ups_id_opt = state.manager.get_device_ups_id(&info.port_name);
+        }
+
+        // A. Targeted Completion Probe: Has an active test or shutdown timed out?
+        let is_completion_due = state.manager.take_due_completion_probe(&info.port_name);
+
+        // B. Urgent Fast Watch: Is adaptive turbo active and >= 2s elapsed since last poll?
+        let last_poll = state.manager.get_device_last_polled_at(&info.port_name);
+        let elapsed_since_poll = last_poll
+            .map(|t| t.elapsed() >= Duration::from_millis(1900))
+            .unwrap_or(true);
+        let is_fast_watch_due = is_urgent_fast_enabled
+            && state.manager.is_fast_watch_active(&info.port_name)
+            && elapsed_since_poll;
+
+        if is_completion_due || is_fast_watch_due {
+            // Execute targeted 1-shot query on direct serial
+            if let Ok(status) = state.manager.poll_device_force_refresh(&info.port_name, true) {
+                let prev_status = last_status;
+                let smoothed = ups_id_opt.as_deref().map(|uid| {
+                    state.manager.ingest_bucket_sample(uid, &status)
+                });
+
+                if let Some(ref uid) = ups_id_opt {
+                    let detected = detect_status_events(prev_status.as_ref(), &status, Some(uid));
+                    for event_record in detected {
+                        let _ = state.db.insert_event(&event_record);
+                        let _ = app.emit("ups-event", &event_record);
+                    }
+                }
+
+                if (ups_id_opt.is_some() && primary_id.as_deref() == ups_id_opt.as_deref())
+                    || primary_id.is_none()
+                {
+                    let mut bridge = state.bridge.lock().unwrap();
+                    bridge.update(&status);
+                }
+
+                let _ = app.emit(
+                    "ups-telemetry",
+                    &UpsTelemetryPayload {
+                        ups_id: ups_id_opt.clone(),
+                        port_name: info.port_name.clone(),
+                        status,
+                        record: smoothed,
+                        bucket_committed: false,
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
     let approved_profiles = state.db.list_all_ups_metadata().unwrap_or_default();
 
     if approved_profiles.is_empty() && state.manager.list_devices().is_empty() {
@@ -144,21 +280,29 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
 
         match state.manager.poll_device(&info.port_name) {
             Ok(status) => {
-                // If profile is approved, record persistent telemetry and detect events
+                let mut committed_record: Option<TelemetryRecord> = None;
+
+                // If profile is approved, commit smoothed telemetry to SQLite and detect events
                 if let Some(ref uid) = ups_id_opt {
-                    let _ = state.db.insert_telemetry(&TelemetryRecord {
-                        id: None,
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                        ups_id: uid.clone(),
-                        grid_voltage: status.grid_voltage_v,
-                        output_voltage: status.output_voltage_v,
-                        grid_frequency: status.grid_frequency_hz,
-                        output_frequency: status.output_frequency_hz,
-                        load_pct: status.output_load_pct,
-                        output_watts: status.output_watts,
-                        battery_voltage: status.battery_voltage_v,
-                        temperature_c: status.temperature_c,
+                    // Pull smoothed record from accumulator bucket (averaging continuous metrics, preserving test dips)
+                    let record = state.manager.take_completed_bucket(uid).unwrap_or_else(|| {
+                        TelemetryRecord {
+                            id: None,
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            ups_id: uid.clone(),
+                            grid_voltage: status.grid_voltage_v,
+                            output_voltage: status.output_voltage_v,
+                            grid_frequency: status.grid_frequency_hz,
+                            output_frequency: status.output_frequency_hz,
+                            load_pct: status.output_load_pct,
+                            output_watts: status.output_watts,
+                            battery_voltage: status.battery_voltage_v,
+                            temperature_c: status.temperature_c,
+                        }
                     });
+
+                    let _ = state.db.insert_telemetry(&record);
+                    committed_record = Some(record);
 
                     // Detect rising-edge events
                     let detected = detect_status_events(last_status.as_ref(), &status, Some(uid));
@@ -168,13 +312,15 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                     }
                 }
 
-                // Push live telemetry payload
+                // Push completed telemetry payload with bucket_committed: true!
                 let _ = app.emit(
                     "ups-telemetry",
                     &UpsTelemetryPayload {
                         ups_id: ups_id_opt.clone(),
                         port_name: info.port_name.clone(),
                         status: status.clone(),
+                        record: committed_record,
+                        bucket_committed: true,
                     },
                 );
 
@@ -187,7 +333,7 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                 device_summaries.push((device_label, Some(status)));
 
                 // Sync active bridge transport state & query lightweight telemetry status
-                if let Ok(bridge_status_opt) = state.manager.with_bridge_transport(Some(&info.port_name), |b, k| {
+                if let Ok(Some(st)) = state.manager.with_bridge_transport(Some(&info.port_name), |b, k| {
                     match b.ping() {
                         Ok(st) => {
                             crate::serial::bridge_adapter::emit_transport_status(&k, &st.active_transport, b.ws_host().as_deref());
@@ -195,16 +341,14 @@ fn poll_cycle_step(app: &AppHandle, state: &AppState) {
                         }
                         Err(e) => {
                             tracing::debug!("Periodic bridge status ping skipped or failed for {}: {}", info.port_name, e);
-                            crate::serial::bridge_adapter::emit_transport_status(&k, &b.active_medium().to_string(), b.ws_host().as_deref());
+                            crate::serial::bridge_adapter::emit_transport_status(&k, b.active_medium(), b.ws_host().as_deref());
                             Ok(None)
                         }
                     }
                 }) {
-                    if let Some(ref st) = bridge_status_opt {
-                        let _ = app.emit("bridge-status", st);
-                        if st.wifi_connected && !st.ip.is_empty() {
-                            let _ = state.db.set_setting("bridge_fallback_host", &st.ip);
-                        }
+                    let _ = app.emit("bridge-status", &st);
+                    if st.wifi_connected && !st.ip.is_empty() {
+                        let _ = state.db.set_setting("bridge_fallback_host", &st.ip);
                     }
                 }
             }

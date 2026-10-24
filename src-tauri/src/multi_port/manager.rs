@@ -5,6 +5,100 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[derive(Debug, Clone)]
+pub struct TelemetryBucket {
+    pub window_started_at: Instant,
+    pub sample_count: u32,
+    pub sum_grid_voltage: f64,
+    pub sum_output_voltage: f64,
+    pub sum_grid_freq: f64,
+    pub sum_output_freq: f64,
+    pub sum_load_pct: u64,
+    pub sum_output_watts: u64,
+    pub sum_battery_voltage: f64,
+    pub sum_temp_c: i64,
+    pub min_battery_voltage: f32,
+    pub max_output_load_pct: u32,
+    pub max_output_watts: u32,
+    pub had_urgent_condition: bool,
+}
+
+impl TelemetryBucket {
+    pub fn new(status: &Q1Status) -> Self {
+        Self {
+            window_started_at: Instant::now(),
+            sample_count: 1,
+            sum_grid_voltage: status.grid_voltage_v as f64,
+            sum_output_voltage: status.output_voltage_v as f64,
+            sum_grid_freq: status.grid_frequency_hz as f64,
+            sum_output_freq: status.output_frequency_hz as f64,
+            sum_load_pct: status.output_load_pct as u64,
+            sum_output_watts: status.output_watts as u64,
+            sum_battery_voltage: status.battery_voltage_v as f64,
+            sum_temp_c: status.temperature_c as i64,
+            min_battery_voltage: status.battery_voltage_v,
+            max_output_load_pct: status.output_load_pct,
+            max_output_watts: status.output_watts,
+            had_urgent_condition: status.test_in_progress || status.shutdown_active || status.utility_fail || status.battery_low,
+        }
+    }
+
+    pub fn update(&mut self, status: &Q1Status) {
+        self.sample_count += 1;
+        self.sum_grid_voltage += status.grid_voltage_v as f64;
+        self.sum_output_voltage += status.output_voltage_v as f64;
+        self.sum_grid_freq += status.grid_frequency_hz as f64;
+        self.sum_output_freq += status.output_frequency_hz as f64;
+        self.sum_load_pct += status.output_load_pct as u64;
+        self.sum_output_watts += status.output_watts as u64;
+        self.sum_battery_voltage += status.battery_voltage_v as f64;
+        self.sum_temp_c += status.temperature_c as i64;
+
+        if status.battery_voltage_v < self.min_battery_voltage {
+            self.min_battery_voltage = status.battery_voltage_v;
+        }
+        if status.output_load_pct > self.max_output_load_pct {
+            self.max_output_load_pct = status.output_load_pct;
+        }
+        if status.output_watts > self.max_output_watts {
+            self.max_output_watts = status.output_watts;
+        }
+        if status.test_in_progress || status.shutdown_active || status.utility_fail || status.battery_low {
+            self.had_urgent_condition = true;
+        }
+    }
+
+    pub fn to_smoothed_record(&self, ups_id: &str) -> crate::db::TelemetryRecord {
+        let n = self.sample_count.max(1) as f64;
+        let avg_grid_v = (self.sum_grid_voltage / n) as f32;
+        let avg_out_v = (self.sum_output_voltage / n) as f32;
+        let avg_grid_f = (self.sum_grid_freq / n) as f32;
+        let avg_out_f = (self.sum_output_freq / n) as f32;
+        let avg_load = (self.sum_load_pct as f64 / n).round() as u32;
+        let avg_watts = (self.sum_output_watts as f64 / n).round() as u32;
+        let effective_bat_v = if self.had_urgent_condition {
+            self.min_battery_voltage
+        } else {
+            (self.sum_battery_voltage / n) as f32
+        };
+        let avg_temp = (self.sum_temp_c as f64 / n).round() as i32;
+
+        crate::db::TelemetryRecord {
+            id: None,
+            timestamp: chrono::Local::now().to_rfc3339(),
+            ups_id: ups_id.to_string(),
+            grid_voltage: avg_grid_v,
+            output_voltage: avg_out_v,
+            grid_frequency: avg_grid_f,
+            output_frequency: avg_out_f,
+            load_pct: self.max_output_load_pct.max(avg_load),
+            output_watts: self.max_output_watts.max(avg_watts),
+            battery_voltage: effective_bat_v,
+            temperature_c: avg_temp,
+        }
+    }
+}
+
 pub struct ConnectedUps {
     pub info: DiscoveredDevice,
     pub transport: Arc<Mutex<Box<dyn SerialTransport>>>,
@@ -17,6 +111,9 @@ pub struct ConnectedUps {
 pub struct MultiPortManager {
     devices: Arc<Mutex<HashMap<String, ConnectedUps>>>,
     auth: Arc<crate::auth::AuthManager>,
+    buckets: Arc<Mutex<HashMap<String, TelemetryBucket>>>,
+    fast_watch_until: Arc<Mutex<HashMap<String, Instant>>>,
+    completion_probes: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl Default for MultiPortManager {
@@ -24,6 +121,9 @@ impl Default for MultiPortManager {
         Self {
             devices: Arc::new(Mutex::new(HashMap::new())),
             auth: Arc::new(crate::auth::AuthManager::new_in_memory()),
+            buckets: Arc::new(Mutex::new(HashMap::new())),
+            fast_watch_until: Arc::new(Mutex::new(HashMap::new())),
+            completion_probes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -37,6 +137,9 @@ impl MultiPortManager {
         Self {
             devices: Arc::new(Mutex::new(HashMap::new())),
             auth,
+            buckets: Arc::new(Mutex::new(HashMap::new())),
+            fast_watch_until: Arc::new(Mutex::new(HashMap::new())),
+            completion_probes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -150,6 +253,33 @@ impl MultiPortManager {
         }
     }
 
+    pub fn update_device_status(&self, port_or_ups_id: &str, status: Q1Status) {
+        if let Ok(mut devs) = self.devices.lock() {
+            if let Some(device) = devs.get_mut(port_or_ups_id) {
+                device.last_status = Some(status);
+                device.last_polled_at = Some(Instant::now());
+                return;
+            }
+            if let Some(device) = devs.values_mut().find(|d| {
+                d.info.unique_id == port_or_ups_id || d.ups_id.as_deref() == Some(port_or_ups_id)
+            }) {
+                device.last_status = Some(status);
+                device.last_polled_at = Some(Instant::now());
+            }
+        }
+    }
+
+    pub fn get_device_last_polled_at(&self, port_or_ups_id: &str) -> Option<Instant> {
+        let devs = self.devices.lock().unwrap();
+        devs.get(port_or_ups_id)
+            .or_else(|| {
+                devs.values().find(|d| {
+                    d.info.unique_id == port_or_ups_id || d.ups_id.as_deref() == Some(port_or_ups_id)
+                })
+            })
+            .and_then(|d| d.last_polled_at)
+    }
+
     pub fn get_gate(&self, port_or_ups_id: &str) -> Option<Arc<Mutex<CommandGate>>> {
         let devs = self.devices.lock().unwrap();
         let dev = devs.get(port_or_ups_id).or_else(|| {
@@ -174,7 +304,101 @@ impl MultiPortManager {
         gate.unlock_stage(target_stage).map_err(|e| e.to_string())
     }
 
+    pub fn ingest_bucket_sample(&self, ups_id: &str, status: &Q1Status) -> crate::db::TelemetryRecord {
+        let mut buckets = self.buckets.lock().unwrap();
+        let bucket = buckets
+            .entry(ups_id.to_string())
+            .and_modify(|b| b.update(status))
+            .or_insert_with(|| TelemetryBucket::new(status));
+        bucket.to_smoothed_record(ups_id)
+    }
+
+    pub fn take_completed_bucket(&self, ups_id: &str) -> Option<crate::db::TelemetryRecord> {
+        let mut buckets = self.buckets.lock().unwrap();
+        buckets.remove(ups_id).map(|b| b.to_smoothed_record(ups_id))
+    }
+
+    pub fn arm_fast_watch(&self, port_or_ups_id: &str, duration: std::time::Duration) {
+        if let Ok(mut fw) = self.fast_watch_until.lock() {
+            fw.insert(port_or_ups_id.to_string(), Instant::now() + duration);
+        }
+    }
+
+    pub fn arm_target_completion_probe(&self, port_or_ups_id: &str, probe_at: Instant) {
+        if let Ok(mut cp) = self.completion_probes.lock() {
+            cp.insert(port_or_ups_id.to_string(), probe_at);
+        }
+    }
+
+    pub fn is_fast_watch_active(&self, port_or_ups_id: &str) -> bool {
+        if let Ok(fw) = self.fast_watch_until.lock() {
+            if let Some(until) = fw.get(port_or_ups_id) {
+                return Instant::now() < *until;
+            }
+        }
+        false
+    }
+
+    pub fn take_due_completion_probe(&self, port_or_ups_id: &str) -> bool {
+        if let Ok(mut cp) = self.completion_probes.lock() {
+            if let Some(probe_at) = cp.get(port_or_ups_id) {
+                if Instant::now() >= *probe_at {
+                    cp.remove(port_or_ups_id);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn is_bridge_device(&self, port_or_ups_id: &str) -> bool {
+        let devs = self.devices.lock().unwrap();
+        if let Some(dev) = devs.get(port_or_ups_id).or_else(|| {
+            devs.values().find(|d| {
+                d.info.unique_id == port_or_ups_id || d.ups_id.as_deref() == Some(port_or_ups_id)
+            })
+        }) {
+            dev.info.bridge_mac.is_some() || dev.info.port_name.starts_with("BRIDGE:")
+        } else {
+            false
+        }
+    }
+
+    pub fn drain_bridge_notifications(&self) -> Vec<(String, Option<String>, Vec<crate::serial::BridgeStateChangedEvent>)> {
+        let bridge_keys: Vec<_> = {
+            let devs = self.devices.lock().unwrap();
+            devs.iter()
+                .filter(|(_, d)| d.info.bridge_mac.is_some() || d.info.port_name.starts_with("BRIDGE:"))
+                .map(|(k, d)| (k.clone(), d.ups_id.clone(), Arc::clone(&d.transport)))
+                .collect()
+        };
+
+        let mut all_events = Vec::new();
+        for (port_name, ups_id, transport_arc) in bridge_keys {
+            if let Ok(mut transport) = transport_arc.try_lock() {
+                if let Some(bridge) = transport
+                    .as_any_mut()
+                    .and_then(|a| a.downcast_mut::<crate::serial::BridgeTransport>())
+                {
+                    let events = bridge.drain_notifications();
+                    if !events.is_empty() {
+                        all_events.push((port_name, ups_id, events));
+                    }
+                }
+            }
+        }
+        all_events
+    }
+
     pub fn poll_device(&self, port_or_ups_id: &str) -> Result<Q1Status, ProtocolError> {
+        self.poll_device_force_refresh(port_or_ups_id, false)
+    }
+
+    pub fn poll_device_force_refresh(
+        &self,
+        port_or_ups_id: &str,
+        force_refresh: bool,
+    ) -> Result<Q1Status, ProtocolError> {
         let (proto, transport_arc, port_name) = {
             let devs = self.devices.lock().unwrap();
             let device = devs.get(port_or_ups_id).or_else(|| {
@@ -228,7 +452,7 @@ impl MultiPortManager {
 
         for cmd in query_order {
             let cmd_str = cmd.as_cmd_str().map_err(ProtocolError::EncodingError)?;
-            match transport.send_command(&cmd_str) {
+            match transport.send_command_force_refresh(&cmd_str, force_refresh) {
                 Ok(raw_resp) => {
                     tracing::debug!(
                         "Query {:?} raw response for {}: {:?}",

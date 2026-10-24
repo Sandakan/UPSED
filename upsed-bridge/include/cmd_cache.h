@@ -39,7 +39,8 @@ public:
     UpsCommandCache()
         : ringHead_(0),
           hits_(0),
-          misses_(0) {}
+          misses_(0),
+          telemetryTtlMs_(UPS_CACHE_TELEMETRY_TTL_MS) {}
 
     static bool isReadOnlyQuery(const String& cmd) {
         String clean = cmd;
@@ -63,14 +64,18 @@ public:
         return (clean == "QBYV" || clean == "QBYF" || clean == "QHE" || clean == "QFLAG");
     }
 
-    static unsigned long getTtlForCmd(const String& cmd) {
+    void setTelemetryTtlMs(unsigned long ttl) {
+        telemetryTtlMs_ = ttl;
+    }
+
+    unsigned long getTtlForCmd(const String& cmd) const {
         if (isStaticIdentityQuery(cmd)) {
             return UPS_CACHE_STATIC_TTL_MS;
         }
         if (isConfigQuery(cmd)) {
             return UPS_CACHE_CONFIG_TTL_MS;
         }
-        return UPS_CACHE_TELEMETRY_TTL_MS;
+        return telemetryTtlMs_;
     }
 
     bool get(const String& cmd, String& outRaw, unsigned long& outAgeMs, bool& outIsNegative, uint32_t& outRtcTs) {
@@ -196,13 +201,14 @@ public:
     size_t capacity() const { return CMD_CACHE_CAPACITY; }
     uint64_t hits() const { return hits_; }
     uint64_t misses() const { return misses_; }
-    unsigned long telemetryTtlMs() const { return UPS_CACHE_TELEMETRY_TTL_MS; }
+    unsigned long telemetryTtlMs() const { return telemetryTtlMs_; }
 
 private:
     CacheSlot slots_[CMD_CACHE_CAPACITY];
     size_t ringHead_;
     uint64_t hits_;
     uint64_t misses_;
+    unsigned long telemetryTtlMs_;
 };
 
 extern UpsCommandCache cmdCache;

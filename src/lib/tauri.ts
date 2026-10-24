@@ -34,8 +34,8 @@ export const api = {
   listConnectedDevices: () =>
     invoke<DiscoveredDevice[]>('list_connected_devices'),
 
-  getDeviceStatus: (portName: string, upsId?: string) =>
-    invoke<Q1Status>('get_device_status', { portName, upsId: upsId || null }),
+  getDeviceStatus: (portName: string, upsId?: string, forceRefresh?: boolean) =>
+    invoke<Q1Status>('get_device_status', { portName, upsId: upsId || null, forceRefresh: forceRefresh ?? null }),
 
   getOutletStates: (upsId?: string, portName?: string) =>
     invoke<OutletState[]>('get_outlet_states', { upsId: upsId || null, portName: portName || null }),
@@ -158,6 +158,11 @@ export const api = {
 
   setPollInterval: (secs: number) =>
     invoke<void>('set_poll_interval', { secs }),
+
+  getUrgentFastPoll: () => invoke<boolean>('get_urgent_fast_poll'),
+
+  setUrgentFastPoll: (enabled: boolean) =>
+    invoke<void>('set_urgent_fast_poll', { enabled }),
 
   getCloseToMinimize: () => invoke<boolean>('get_close_to_minimize'),
 
