@@ -37,13 +37,25 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 
 ## 🚦 WS2812 RGB LED Status Indicator Guide
 
-| LED Color & Pattern | Operating State | Description |
-| --- | --- | --- |
-| 🔵 **Blue (Pulsing)** | Boot / Associating | ESP32 initializing or attempting Wi-Fi association |
-| 🟢 **Green (Solid)** | Proxy Mode | UPSED Desktop connected; real-time USB/WS proxy active |
-| 🟠 **Amber / Orange (Solid)** | Standalone Mode | PC offline (>15s); autonomous 10s polling into PSRAM active |
-| 🟣 **Magenta / Purple** | Wi-Fi Provisioning | 2.4GHz airwave scan or NVS write in progress |
-| 🔴 **Red (Blinking)** | Error / Timeout | UPS not responding to RS-232 queries or Wi-Fi failed |
+The ESP32-S3 firmware drives an onboard addressable WS2812 RGB LED (primary GPIO 48, secondary GPIO 38) using a non-blocking, priority-ranked state engine running at ~60 Hz. The table below lists operating modes in descending priority order:
+
+| Priority | LED Pattern & Color | Operating State | Trigger Condition & Description |
+| :---: | :--- | :--- | :--- |
+| **P1A** | 🟣 **Blinking Magenta** (200ms ON / 200ms OFF) | **OTA Authentication / Staged Lease** | `ArduinoOTA` UDP invite received / PBKDF2 authentication in flight on port 3232, or 90-second HTTP OTA lease active on port 8080. |
+| **P1B** | 🟣 **Pulsing Magenta** (800ms breathing wave) | **Active Firmware Streaming** | Active firmware binary chunk transmission and flash write in progress over Wi-Fi (`espota` port 3232 or HTTP port 8080). Refreshes on each chunk. |
+| **P1C** | 🟢 **Solid Green Flash** (250ms) | **OTA Flashing Complete** | Firmware committed cleanly to flash partition without checksum errors. Bridge rebooting into new firmware. |
+| **P2** | 🔴 **Pulsing Alert Red** (700ms pulse) | **AC Power Outage · On Battery** | **CRITICAL:** Utility Fail bit active (`Q1` / `QPIGS`). Mains power lost and UPS inverter supplying load from battery. |
+| **P3** | 🔴 **Fast Double-Blink Red** (1.2s cycle) | **Wi-Fi Auth Error (`AUTH_FAIL`)** | Incorrect Wi-Fi credentials or AP association rejected (Reason 202). Check network credentials. |
+| **P3** | 🟠 **Slow Blinking Amber** (1s cycle: 500ms ON / 500ms OFF) | **Wi-Fi Disconnected** | Wi-Fi association lost. Device performing automatic reconnection retries every 30 seconds. |
+| **P3** | 🟠 **Pulsing Amber** (900ms pulse) | **Wi-Fi Associating / Booting** | Actively associating with configured 2.4GHz Wi-Fi AP and requesting DHCP IP assignment. |
+| **P4** | 🔵 **Momentary Blue Flash** (60ms tick) | **Serial Bus Activity** | Dispatched during `MODE_PROXY` whenever a serial query or command is executed against the UPS. |
+| **P4** | 🟢 **Momentary Mint/White Flash** (80ms tick) | **Tuya Telemetry Published** | Rendered each time a 19-DP telemetry snapshot report is successfully delivered to TuyaLink MQTT. |
+| **P4** | 🟣 **Periodic Violet Pulse** (450ms every 3s) | **Tuya Connecting / Syncing** | Overlaid on base mode while acquiring NTP time, resolving broker DNS, or establishing TLS handshake. |
+| **P4** | 🟠 **Periodic Orange Double-Blink** (every 3s) | **Tuya Fault / Auth Error** | Overlaid on base mode when TuyaLink connection drops or credentials rejected (`rc=4`/`rc=5`). Reconnecting with exponential backoff. |
+| **P5** | 🟢 **Solid Green** | **Proxy Mode (Normal)** | Fully operational. AC grid healthy, UPS RS-232 communicating, UPSED desktop connected via WebSocket / USB CDC. |
+| **P5** | 🟡 **Pulsing Yellow** (1.5s pulse) | **Proxy Mode · UPS Offline / NAK** | Desktop connected, but UPS RS-232 cable disconnected or UPS returning `NAK`. |
+| **P6** | 🔷 **Breathing Cyan** (2.4s pulse) | **Standalone Logging Mode** | UPSED desktop offline (>15s silence). Bridge autonomously buffering telemetry snapshots to 8MB PSRAM ring buffer. |
+| **P6** | 🟡 **Slow Amber/Yellow Pulse** (1.8s pulse) | **Standalone · UPS Offline / NAK** | Desktop offline AND UPS RS-232 cable disconnected or returning `NAK`. |
 
 ---
 

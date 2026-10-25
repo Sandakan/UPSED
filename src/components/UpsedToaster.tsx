@@ -12,10 +12,16 @@ import {
 } from 'lucide-react';
 import { EventLogRecord, EventSeverity } from '../lib/types';
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastData {
-  event: EventLogRecord;
+  event?: EventLogRecord;
   title: string;
   description: string;
+  action?: ToastAction;
 }
 
 export const UpsedToaster: React.FC = () => {
@@ -90,8 +96,11 @@ export const UpsedToaster: React.FC = () => {
     >
       {toasts.map((t) => {
         let data: ToastData | null = null;
+        const raw = typeof t.message === 'function' ? (t.message as any)(t) : t.message;
+        if (React.isValidElement(raw)) {
+          return <React.Fragment key={t.id}>{raw}</React.Fragment>;
+        }
         try {
-          const raw = typeof t.message === 'function' ? (t.message as any)(t) : t.message;
           if (typeof raw === 'string') {
             data = JSON.parse(raw);
           } else {
@@ -143,6 +152,21 @@ export const UpsedToaster: React.FC = () => {
                   <p className="text-xs text-slate-300 leading-relaxed break-words">
                     {description}
                   </p>
+
+                  {data?.action && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          data?.action?.onClick();
+                        }}
+                        className="px-2.5 py-1 text-xs font-medium rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
+                      >
+                        {data.action.label}
+                      </button>
+                    </div>
+                  )}
 
                   <p className="text-[10px] text-slate-400 pt-0.5">
                     {event?.timestamp

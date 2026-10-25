@@ -44,6 +44,8 @@ import {
   Users,
 } from 'lucide-react';
 import { marked } from 'marked';
+import * as XLSX from 'xlsx';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
@@ -83,11 +85,20 @@ const BridgeLedGuide: React.FC = () => {
     {
       color: 'bg-cyan-400 animate-pulse',
       shadow: 'shadow-[0_0_10px_#22d3ee]',
-      pattern: 'Breathing Cyan (Slow pulse)',
+      pattern: 'Breathing Cyan (2.4s pulse)',
       title: 'Standalone Logging · PSRAM Active',
       desc: 'Wi-Fi is connected, but UPSED desktop is offline. Bridge is autonomously buffering telemetry to 8MB PSRAM ring buffer.',
       badge: 'Buffering',
       badgeClass: 'bg-cyan-950/60 text-cyan-400 border-cyan-700/40',
+    },
+    {
+      color: 'bg-rose-600 animate-pulse',
+      shadow: 'shadow-[0_0_12px_#e11d48]',
+      pattern: 'Pulsing Alert Red (700ms)',
+      title: 'Power Outage · Running on Battery',
+      desc: 'CRITICAL: Utility Fail bit detected. AC grid power is lost and UPS inverter is supplying power from battery.',
+      badge: 'On Battery',
+      badgeClass: 'bg-rose-950/60 text-rose-400 border-rose-700/40',
     },
     {
       color: 'bg-amber-400 animate-pulse',
@@ -101,7 +112,7 @@ const BridgeLedGuide: React.FC = () => {
     {
       color: 'bg-amber-500 animate-ping',
       shadow: 'shadow-[0_0_10px_#f59e0b]',
-      pattern: 'Pulsing / Blinking Amber',
+      pattern: 'Pulsing Amber (900ms pulse)',
       title: 'Wi-Fi Connecting / Associating',
       desc: 'Bridge is actively associating with the configured 2.4GHz Wi-Fi access point and waiting for DHCP IP assignment.',
       badge: 'Connecting',
@@ -110,29 +121,74 @@ const BridgeLedGuide: React.FC = () => {
     {
       color: 'bg-rose-500 animate-bounce',
       shadow: 'shadow-[0_0_10px_#f43f5e]',
-      pattern: 'Fast Double-Blink Red',
-      title: 'Wi-Fi Auth Error / Disconnected',
+      pattern: 'Fast Double-Blink Red (1.2s)',
+      title: 'Wi-Fi Auth Error (AUTH_FAIL)',
       desc: 'Incorrect Wi-Fi password (AUTH_FAIL) or router AP rejected connection (Reason 202). Check network credentials.',
       badge: 'Auth Error',
       badgeClass: 'bg-rose-950/60 text-rose-400 border-rose-700/40',
     },
     {
-      color: 'bg-rose-600 animate-pulse',
-      shadow: 'shadow-[0_0_12px_#e11d48]',
-      pattern: 'Pulsing Alert Red',
-      title: 'Power Outage · Running on Battery',
-      desc: 'CRITICAL: Utility Fail bit detected. AC grid power is lost and UPS inverter is supplying power from battery.',
-      badge: 'On Battery',
-      badgeClass: 'bg-rose-950/60 text-rose-400 border-rose-700/40',
+      color: 'bg-amber-600 animate-pulse',
+      shadow: 'shadow-[0_0_10px_#d97706]',
+      pattern: 'Slow Blinking Amber (1s cycle)',
+      title: 'Wi-Fi Disconnected / Retrying',
+      desc: 'Bridge disconnected from Wi-Fi access point. Performing periodic automatic reconnect attempts every 30 seconds.',
+      badge: 'Wi-Fi Down',
+      badgeClass: 'bg-amber-950/60 text-amber-500 border-amber-700/40',
     },
     {
-      color: 'bg-fuchsia-500 animate-pulse',
+      color: 'bg-fuchsia-500 animate-ping',
       shadow: 'shadow-[0_0_10px_#d946ef]',
-      pattern: 'Pulsing Magenta (Pink-Purple)',
-      title: 'Wireless Firmware OTA Update',
-      desc: 'On-demand 90-second OTA lease active on port 8080. Flashing new firmware binary into inactive flash partition.',
-      badge: 'OTA Mode',
+      pattern: 'Blinking Magenta (200ms cycle)',
+      title: 'OTA Authenticating / Lease Staged',
+      desc: 'ArduinoOTA UDP invite/handshake received or 90-second HTTP OTA lease active on port 8080 awaiting upload token.',
+      badge: 'OTA Auth',
+      badgeClass: 'bg-fuchsia-950/60 text-fuchsia-300 border-fuchsia-700/40',
+    },
+    {
+      color: 'bg-fuchsia-400 animate-pulse',
+      shadow: 'shadow-[0_0_12px_#e879f9]',
+      pattern: 'Pulsing Magenta (800ms wave)',
+      title: 'Wireless Firmware Streaming',
+      desc: 'Active firmware streaming and flash write in progress over Wi-Fi (ArduinoOTA port 3232 or HTTP port 8080). LED refreshes on each chunk.',
+      badge: 'OTA Flashing',
       badgeClass: 'bg-fuchsia-950/60 text-fuchsia-400 border-fuchsia-700/40',
+    },
+    {
+      color: 'bg-emerald-500',
+      shadow: 'shadow-[0_0_12px_#10b981]',
+      pattern: 'Solid Green Flash (250ms)',
+      title: 'OTA Flashing Complete · Rebooting',
+      desc: 'Firmware binary committed cleanly to flash partition without checksum errors. Bridge is rebooting into new firmware.',
+      badge: 'Rebooting',
+      badgeClass: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/40',
+    },
+    {
+      color: 'bg-purple-500 animate-pulse',
+      shadow: 'shadow-[0_0_10px_#a855f7]',
+      pattern: 'Periodic Violet Pulse (450ms)',
+      title: 'Tuya Cloud Connecting / Syncing',
+      desc: 'ESP32 is acquiring NTP time, resolving broker DNS, or establishing TLS handshake with TuyaLink Cloud (overlaid on base mode).',
+      badge: 'Tuya Sync',
+      badgeClass: 'bg-purple-950/60 text-purple-400 border-purple-700/40',
+    },
+    {
+      color: 'bg-orange-500 animate-ping',
+      shadow: 'shadow-[0_0_10px_#f97316]',
+      pattern: 'Periodic Orange Double-Blink',
+      title: 'Tuya Cloud Error / Auth Failure',
+      desc: 'Tuya connection failed or credentials rejected (rc=4/5). Reconnecting with exponential backoff (overlaid on base mode).',
+      badge: 'Tuya Fault',
+      badgeClass: 'bg-orange-950/60 text-orange-400 border-orange-700/40',
+    },
+    {
+      color: 'bg-emerald-200',
+      shadow: 'shadow-[0_0_8px_#a7f3d0]',
+      pattern: 'Momentary Mint Flash (80ms)',
+      title: 'Tuya Telemetry Published',
+      desc: 'Brief mint/white tick rendered each time a 19-DP telemetry snapshot report is successfully delivered to TuyaLink.',
+      badge: 'Tuya Publish',
+      badgeClass: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/40',
     },
   ];
 
@@ -226,6 +282,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   const [changelogContent, setChangelogContent] = useState<string | null>(null);
   const [isChangelogLoading, setIsChangelogLoading] = useState(false);
   const [changelogError, setChangelogError] = useState<string | null>(null);
+  const [isDev, setIsDev] = useState<boolean>(Boolean(import.meta.env.DEV));
 
   // Wi-Fi Scanner & Provisioning
   const [ssid, setSsid] = useState('');
@@ -277,7 +334,9 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   const [showTuyaSecret, setShowTuyaSecret] = useState(false);
   const [isSavingTuya, setIsSavingTuya] = useState(false);
   const [isTestingTuya, setIsTestingTuya] = useState(false);
+  const [isReconnectingTuya, setIsReconnectingTuya] = useState(false);
   const [isTuyaRecipeOpen, setIsTuyaRecipeOpen] = useState(false);
+  const prevTuyaStateRef = useRef<string | undefined>(undefined);
 
   // Real-Time Log Console
   const [logs, setLogs] = useState<BridgeLogEntry[]>([]);
@@ -381,6 +440,23 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     }
   };
 
+  const handleReconnectTuya = async () => {
+    setIsReconnectingTuya(true);
+    try {
+      const res = await api.reconnectBridgeTuya(portName ?? undefined);
+      setTuyaConfig((prev) => ({
+        ...prev,
+        ...res,
+        device_secret: res.has_secret ? (prev.device_secret || '********') : '',
+      }));
+      toast.success('Immediate TuyaLink reconnection triggered on ESP32');
+    } catch (err: unknown) {
+      toast.error(`Failed to trigger Tuya reconnection: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsReconnectingTuya(false);
+    }
+  };
+
   const handleCopyTuyaSchema = () => {
     const schema = {
       properties: [
@@ -410,42 +486,142 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     toast.success('Copied 19-DP TuyaLink Things Data Model JSON to clipboard');
   };
 
-  const handleDownloadTuyaCsv = () => {
-    const csvContent =
-      '\uFEFF"Description (Do Not Delete)\nThis template supports custom data points of Property with either of these data types, namely value, string, date, boolean, enumeration, raw, and fault.",,,,,,,,,,,\n' +
-      '"Required\nEnter a number from 101 to 499.","Required\nThe function name can contain Chinese and alphanumeric characters, dashes, underscores, slashes, and periods, and should start with Chinese or alphanumeric characters.","Required\nThe identifier can contain alphanumeric characters and underscores.","Required\nSingle select\nFor Send and Report, enter rw\nFor Report Only, enter ro\nFor Send Only, enter wr","Required\nSingle select\nFor Value type, enter value\nFor String type, enter string\nFor Date type, enter date\nFor Boolean type, enter bool\nFor Enumeration type, enter enum\nFor Raw type, enter raw\nFor Fault type, enter fault\nFor Single-Precision Floating-Point type, enter float\nFor Double-Precision Floating-Point type, enter double\n","For Value type, leave this field empty\nFor String type, this field is required. Enter a value from 0 to 1024 to specify the maximum length.\nFor Date type, leave this field empty\nFor Boolean type, leave this field empty\nFor Enumeration type, this field is required. Enter enum values, separated by commas (,).\nFor Raw type, leave this field empty\nFor Fault type, this field is required. Enter fault values, separated by commas (,).\nFor Single-Precision Floating-Point type, leave this field empty\nFor Double-Precision Floating-Point type, leave this field empty","Optional\nYou can write a remark in Chinese or English.","This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe minimum value must be less than the maximum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe maximum value must be greater than the minimum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point",This field is required for value type.,"Optional\nThis field is required for value, single-precision and double-precision floating-point"\n' +
-      'DP ID,Function Name,Identifier,Data Transfer Type,Data Type,Data Definition,Remark,Minimum Value,Maximum Value,Pitch,Scale,Unit\n' +
-      '101,UPS Power Switch,ups_power_switch,Send and Report (rw),bool,,Turns UPS inverter ON (SON) or OFF (SOFF),,,,,\n' +
-      '102,Force Shutdown Override,force_shutdown,Send and Report (rw),bool,,Bypasses safety interlock and immediately powers off output,,,,,\n' +
-      '103,Cancel Shutdown,cancel_shutdown,Send and Report (rw),bool,,Aborts pending hardware shutdown countdown (CS),,,,,\n' +
-      '104,AC Output Status,output_enabled,Report Only (ro),bool,,Reported true when AC output voltage >= 80V,,,,,\n' +
-      '105,PC Host Online,pc_online,Report Only (ro),bool,,Reported true when Desktop proxy active or load > threshold,,,,,\n' +
-      '106,Grid Voltage,grid_voltage,Report Only (ro),value,,Input AC grid voltage,0,3000,1,1,V\n' +
-      '107,Output Voltage,output_voltage,Report Only (ro),value,,Output AC voltage,0,3000,1,1,V\n' +
-      '108,Load Percentage,load_pct,Report Only (ro),value,,Real-time output load percentage,0,100,1,0,%\n' +
-      '109,Battery Percentage,battery_pct,Report Only (ro),value,,Estimated battery state-of-charge,0,100,1,0,%\n' +
-      '110,Battery Voltage,battery_voltage,Report Only (ro),value,,Raw DC battery bank voltage,0,10000,1,2,V\n' +
-      '111,Internal Temperature,temperature_c,Report Only (ro),value,,Internal heatsink temperature,0,1000,1,1,℃\n' +
-      '112,UPS Operating Mode,ups_mode,Report Only (ro),enum,"standby, line, battery, bypass, fault",Current UPS operating mode,,,,,\n' +
-      '113,Utility Grid Fail,utility_fail,Report Only (ro),bool,,Reported true during blackouts (running on battery),,,,,\n' +
-      '114,Battery Low Alarm,battery_low,Report Only (ro),bool,,Reported true when battery is critically depleted,,,,,\n' +
-      '115,Buzzer Mute,buzzer_mute,Send and Report (rw),bool,,Toggles UPS audible beeper (Q),,,,,\n' +
-      '116,10s Battery Test,battery_test_10s,Send and Report (rw),bool,,Dispatches 10-second battery self-test (T),,,,,\n' +
-      '117,Deep Battery Test,deep_battery_test,Send and Report (rw),bool,,Tests battery until low threshold (TL),,,,,\n' +
-      '118,Cancel Battery Test,cancel_test,Send and Report (rw),bool,,Cancels active battery test (CT),,,,,\n' +
-      '119,Programmable Outlet 1,outlet_1_switch,Send and Report (rw),bool,,Toggles outlet group 1 (SKON1/SKOFF1),,,,,\n' +
-      '120,Programmable Outlet 2,outlet_2_switch,Send and Report (rw),bool,,Toggles outlet group 2 (SKON2/SKOFF2),,,,,';
+  const getTuyaBatchRows = (): (string | number | undefined)[][] => [
+    [
+      'Description (Do Not Delete)\nThis template supports custom data points of Property with either of these data types, namely value, string, date, boolean, enumeration, raw, and fault.',
+    ],
+    [
+      'Required\nEnter a number from 101 to 499.',
+      'Required\nThe function name can contain Chinese and alphanumeric characters, dashes, underscores, slashes, and periods, and should start with Chinese or alphanumeric characters.',
+      'Required\nThe identifier can contain alphanumeric characters and underscores.',
+      'Required\nSingle select\nFor Send and Report, enter rw\nFor Report Only, enter ro\nFor Send Only, enter wr',
+      'Required\nSingle select\nFor Value type, enter value\nFor String type, enter string\nFor Date type, enter date\nFor Boolean type, enter bool\nFor Enumeration type, enter enum\nFor Raw type, enter raw\nFor Fault type, enter fault\nFor Single-Precision Floating-Point type, enter float\nFor Double-Precision Floating-Point type, enter double\n',
+      'For Value type, leave this field empty\nFor String type, this field is required. Enter a value from 0 to 1024 to specify the maximum length.\nFor Date type, leave this field empty\nFor Boolean type, leave this field empty\nFor Enumeration type, this field is required. Enter enum values, separated by commas (,).\nFor Raw type, leave this field empty\nFor Fault type, this field is required. Enter fault values, separated by commas (,).\nFor Single-Precision Floating-Point type, leave this field empty\nFor Double-Precision Floating-Point type, leave this field empty',
+      'Optional\nYou can write a remark in Chinese or English.',
+      'This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe minimum value must be less than the maximum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.',
+      'This field is required for value, single-precision and double-precision floating-point, and long integer types.\n\nThe maximum value must be greater than the minimum value.\n\nFor Value type, enter a positive integer.\nFor Single-Precision Floating-Point type, enter the number of decimal places.\nFor Double-Precision Floating-Point type, enter the number of decimal places.',
+      'This field is required for value, single-precision and double-precision floating-point',
+      'This field is required for value type.',
+      'Optional\nThis field is required for value, single-precision and double-precision floating-point',
+    ],
+    [
+      'DP ID',
+      'Function Name',
+      'Identifier',
+      'Data Transfer Type',
+      'Data Type',
+      'Data Definition',
+      'Remark',
+      'Minimum Value',
+      'Maximum Value',
+      'Pitch',
+      'Scale',
+      'Unit',
+    ],
+    [101, 'UPS Power Switch', 'ups_power_switch', 'Send and Report (rw)', 'bool', undefined, 'Turns UPS inverter ON (SON) or OFF (SOFF)'],
+    [102, 'Force Shutdown Override', 'force_shutdown', 'Send and Report (rw)', 'bool', undefined, 'Bypasses safety interlock and immediately powers off output'],
+    [103, 'Cancel Shutdown', 'cancel_shutdown', 'Send and Report (rw)', 'bool', undefined, 'Aborts pending hardware shutdown countdown (CS)'],
+    [104, 'AC Output Status', 'output_enabled', 'Report Only (ro)', 'bool', undefined, 'Reported true when AC output voltage >= 80V'],
+    [105, 'PC Host Online', 'pc_online', 'Report Only (ro)', 'bool', undefined, 'Reported true when Desktop proxy active or load > threshold'],
+    [106, 'Grid Voltage', 'grid_voltage', 'Report Only (ro)', 'value', undefined, 'Input AC grid voltage', 0, 3000, 1, 1, 'V'],
+    [107, 'Output Voltage', 'output_voltage', 'Report Only (ro)', 'value', undefined, 'Output AC voltage', 0, 3000, 1, 1, 'V'],
+    [108, 'Load Percentage', 'load_pct', 'Report Only (ro)', 'value', undefined, 'Real-time output load percentage', 0, 100, 1, 0, '%'],
+    [109, 'Battery Percentage', 'battery_pct', 'Report Only (ro)', 'value', undefined, 'Estimated battery state-of-charge', 0, 100, 1, 0, '%'],
+    [110, 'Battery Voltage', 'battery_voltage', 'Report Only (ro)', 'value', undefined, 'Raw DC battery bank voltage', 0, 10000, 1, 2, 'V'],
+    [111, 'Internal Temperature', 'temperature_c', 'Report Only (ro)', 'value', undefined, 'Internal heatsink temperature', 0, 1000, 1, 1, '℃'],
+    [112, 'UPS Operating Mode', 'ups_mode', 'Report Only (ro)', 'enum', 'standby, line, battery, bypass, fault', 'Current UPS operating mode'],
+    [113, 'Utility Grid Fail', 'utility_fail', 'Report Only (ro)', 'bool', undefined, 'Reported true during blackouts (running on battery)'],
+    [114, 'Battery Low Alarm', 'battery_low', 'Report Only (ro)', 'bool', undefined, 'Reported true when battery is critically depleted'],
+    [115, 'Buzzer Mute', 'buzzer_mute', 'Send and Report (rw)', 'bool', undefined, 'Toggles UPS audible beeper (Q)'],
+    [116, '10s Battery Test', 'battery_test_10s', 'Send and Report (rw)', 'bool', undefined, 'Dispatches 10-second battery self-test (T)'],
+    [117, 'Deep Battery Test', 'deep_battery_test', 'Send and Report (rw)', 'bool', undefined, 'Tests battery until low threshold (TL)'],
+    [118, 'Cancel Battery Test', 'cancel_test', 'Send and Report (rw)', 'bool', undefined, 'Cancels active battery test (CT)'],
+    [119, 'Programmable Outlet 1', 'outlet_1_switch', 'Send and Report (rw)', 'bool', undefined, 'Toggles outlet group 1 (SKON1/SKOFF1)'],
+    [120, 'Programmable Outlet 2', 'outlet_2_switch', 'Send and Report (rw)', 'bool', undefined, 'Toggles outlet group 2 (SKON2/SKOFF2)'],
+  ];
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'tuya_upsed_bridge_dps.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Downloaded Tuya Batch Import CSV template');
+  const handleDownloadTuyaExcel = async () => {
+    try {
+      const rows = getTuyaBatchRows();
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 10 },
+        { wch: 26 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 42 },
+        { wch: 45 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 10 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const wbArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+
+      const savedPath = await api.saveFileWithDialog(
+        'tuya_upsed_bridge_dps.xlsx',
+        'Excel Workbook (*.xlsx)',
+        ['xlsx'],
+        new Uint8Array(wbArray)
+      );
+
+      if (savedPath) {
+        toast.custom(
+          JSON.stringify({
+            title: 'Tuya Batch Excel Template Saved',
+            description: `Saved to ${savedPath}`,
+            action: {
+              label: 'Reveal in Finder / Explorer',
+              onClick: () => {
+                revealItemInDir(savedPath).catch(() => {});
+              },
+            },
+          })
+        );
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to save Excel file: ${msg}`);
+    }
+  };
+
+  const handleDownloadTuyaCsv = async () => {
+    try {
+      const rows = getTuyaBatchRows();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const csvString = '\uFEFF' + XLSX.utils.sheet_to_csv(ws);
+      const encoder = new TextEncoder();
+      const csvBytes = encoder.encode(csvString);
+
+      const savedPath = await api.saveFileWithDialog(
+        'tuya_upsed_bridge_dps.csv',
+        'CSV Document (*.csv)',
+        ['csv'],
+        csvBytes
+      );
+
+      if (savedPath) {
+        toast.custom(
+          JSON.stringify({
+            title: 'Tuya Batch CSV Template Saved',
+            description: `Saved to ${savedPath}`,
+            action: {
+              label: 'Reveal in Finder / Explorer',
+              onClick: () => {
+                revealItemInDir(savedPath).catch(() => {});
+              },
+            },
+          })
+        );
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to save CSV file: ${msg}`);
+    }
   };
 
   // Real-time log listener from Tauri backend
@@ -478,6 +654,88 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       if (unlistenFn) unlistenFn();
     };
   }, []);
+
+  // Real-time bridge-status listener for Tuya state machine transitions
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | null = null;
+
+    listen<BridgeStatus>('bridge-status', (event) => {
+      if (!isMounted) return;
+      const st = event.payload;
+      if (st.tuya_enabled !== undefined) {
+        setTuyaConfig((prev) => ({
+          ...prev,
+          enabled: st.tuya_enabled ?? prev.enabled,
+          connected: st.tuya_connected ?? prev.connected,
+          state: st.tuya_state ?? prev.state,
+          retry_count: st.tuya_retry_count ?? prev.retry_count,
+          next_retry_sec: st.tuya_next_retry_sec ?? prev.next_retry_sec,
+          region: st.tuya_region ?? prev.region,
+          last_error: st.tuya_last_error ?? prev.last_error,
+        }));
+
+        const prevState = prevTuyaStateRef.current;
+        const newState = st.tuya_state;
+        prevTuyaStateRef.current = newState;
+
+        if (prevState && prevState !== newState) {
+          if (newState === 'connected') {
+            toast.custom(
+              JSON.stringify({
+                title: 'TuyaLink Cloud Connected',
+                description: `ESP32 connected to TuyaLink (${st.tuya_region?.toUpperCase() || 'EU'}). Remote Smart Life control active.`,
+                event: {
+                  severity: 'success',
+                  event_type: 'TUYA_CONNECTED',
+                  timestamp: new Date().toISOString(),
+                },
+              })
+            );
+          } else if (newState === 'auth_failed') {
+            toast.custom(
+              JSON.stringify({
+                title: 'TuyaLink Authentication Failed',
+                description: `Tuya rejected credentials: ${st.tuya_last_error || 'Check Product ID, Device ID, and Device Secret'}.`,
+                event: {
+                  severity: 'critical',
+                  event_type: 'TUYA_AUTH_FAIL',
+                  timestamp: new Date().toISOString(),
+                },
+              })
+            );
+          }
+        }
+      }
+    }).then((unlisten) => {
+      if (!isMounted) {
+        unlisten();
+      } else {
+        unlistenFn = unlisten;
+      }
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // Sync Tuya configuration from polling query status
+  useEffect(() => {
+    if (status?.tuya_enabled !== undefined) {
+      setTuyaConfig((prev) => ({
+        ...prev,
+        enabled: status.tuya_enabled ?? prev.enabled,
+        connected: status.tuya_connected ?? prev.connected,
+        state: status.tuya_state ?? prev.state,
+        retry_count: status.tuya_retry_count ?? prev.retry_count,
+        next_retry_sec: status.tuya_next_retry_sec ?? prev.next_retry_sec,
+        region: status.tuya_region ?? prev.region,
+        last_error: status.tuya_last_error ?? prev.last_error,
+      }));
+    }
+  }, [status]);
 
   // Real-time Wi-Fi Provisioning Status Listener
   useEffect(() => {
@@ -556,6 +814,31 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       consoleBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoScroll, activeTab]);
+
+  // Detect development vs production environment for developer-only features
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .isDevMode()
+      .then((dev) => {
+        if (!isMounted) return;
+        setIsDev(dev);
+        if (!dev) {
+          setOtaSource((curr) => (curr === 'local' ? 'github' : curr));
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        const dev = Boolean(import.meta.env.DEV);
+        setIsDev(dev);
+        if (!dev) {
+          setOtaSource((curr) => (curr === 'local' ? 'github' : curr));
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Real-time OTA Progress Listener
   useEffect(() => {
@@ -2275,16 +2558,36 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               {tuyaConfig.connected ? (
                 <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Connected ({tuyaConfig.region.toUpperCase()})
+                  Connected ({tuyaConfig.region?.toUpperCase() || 'EU'})
                 </span>
-              ) : tuyaConfig.enabled ? (
+              ) : !tuyaConfig.enabled ? (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-slate-800 text-slate-400 border border-white/5">
+                  Disabled
+                </span>
+              ) : tuyaConfig.state === 'auth_failed' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Auth Failed
+                </span>
+              ) : tuyaConfig.state === 'waiting_ntp' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                  Clock Syncing...
+                </span>
+              ) : tuyaConfig.state === 'connecting' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping" />
+                  Connecting {tuyaConfig.retry_count ? `(#${tuyaConfig.retry_count})` : ''}
+                </span>
+              ) : tuyaConfig.state === 'retrying' ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <Clock className="w-3.5 h-3.5" />
+                  Retrying {tuyaConfig.next_retry_sec ? `in ${tuyaConfig.next_retry_sec}s` : ''} {tuyaConfig.retry_count ? `(#${tuyaConfig.retry_count})` : ''}
+                </span>
+              ) : (
                 <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   Disconnected
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-slate-800 text-slate-400 border border-white/5">
-                  Disabled
                 </span>
               )}
             </div>
@@ -2471,6 +2774,17 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
 
               <button
                 type="button"
+                onClick={handleReconnectTuya}
+                disabled={isReconnectingTuya || !tuyaConfig.enabled}
+                className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-amber-300 hover:text-white bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition cursor-pointer disabled:opacity-50"
+                title="Force an immediate reconnection attempt to Tuya Cloud"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isReconnectingTuya ? 'animate-spin' : ''}`} />
+                <span>{isReconnectingTuya ? 'Reconnecting...' : 'Reconnect Now'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={refreshTuyaConfig}
                 className="p-2 rounded-xl text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition cursor-pointer"
                 title="Refresh Tuya status from ESP32"
@@ -2494,15 +2808,25 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleDownloadTuyaExcel}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
+                    title="Download Excel (.xlsx) workbook formatted for Tuya Batch Import"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Excel (.xlsx)</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleDownloadTuyaCsv}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition cursor-pointer"
-                    title="Download Excel/CSV template formatted for Tuya Batch Import"
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300/90 border border-emerald-500/20 transition cursor-pointer"
+                    title="Download CSV (.csv) template formatted for Tuya Batch Import"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Download Tuya Batch CSV</span>
+                    <span>Download CSV (.csv)</span>
                   </button>
 
                   <button
@@ -2512,7 +2836,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                     title="Copy 19-DP TuyaLink Things Data Model JSON to clipboard"
                   >
                     <Copy className="w-3.5 h-3.5" />
-                    <span>Copy 19-DP JSON</span>
+                    <span>Copy JSON</span>
                   </button>
                 </div>
               </div>
@@ -2616,6 +2940,9 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               </p>
             </div>
           </div>
+
+          {/* Hardware Status LED Diagnostic Guide */}
+          <BridgeLedGuide />
         </div>
       )}
 
@@ -2722,69 +3049,71 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               </div>
             </div>
 
-            {/* Card 2: Local Developer Binary */}
-            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
-                  <FileCode className="w-5 h-5 text-cyan-400" />
-                  <h3 className="text-base font-semibold text-white">Local PlatformIO Build</h3>
+            {/* Card 2: Local Developer Binary (Developer Mode Only) */}
+            {isDev && (
+              <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <FileCode className="w-5 h-5 text-cyan-400" />
+                    <h3 className="text-base font-semibold text-white">Local PlatformIO Build</h3>
+                  </div>
+                  {firmwareCheck?.local_binary_path ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5">
+                      <span className="font-bold">
+                        {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
+                      </span>
+                      <span>• Compiled Ready</span>
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-white/5">
+                      Not Found
+                    </span>
+                  )}
                 </div>
-                {firmwareCheck?.local_binary_path ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5">
-                    <span className="font-bold">
-                      {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
-                    </span>
-                    <span>• Compiled Ready</span>
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-white/5">
-                    Not Found
-                  </span>
-                )}
-              </div>
 
-              {firmwareCheck?.local_binary_path ? (
-                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-[11px]">Artifact:</span>
-                    <span className="text-white font-mono font-medium">firmware.bin</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-[11px]">Build Version:</span>
-                    <span className="text-cyan-400 font-mono font-bold">
-                      {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-[11px]">Size:</span>
-                    <span className="text-cyan-400 font-mono font-semibold">
-                      {Math.round((firmwareCheck.local_binary_size || 0) / 1024)} KB
-                    </span>
-                  </div>
-                  {firmwareCheck.local_binary_modified && (
+                {firmwareCheck?.local_binary_path ? (
+                  <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] space-y-2 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[11px]">Last Built:</span>
-                      <span className="text-slate-300 font-mono text-[11px]">
-                        {firmwareCheck.local_binary_modified}
+                      <span className="text-slate-400 text-[11px]">Artifact:</span>
+                      <span className="text-white font-mono font-medium">firmware.bin</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-[11px]">Build Version:</span>
+                      <span className="text-cyan-400 font-mono font-bold">
+                        {firmwareCheck.local_binary_version ? `v${firmwareCheck.local_binary_version.replace(/^v/, '')}` : 'v1.3.0'}
                       </span>
                     </div>
-                  )}
-                  <div className="text-[10px] text-slate-500 font-mono truncate pt-1 border-t border-white/[0.04]">
-                    {firmwareCheck.local_binary_path}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-[11px]">Size:</span>
+                      <span className="text-cyan-400 font-mono font-semibold">
+                        {Math.round((firmwareCheck.local_binary_size || 0) / 1024)} KB
+                      </span>
+                    </div>
+                    {firmwareCheck.local_binary_modified && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-[11px]">Last Built:</span>
+                        <span className="text-slate-300 font-mono text-[11px]">
+                          {firmwareCheck.local_binary_modified}
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-[10px] text-slate-500 font-mono truncate pt-1 border-t border-white/[0.04]">
+                      {firmwareCheck.local_binary_path}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] text-xs text-slate-400 space-y-1">
-                  <div>No local PlatformIO build detected at:</div>
-                  <div className="text-[11px] font-mono text-slate-300">
-                    upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-black/30 border border-white/[0.06] text-xs text-slate-400 space-y-1">
+                    <div>No local PlatformIO build detected at:</div>
+                    <div className="text-[11px] font-mono text-slate-300">
+                      upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin
+                    </div>
+                    <div className="text-[11px] text-slate-500 pt-1">
+                      Run <code className="text-cyan-300">npm run bridge:build</code> in terminal to compile locally.
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500 pt-1">
-                    Run <code className="text-cyan-300">npm run bridge:build</code> in terminal to compile locally.
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Card 3: Safety & Invariant Guarantees */}
             <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
@@ -2814,7 +3143,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                 <li className="flex items-start gap-2">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-slate-200">Visual Status Indication:</strong> Onboard RGB LED transitions to pulsing Magenta while flashing, restoring normal operational mode upon reboot.
+                    <strong className="text-slate-200">Visual Status Indication:</strong> Onboard RGB LED blinks Magenta during authentication/staging, pulses Magenta while streaming chunks, and flashes solid Green upon completion before rebooting.
                   </span>
                 </li>
               </ul>
@@ -2876,44 +3205,46 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                     </div>
                   </label>
 
-                  {/* Local build option */}
-                  <label
-                    className={`flex items-start space-x-3 p-3 rounded-xl border transition cursor-pointer ${
-                      otaSource === 'local'
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
-                        : 'bg-black/20 border-white/[0.06] text-slate-400 hover:bg-white/[0.03]'
-                    } ${!firmwareCheck?.local_binary_path ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="otaSource"
-                      value="local"
-                      checked={otaSource === 'local'}
-                      onChange={() => setOtaSource('local')}
-                      disabled={!firmwareCheck?.local_binary_path || isFlashingOta}
-                      className="mt-0.5 accent-emerald-500"
-                    />
-                    <div className="text-xs">
-                      <div className="font-semibold text-white flex items-center gap-2">
-                        <span>Local PlatformIO Build</span>
-                        {firmwareCheck?.local_binary_version && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
-                            v{firmwareCheck.local_binary_version.replace(/^v/, '')}
-                          </span>
-                        )}
-                        {firmwareCheck?.local_binary_size && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
-                            {Math.round(firmwareCheck.local_binary_size / 1024)} KB
-                          </span>
-                        )}
+                  {/* Local build option (Developer Mode Only) */}
+                  {isDev && (
+                    <label
+                      className={`flex items-start space-x-3 p-3 rounded-xl border transition cursor-pointer ${
+                        otaSource === 'local'
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                          : 'bg-black/20 border-white/[0.06] text-slate-400 hover:bg-white/[0.03]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="otaSource"
+                        value="local"
+                        checked={otaSource === 'local'}
+                        onChange={() => setOtaSource('local')}
+                        disabled={isFlashingOta}
+                        className="mt-0.5 accent-emerald-500"
+                      />
+                      <div className="text-xs">
+                        <div className="font-semibold text-white flex items-center gap-2">
+                          <span>Local PlatformIO Build</span>
+                          {firmwareCheck?.local_binary_version && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+                              v{firmwareCheck.local_binary_version.replace(/^v/, '')}
+                            </span>
+                          )}
+                          {firmwareCheck?.local_binary_size && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                              {Math.round(firmwareCheck.local_binary_size / 1024)} KB
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-slate-400 text-[11px] mt-0.5">
+                          {firmwareCheck?.local_binary_path
+                            ? 'Flash latest locally compiled firmware.bin'
+                            : 'Run npm run bridge:build or npm run bridge:ota to generate local binary'}
+                        </div>
                       </div>
-                      <div className="text-slate-400 text-[11px] mt-0.5">
-                        {firmwareCheck?.local_binary_path
-                          ? 'Flash latest locally compiled firmware.bin'
-                          : 'Run npm run bridge:build to generate local binary'}
-                      </div>
-                    </div>
-                  </label>
+                    </label>
+                  )}
 
                   {/* Custom file option */}
                   <label
@@ -3013,36 +3344,41 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               )}
             </div>
 
-            {/* Card: PlatformIO CLI Alternative */}
-            <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Terminal className="w-4 h-4 text-cyan-400" />
-                  <h4 className="text-sm font-semibold text-white">PlatformIO CLI Flashing Alternative</h4>
+            {/* Card: PlatformIO CLI Alternative (Developer Mode Only) */}
+            {isDev && (
+              <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Terminal className="w-4 h-4 text-cyan-400" />
+                    <h4 className="text-sm font-semibold text-white">PlatformIO CLI Flashing Alternative</h4>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">Port 3232</span>
                 </div>
-                <span className="text-[10px] font-mono text-slate-400">Port 3232</span>
+                <p className="text-xs text-slate-400">
+                  Developers can also flash wireless updates directly from terminal using PlatformIO's <code className="text-cyan-300">espota</code> protocol:
+                </p>
+                <div className="p-3 rounded-xl bg-black/50 border border-white/[0.06] font-mono text-xs text-emerald-400 flex items-center justify-between">
+                  <span>npm run bridge:ota</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText('npm run bridge:ota');
+                      toast.success('Copied CLI command to clipboard');
+                    }}
+                    className="p-1 hover:text-white transition cursor-pointer text-slate-400"
+                    title="Copy command"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Uses authentication token configured in <code className="text-slate-400">.env</code>.
+                </div>
               </div>
-              <p className="text-xs text-slate-400">
-                Developers can also flash wireless updates directly from terminal using PlatformIO's <code className="text-cyan-300">espota</code> protocol:
-              </p>
-              <div className="p-3 rounded-xl bg-black/50 border border-white/[0.06] font-mono text-xs text-emerald-400 flex items-center justify-between">
-                <span>npm run bridge:ota</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText('npm run bridge:ota');
-                    toast.success('Copied CLI command to clipboard');
-                  }}
-                  className="p-1 hover:text-white transition cursor-pointer text-slate-400"
-                  title="Copy command"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Uses authentication token configured in <code className="text-slate-400">.env</code>.
-              </div>
-            </div>
+            )}
           </div>
+
+          {/* Hardware Status LED Diagnostic Guide */}
+          <BridgeLedGuide />
         </div>
       )}
 
@@ -3203,7 +3539,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                 <ul className="space-y-1.5 list-disc list-inside leading-relaxed text-[11px]">
                   <li>The bridge opens an on-demand leased OTA server on port 8080.</li>
                   <li>RS-232 telemetry polling is paused to prevent serial collisions.</li>
-                  <li>The onboard RGB LED transitions to pulsing magenta.</li>
+                  <li>The onboard RGB LED blinks magenta during authentication, pulses magenta while streaming, and flashes solid green before rebooting.</li>
                   <li>Upon completion, the bridge will reboot and automatically reconnect.</li>
                 </ul>
               </div>

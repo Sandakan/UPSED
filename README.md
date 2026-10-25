@@ -111,6 +111,7 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
   - **In-App Desktop OTA:** One-click wireless flashing from GitHub releases or local builds directly from the UPSED UI.
   - **PlatformIO CLI:** `npm run bridge:ota` for terminal flashing over Wi-Fi.
   - **Fail-Safe Security:** Port 8080 opened strictly for 90 seconds on-demand with a hardware watchdog lease; requires `UPSED_OTA_SECRET` authentication token in `.env`. Telemetry UART paused during flash.
+- **Multi-State WS2812 RGB Status LED Engine:** Priority-ranked 60Hz hardware indicator communicating real-time operational states (Solid Green proxy, Breathing Cyan standalone logging, Pulsing Red power outage), network alerts (Wi-Fi connecting/auth fail and TuyaLink status overlays), and dual-stage OTA feedback (Blinking Magenta authentication & Pulsing Magenta firmware streaming).
 
 ### 🔋 OS Native Battery Bridge (Opt-In)
 

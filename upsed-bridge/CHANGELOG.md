@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] - 2026-10-25
+
+### Added
+- **Blinking Magenta OTA Authentication State:** Added dedicated `MODE_LED_OTA_AUTH` (sharp 200ms blinking magenta `85, 0, 85`) to visually indicate when ArduinoOTA UDP invitations/PBKDF2 challenge-response handshakes are in progress, or when an on-demand HTTP OTA lease is staged awaiting firmware chunks on port 8080.
+- **Pulsing Magenta Continuous Stream Indication:** Added `ArduinoOTA.onProgress` callback and HTTP `UPLOAD_FILE_WRITE` LED driver hooks to continually refresh the pulsing magenta breathing wave (`20..95`) during active flash streaming, preventing LED render starvation during blocking ESP32 OTA flash writes.
+- **Solid Green Flash Confirmation:** Set bridge LED to solid green (`0, 90, 0`) upon successful flash write across both ArduinoOTA and HTTP OTA before scheduling system reboot.
+- **OTA Error Recovery:** Automatically reverts bridge LED mode to standalone/proxy if ArduinoOTA returns to `OTA_IDLE` following an authentication rejection or aborted handshake.
+
+---
+
+## [1.4.0] - 2026-10-25
+
+### Added
+- **Tuya Connection Self-Healing & Exponential Backoff:** Replaced naive fixed reconnection intervals with smart exponential backoff (`3s -> 6s -> 12s -> 24s -> 30s` cap) for transient network/TLS errors, and dedicated 60-second cooldown backoff for MQTT authentication/credential rejections (`rc=4`, `rc=5`).
+- **Clean Socket Teardown:** Added strict `tlsClient.stop()` and `mqttClient.disconnect()` socket cleanup before every connection attempt to prevent leaked `mbedtls` contexts and TLS `-2` error cascades.
+- **Explicit DNS Verification:** Pre-validates regional TuyaLink broker endpoints (`WiFi.hostByName`) to distinguish DNS failures from TLS handshake or credential faults.
+- **Non-Blocking Multi-Server NTP Polling:** Added non-blocking 2-second clock checks against a multi-server pool (`pool.ntp.org`, `time.cloudflare.com`, `time.google.com`) with 30-second SNTP re-request throttling.
+- **Tuya RGB LED Status Overlays:**
+  - **Violet Pulse (`55, 0, 80`):** Periodic 450ms pulse every 3000ms window during active connection handshakes or NTP waits, plus immediate 200ms flash upon initiating connection.
+  - **Orange Double-Blink (`80, 20, 0`):** 300ms double-blink pattern every 3000ms window when authentication fails or after repeated connection drops.
+  - **Mint/White Telemetry Flash (`10, 75, 55`):** Brief 80ms flash whenever a telemetry report is successfully published to Tuya Cloud.
+- **Bridge Reconnect Tuya RPC:** Added `bridge.reconnectTuya` JSON-RPC method to trigger an immediate, on-demand connection retry without needing to re-save configuration.
+- **Granular Tuya State Telemetry:** Exposed `tuya_state`, `tuya_retry_count`, and `tuya_next_retry_sec` in `BridgeStatus` and Tuya configuration payloads.
+
+### Fixed
+- **OTA Build Flag & Authentication Secret Parity:** Attached `pre_ota.py` to the base `[env:esp32-s3-devkitc-1]` PlatformIO environment to inject `-DBRIDGE_OTA_SECRET` from `.env` on all builds, and added a factory default fallback in the OTA uploader wrapper so devices with pre-existing default secrets migrate seamlessly without `Authentication Failed` errors.
+
+---
+
 ## [1.3.0] - 2026-10-24
 
 ### Added

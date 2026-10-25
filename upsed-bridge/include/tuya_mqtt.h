@@ -16,7 +16,18 @@
 // UPSED Hardware Bridge — TuyaLink MQTT over TLS Controller (Port 8883)
 // ============================================================================
 
+enum TuyaConnState {
+    TUYA_STATE_DISABLED,
+    TUYA_STATE_WAITING_NTP,
+    TUYA_STATE_CONNECTING,
+    TUYA_STATE_CONNECTED,
+    TUYA_STATE_RETRY_BACKOFF,
+    TUYA_STATE_AUTH_FAILED
+};
+
 typedef String (*UpsCommandExecutorFn)(const String& rawCmd, bool isStandalonePoll);
+typedef void (*TuyaStateCallbackFn)(TuyaConnState state, const char* reason);
+typedef void (*TuyaPublishCallbackFn)();
 
 class TuyaMqttController {
 public:
@@ -28,13 +39,21 @@ public:
 
         loadConfig();
         tlsClient.setInsecure();
+        tlsClient.setTimeout(10); // 10s socket timeout for TLS handshakes
         mqttClient.setBufferSize(2048);
         mqttClient.setKeepAlive(60);
-        mqttClient.setSocketTimeout(5);
+        mqttClient.setSocketTimeout(8); // 8s timeout for MQTT operations
         mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
             this->onMqttMessage(topic, payload, length);
         });
+
+        if (!enabled) {
+            transitionState(TUYA_STATE_DISABLED, "disabled_on_boot");
+        }
     }
+
+    void setStateCallback(TuyaStateCallbackFn cb) { stateCb = cb; }
+    void setPublishCallback(TuyaPublishCallbackFn cb) { publishCb = cb; }
 
     void loadConfig() {
         Preferences p;
@@ -80,12 +99,38 @@ public:
         if (mqttClient.connected()) {
             mqttClient.disconnect();
         }
-        lastReconnectAttemptMs = 0;
+        tlsClient.stop();
+        retryCount = 0;
+        nextRetryMs = 0;
         lastError = enabled ? "Reconnecting with updated config..." : "Disabled";
+
         if (log) {
             log->info("[TUYA] Configuration saved (Enabled: %s, Region: %s, DeviceID: %s, OffMode: %s, Interlock: %d%%)",
                       enabled ? "true" : "false", region.c_str(), deviceId.c_str(), offMode.c_str(), interlockPct);
         }
+
+        if (!enabled) {
+            transitionState(TUYA_STATE_DISABLED, "disabled_by_user");
+        } else {
+            transitionState(TUYA_STATE_CONNECTING, "config_updated");
+        }
+    }
+
+    void forceReconnect() {
+        retryCount = 0;
+        nextRetryMs = 0;
+        if (mqttClient.connected()) {
+            mqttClient.disconnect();
+        }
+        tlsClient.stop();
+        lastError = "Forcing immediate reconnect...";
+        if (log) log->info("[TUYA] Manual reconnect requested via RPC");
+
+        if (!enabled) {
+            transitionState(TUYA_STATE_DISABLED, "disabled");
+            return;
+        }
+        transitionState(TUYA_STATE_CONNECTING, "manual_reconnect");
     }
 
     const char* getBrokerHost() const {
@@ -100,6 +145,28 @@ public:
     const String& getRegion() const { return region; }
     const String& getLastError() const { return lastError; }
 
+    TuyaConnState getConnState() const { return connState; }
+    const char* getConnStateStr() const {
+        switch (connState) {
+            case TUYA_STATE_DISABLED: return "disabled";
+            case TUYA_STATE_WAITING_NTP: return "waiting_ntp";
+            case TUYA_STATE_CONNECTING: return "connecting";
+            case TUYA_STATE_CONNECTED: return "connected";
+            case TUYA_STATE_RETRY_BACKOFF: return "retrying";
+            case TUYA_STATE_AUTH_FAILED: return "auth_failed";
+            default: return "unknown";
+        }
+    }
+
+    uint32_t getRetryCount() const { return retryCount; }
+    uint32_t getNextRetrySec() const {
+        unsigned long now = millis();
+        if (nextRetryMs > now) {
+            return static_cast<uint32_t>((nextRetryMs - now) / 1000UL);
+        }
+        return 0;
+    }
+
     void populateConfigJson(JsonObject& obj, const UpsTelemetrySnapshot& snap, bool isProxyMode) {
         obj["enabled"] = enabled;
         obj["region"] = region;
@@ -110,6 +177,9 @@ public:
         obj["off_mode"] = offMode;
         obj["interlock_pct"] = interlockPct;
         obj["connected"] = isConnected();
+        obj["state"] = getConnStateStr();
+        obj["retry_count"] = retryCount;
+        obj["next_retry_sec"] = getNextRetrySec();
         obj["last_error"] = lastError;
         obj["output_enabled"] = snap.outputEnabled;
         obj["pc_online"] = isPcOnline(snap, isProxyMode);
@@ -123,22 +193,59 @@ public:
         if (!enabled || isOtaActive || WiFi.status() != WL_CONNECTED) {
             if (mqttClient.connected() && (!enabled || isOtaActive)) {
                 mqttClient.disconnect();
+                tlsClient.stop();
+            }
+            if (!enabled && connState != TUYA_STATE_DISABLED) {
+                transitionState(TUYA_STATE_DISABLED, "disabled");
             }
             return;
         }
 
         if (productId.length() == 0 || deviceId.length() == 0 || deviceSecret.length() == 0) {
             lastError = "Missing ProductID, DeviceID, or DeviceSecret";
+            if (connState != TUYA_STATE_AUTH_FAILED) {
+                transitionState(TUYA_STATE_AUTH_FAILED, "missing_credentials");
+            }
             return;
         }
 
         unsigned long nowMs = millis();
 
         if (!mqttClient.connected()) {
-            if (nowMs - lastReconnectAttemptMs >= 15000UL || lastReconnectAttemptMs == 0) {
-                lastReconnectAttemptMs = nowMs;
-                attemptConnect();
+            // If we previously thought we were connected, notice the drop
+            if (connState == TUYA_STATE_CONNECTED) {
+                tlsClient.stop();
+                lastError = "Tuya MQTT connection dropped";
+                if (log) log->warn("[TUYA] Connection lost. Entering retry backoff...");
+                retryCount++;
+                unsigned long backoff = calculateBackoffMs(false);
+                nextRetryMs = nowMs + backoff;
+                transitionState(TUYA_STATE_RETRY_BACKOFF, "connection_dropped");
+                return;
             }
+
+            // Check system clock synchronization (non-blocking)
+            time_t now = time(nullptr);
+            if (now < 1700000000) {
+                if (connState != TUYA_STATE_WAITING_NTP) {
+                    transitionState(TUYA_STATE_WAITING_NTP, "waiting_for_clock");
+                }
+                lastError = "Waiting for NTP clock sync...";
+                // Re-trigger NTP config only once every 30s to avoid churning SNTP daemon
+                if (nowMs - lastNtpConfigMs >= 30000UL || lastNtpConfigMs == 0) {
+                    lastNtpConfigMs = nowMs;
+                    configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");
+                    if (log) log->info("[TUYA] SNTP sync requested (pool.ntp.org, time.cloudflare.com, time.google.com)");
+                }
+                return;
+            }
+
+            // Check if backoff interval has elapsed
+            if (nowMs < nextRetryMs) {
+                return;
+            }
+
+            attemptConnect();
             return;
         }
 
@@ -217,6 +324,10 @@ public:
         bool ok = mqttClient.publish(topic.c_str(), payload.c_str());
         if (!ok) {
             lastError = "Publish to property/report failed";
+        } else {
+            if (publishCb) {
+                publishCb();
+            }
         }
         return ok;
     }
@@ -231,8 +342,11 @@ private:
     PubSubClient mqttClient;
     DiagLogger* log = nullptr;
     UpsCommandExecutorFn execCmd = nullptr;
+    TuyaStateCallbackFn stateCb = nullptr;
+    TuyaPublishCallbackFn publishCb = nullptr;
 
     bool enabled = false;
+    TuyaConnState connState = TUYA_STATE_DISABLED;
     String region = "eu";
     String productId = "";
     String deviceId = "";
@@ -241,7 +355,9 @@ private:
     int interlockPct = 8;
     String lastError = "Idle";
 
-    unsigned long lastReconnectAttemptMs = 0;
+    uint32_t retryCount = 0;
+    unsigned long nextRetryMs = 0;
+    unsigned long lastNtpConfigMs = 0;
     unsigned long lastReportMs = 0;
 
     bool prevUtilityFail = false;
@@ -251,6 +367,28 @@ private:
 
     UpsTelemetrySnapshot latestSnap;
     bool latestProxyMode = false;
+
+    void transitionState(TuyaConnState newState, const char* reason = nullptr) {
+        if (connState != newState) {
+            connState = newState;
+            if (stateCb) {
+                stateCb(connState, reason ? reason : "");
+            }
+        }
+    }
+
+    unsigned long calculateBackoffMs(bool isAuthFail) {
+        if (isAuthFail) {
+            return 60000UL; // 60s cooldown on credential / authorization rejection
+        }
+        // Exponential backoff: 3s -> 6s -> 12s -> 24s -> 30s cap
+        unsigned long base = 3000UL;
+        if (retryCount <= 1) return base;
+        unsigned long shift = (retryCount - 1 > 4) ? 4 : (retryCount - 1);
+        unsigned long backoff = base * (1UL << shift);
+        if (backoff > 30000UL) backoff = 30000UL;
+        return backoff;
+    }
 
     static uint32_t getEpochSec() {
         time_t now = time(nullptr);
@@ -283,13 +421,36 @@ private:
     void attemptConnect() {
         time_t now = time(nullptr);
         if (now < 1700000000) {
-            configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+            transitionState(TUYA_STATE_WAITING_NTP, "waiting_for_clock");
             lastError = "Waiting for NTP clock sync...";
-            if (log) log->warn("[TUYA] Waiting for NTP time sync before TLS MQTT handshake...");
             return;
         }
 
+        transitionState(TUYA_STATE_CONNECTING, "connecting");
+
+        // Cleanly close any previous half-open TLS socket before reconnecting
+        if (mqttClient.connected()) {
+            mqttClient.disconnect();
+        }
+        tlsClient.stop();
+
         const char* host = getBrokerHost();
+
+        // Explicit DNS verification
+        IPAddress brokerIp;
+        if (!WiFi.hostByName(host, brokerIp)) {
+            retryCount++;
+            unsigned long backoff = calculateBackoffMs(false);
+            nextRetryMs = millis() + backoff;
+            lastError = "DNS resolution failed for " + String(host);
+            if (log) {
+                log->warn("[TUYA] DNS lookup failed for %s. Retrying in %lu ms (attempt #%u)",
+                          host, backoff, retryCount);
+            }
+            transitionState(TUYA_STATE_RETRY_BACKOFF, "dns_failed");
+            return;
+        }
+
         mqttClient.setServer(host, 8883);
 
         String tsStr = String(static_cast<uint32_t>(now));
@@ -299,25 +460,47 @@ private:
         String password = computeHmacSha256Hex(deviceSecret, signContent);
 
         if (log) {
-            log->info("[TUYA] Connecting to %s:8883 (ClientID: %s)...", host, clientId.c_str());
+            log->info("[TUYA] Connecting to %s (%s):8883 (ClientID: %s, attempt #%u)...",
+                      host, brokerIp.toString().c_str(), clientId.c_str(), retryCount + 1);
         }
 
         if (mqttClient.connect(clientId.c_str(), username.c_str(), password.c_str())) {
             lastError = "None";
+            retryCount = 0;
+            nextRetryMs = 0;
             String setTopic = "tylink/" + deviceId + "/thing/property/set";
             mqttClient.subscribe(setTopic.c_str());
             if (log) {
                 log->info("[TUYA] Connected to TuyaLink MQTT (%s:8883) and subscribed to %s", host, setTopic.c_str());
             }
+            transitionState(TUYA_STATE_CONNECTED, "connected");
             if (latestSnap.valid) {
                 publishTelemetryReport(latestSnap, latestProxyMode);
             }
         } else {
             int st = mqttClient.state();
-            lastError = "MQTT connect failed (rc=" + String(st) + ")";
-            if (log) {
-                log->warn("[TUYA] Connection to %s:8883 failed (rc=%d)", host, st);
+            retryCount++;
+            bool isAuthFail = (st == 4 || st == 5); // 4 = MQTT_CONNECT_BAD_CREDENTIALS, 5 = MQTT_CONNECT_UNAUTHORIZED
+            unsigned long backoff = calculateBackoffMs(isAuthFail);
+            nextRetryMs = millis() + backoff;
+
+            if (isAuthFail) {
+                lastError = (st == 4) ? "Authentication rejected: Bad credentials (rc=4)"
+                                      : "Authentication rejected: Unauthorized (rc=5)";
+                if (log) {
+                    log->error("[TUYA] %s! Check ProductID, DeviceID, and DeviceSecret. Next retry in %lu sec",
+                               lastError.c_str(), backoff / 1000UL);
+                }
+                transitionState(TUYA_STATE_AUTH_FAILED, "auth_failed");
+            } else {
+                lastError = "MQTT connect failed (rc=" + String(st) + ")";
+                if (log) {
+                    log->warn("[TUYA] Connection to %s:8883 failed (rc=%d). Retrying in %lu ms (attempt #%u)",
+                              host, st, backoff, retryCount);
+                }
+                transitionState(TUYA_STATE_RETRY_BACKOFF, "connect_failed");
             }
+            tlsClient.stop();
         }
     }
 

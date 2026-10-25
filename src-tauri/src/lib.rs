@@ -322,7 +322,9 @@ pub fn run() {
             commands::flash_bridge_firmware,
             commands::get_bridge_tuya_config,
             commands::set_bridge_tuya_config,
-            commands::test_bridge_tuya_publish
+            commands::test_bridge_tuya_publish,
+            commands::reconnect_bridge_tuya,
+            commands::save_file_with_dialog
         ])
         .build(tauri::generate_context!())
         .expect("error while building UPSED application")

@@ -2008,13 +2008,58 @@ pub fn get_bridge_log_history() -> Result<Vec<BridgeLogEntry>, String> {
 }
 
 fn find_local_bridge_firmware() -> Option<std::path::PathBuf> {
-    let candidates = [
-        std::path::PathBuf::from("upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
-        std::path::PathBuf::from("../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
-        std::path::PathBuf::from("../../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+    // In production builds, local developer PlatformIO builds are disabled
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+
+    let search_roots = [
+        std::path::PathBuf::from("upsed-bridge/.pio/build"),
+        std::path::PathBuf::from("../upsed-bridge/.pio/build"),
+        std::path::PathBuf::from("../../upsed-bridge/.pio/build"),
     ];
 
-    for path in &candidates {
+    let mut latest_binary: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+
+    for root in &search_roots {
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let bin_path = entry.path().join("firmware.bin");
+                if bin_path.exists() && bin_path.is_file() {
+                    let mtime = std::fs::metadata(&bin_path)
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    match &latest_binary {
+                        Some((_, prev_mtime)) if mtime > *prev_mtime => {
+                            latest_binary = Some((bin_path, mtime));
+                        }
+                        None => {
+                            latest_binary = Some((bin_path, mtime));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some((path, _)) = latest_binary {
+        if let Ok(abs) = std::fs::canonicalize(&path) {
+            return Some(abs);
+        }
+        return Some(path);
+    }
+
+    let explicit_candidates = [
+        std::path::PathBuf::from("upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+        std::path::PathBuf::from("upsed-bridge/.pio/build/esp32-s3-ota/firmware.bin"),
+        std::path::PathBuf::from("../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+        std::path::PathBuf::from("../upsed-bridge/.pio/build/esp32-s3-ota/firmware.bin"),
+        std::path::PathBuf::from("../../upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin"),
+        std::path::PathBuf::from("../../upsed-bridge/.pio/build/esp32-s3-ota/firmware.bin"),
+    ];
+
+    for path in &explicit_candidates {
         if path.exists() && path.is_file() {
             if let Ok(abs) = std::fs::canonicalize(path) {
                 return Some(abs);
@@ -2025,9 +2070,11 @@ fn find_local_bridge_firmware() -> Option<std::path::PathBuf> {
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let p = dir.join("upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin");
-            if p.exists() {
-                return Some(p);
+            for env_name in &["esp32-s3-devkitc-1", "esp32-s3-ota"] {
+                let p = dir.join("upsed-bridge/.pio/build").join(env_name).join("firmware.bin");
+                if p.exists() {
+                    return Some(p);
+                }
             }
         }
     }
@@ -2210,6 +2257,9 @@ pub async fn flash_bridge_firmware(
             bytes.to_vec()
         }
         "local" => {
+            if !cfg!(debug_assertions) {
+                return Err("Local PlatformIO build source is only available in development mode".into());
+            }
             let path = find_local_bridge_firmware().ok_or_else(|| {
                 "Local firmware binary not found at upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin".to_string()
             })?;
@@ -2471,6 +2521,54 @@ pub async fn test_bridge_tuya_publish(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn reconnect_bridge_tuya(
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+) -> Result<TuyaBridgeConfig, String> {
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.reconnect_tuya()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn save_file_with_dialog(
+    app: tauri::AppHandle,
+    default_filename: String,
+    filter_name: String,
+    extensions: Vec<String>,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, String> {
+    use tauri::Manager;
+    let initial_dir = app.path().download_dir().ok();
+
+    tokio::task::spawn_blocking(move || {
+        let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+        let mut dialog = rfd::FileDialog::new()
+            .set_file_name(&default_filename)
+            .add_filter(&filter_name, &ext_refs);
+
+        if let Some(dir) = initial_dir {
+            dialog = dialog.set_directory(dir);
+        }
+
+        if let Some(dest) = dialog.save_file() {
+            std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write file to {}: {}", dest.display(), e))?;
+            Ok(Some(dest.to_string_lossy().to_string()))
+        } else {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 
 
 

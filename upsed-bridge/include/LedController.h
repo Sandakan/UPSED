@@ -26,7 +26,16 @@ enum UpsLedState {
 enum ModeLedState {
     MODE_LED_PROXY,
     MODE_LED_STANDALONE,
-    MODE_LED_OTA
+    MODE_LED_OTA,
+    MODE_LED_OTA_AUTH,
+    MODE_LED_OTA_FLASHING = MODE_LED_OTA
+};
+
+enum TuyaLedState {
+    TUYA_LED_DISABLED,
+    TUYA_LED_CONNECTING,
+    TUYA_LED_CONNECTED,
+    TUYA_LED_ERROR
 };
 
 class LedController {
@@ -35,7 +44,10 @@ public:
         : wifiState(WIFI_LED_BOOT),
           upsState(UPS_LED_UNKNOWN),
           modeState(MODE_LED_STANDALONE),
+          tuyaState(TUYA_LED_DISABLED),
           lastActivityMs(0),
+          lastTuyaPublishMs(0),
+          tuyaConnectingStartMs(0),
           lastRenderedR(255),
           lastRenderedG(255),
           lastRenderedB(255),
@@ -53,9 +65,21 @@ public:
         modeState = mode;
     }
 
+    void setTuyaState(TuyaLedState state) {
+        if (state == TUYA_LED_CONNECTING && tuyaState != TUYA_LED_CONNECTING) {
+            tuyaConnectingStartMs = millis();
+        }
+        tuyaState = state;
+    }
+
     // Trigger a brief 60ms Blue activity flash when a command is executed
     void triggerActivityTick() {
         lastActivityMs = millis();
+    }
+
+    // Trigger a brief 80ms Mint/White activity flash when telemetry is published to Tuya
+    void triggerTuyaPublishTick() {
+        lastTuyaPublishMs = millis();
     }
 
     // Force immediate render (used during setup/boot)
@@ -79,11 +103,22 @@ public:
         uint8_t r = 0, g = 0, b = 0;
 
         // --------------------------------------------------------------------
-        // Priority 1: OTA Flashing Mode (Active Firmware Upload)
-        // Pattern: Pulsing Magenta (Pink-Purple)
+        // Priority 1A: OTA Authenticating / Handshaking / Lease Staged
+        // Pattern: Sharp Blinking Magenta (400ms: 200ms ON / 200ms OFF)
+        // --------------------------------------------------------------------
+        if (modeState == MODE_LED_OTA_AUTH) {
+            bool on = (now % 400) < 200;
+            uint8_t mag = on ? 85 : 0;
+            applyColor(mag, 0, mag);
+            return;
+        }
+
+        // --------------------------------------------------------------------
+        // Priority 1B: OTA Active Flashing Mode (Writing Firmware Stream)
+        // Pattern: Pulsing Magenta (Pink-Purple, 800ms wave)
         // --------------------------------------------------------------------
         if (modeState == MODE_LED_OTA) {
-            uint8_t pulse = getBreathingFactor(now, 1200, 20, 80);
+            uint8_t pulse = getBreathingFactor(now, 800, 20, 95);
             r = pulse;
             g = 0;
             b = pulse;
@@ -135,12 +170,38 @@ public:
         }
 
         // --------------------------------------------------------------------
-        // Priority 4: Momentary Command Activity Flash in Proxy Mode
-        // Pattern: Brief 60ms Blue tick
+        // Priority 4: Momentary Command Activity Flash or Tuya Publish Tick
         // --------------------------------------------------------------------
         if (modeState == MODE_LED_PROXY && (now - lastActivityMs < 60)) {
             applyColor(0, 0, 70);
             return;
+        }
+
+        if (tuyaState != TUYA_LED_DISABLED && (now - lastTuyaPublishMs < 80)) {
+            applyColor(10, 75, 55); // Brief 80ms Mint/White tick on Tuya publish
+            return;
+        }
+
+        // --------------------------------------------------------------------
+        // Tuya Cloud Status Overlay (Only when UPS is healthy and not in error)
+        // Overlays subtle pulses/blinks every 3000ms over base Green/Cyan mode
+        // --------------------------------------------------------------------
+        if (upsState != UPS_LED_ERROR && tuyaState != TUYA_LED_DISABLED && tuyaState != TUYA_LED_CONNECTED) {
+            if (tuyaState == TUYA_LED_CONNECTING) {
+                bool immediateFlash = (tuyaConnectingStartMs > 0 && (now - tuyaConnectingStartMs < 200));
+                uint16_t cycle = now % 3000;
+                if (immediateFlash || cycle < 450) {
+                    uint8_t p = getBreathingFactor(cycle, 450, 15, 75);
+                    applyColor(p, 0, (p * 4) / 3); // Violet pulse (55, 0, 80)
+                    return;
+                }
+            } else if (tuyaState == TUYA_LED_ERROR) {
+                uint16_t cycle = now % 3000;
+                if ((cycle < 100) || (cycle >= 200 && cycle < 300)) {
+                    applyColor(80, 20, 0); // Alert Orange double-blink
+                    return;
+                }
+            }
         }
 
         // --------------------------------------------------------------------
@@ -186,7 +247,10 @@ private:
     WifiLedState wifiState;
     UpsLedState upsState;
     ModeLedState modeState;
+    TuyaLedState tuyaState;
     unsigned long lastActivityMs;
+    unsigned long lastTuyaPublishMs;
+    unsigned long tuyaConnectingStartMs;
     uint8_t lastRenderedR;
     uint8_t lastRenderedG;
     uint8_t lastRenderedB;

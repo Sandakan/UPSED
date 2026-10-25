@@ -93,6 +93,12 @@ pub struct BridgeStatus {
     #[serde(default)]
     pub tuya_connected: bool,
     #[serde(default)]
+    pub tuya_state: String,
+    #[serde(default)]
+    pub tuya_retry_count: u32,
+    #[serde(default)]
+    pub tuya_next_retry_sec: u32,
+    #[serde(default)]
     pub tuya_region: String,
     #[serde(default)]
     pub tuya_last_error: String,
@@ -153,6 +159,12 @@ pub struct TuyaBridgeConfig {
     pub interlock_pct: u32,
     #[serde(default)]
     pub connected: bool,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default)]
+    pub next_retry_sec: u32,
     #[serde(default)]
     pub last_error: String,
     #[serde(default)]
@@ -772,6 +784,27 @@ impl BridgeTransport {
         )?;
         let cfg: TuyaBridgeConfig = serde_json::from_value(val).map_err(|e| {
             ProtocolError::ParseError(format!("Invalid bridge.testTuyaPublish payload: {}", e))
+        })?;
+        Ok(cfg)
+    }
+
+    pub fn reconnect_tuya(&mut self) -> Result<TuyaBridgeConfig, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: "Requesting immediate TuyaLink MQTT reconnection...".into(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.reconnectTuya",
+            json!({}),
+            Duration::from_millis(3000),
+        )?;
+        let cfg: TuyaBridgeConfig = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.reconnectTuya payload: {}", e))
         })?;
         Ok(cfg)
     }

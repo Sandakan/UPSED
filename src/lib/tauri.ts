@@ -245,11 +245,27 @@ export const api = {
   testBridgeTuyaPublish: (portName?: string) =>
     invoke<TuyaBridgeConfig>('test_bridge_tuya_publish', { portName }),
 
+  reconnectBridgeTuya: (portName?: string) =>
+    invoke<TuyaBridgeConfig>('reconnect_bridge_tuya', { portName }),
+
   bridgeSyncTime: (portName?: string) =>
     invoke<BridgeStatus>('bridge_sync_time', { portName }),
 
   bridgeClearCache: (portName?: string) =>
     invoke<number>('bridge_clear_cache', { portName }),
+
+  saveFileWithDialog: (
+    defaultFilename: string,
+    filterName: string,
+    extensions: string[],
+    bytes: number[] | Uint8Array
+  ) =>
+    invoke<string | null>('save_file_with_dialog', {
+      defaultFilename,
+      filterName,
+      extensions,
+      bytes: Array.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)),
+    }),
 };
 
 

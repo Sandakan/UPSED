@@ -5,7 +5,9 @@
 #include <WebSocketsServer.h>
 #include <WebServer.h>
 #include <Update.h>
+#define private public
 #include <ArduinoOTA.h>
+#undef private
 #include <ArduinoJson.h>
 #include <time.h>
 
@@ -346,15 +348,26 @@ void ensureNetworkServicesStarted() {
             ArduinoOTA.setPassword(BRIDGE_OTA_SECRET);
             ArduinoOTA.onStart([]() {
                 currentMode = MODE_OTA;
-                ledController.setMode(MODE_LED_OTA);
+                ledController.setMode(MODE_LED_OTA_FLASHING);
+                ledController.forceUpdate();
                 diagLog.info("[OTA] ArduinoOTA flashing started over Wi-Fi...");
+            });
+            ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+                currentMode = MODE_OTA;
+                ledController.setMode(MODE_LED_OTA_FLASHING);
+                ledController.update();
             });
             ArduinoOTA.onEnd([]() {
                 diagLog.info("[OTA] ArduinoOTA flashing completed! Rebooting...");
+                setBridgeLed(0, 90, 0); // Solid green final flash before reboot
+                delay(200);
             });
             ArduinoOTA.onError([](ota_error_t error) {
                 diagLog.error("[OTA] ArduinoOTA error [%u]", error);
                 ledController.setUpsState(UPS_LED_ERROR);
+                currentMode = MODE_STANDALONE;
+                ledController.setMode(MODE_LED_STANDALONE);
+                ledController.forceUpdate();
             });
             ArduinoOTA.begin();
             arduinoOtaStarted = true;
@@ -378,6 +391,7 @@ void stopOtaMode() {
         currentMode = MODE_PROXY;
         lastDesktopContactMs = millis();
         ledController.setMode(MODE_LED_PROXY);
+        ledController.forceUpdate();
     }
 }
 
@@ -396,7 +410,7 @@ void setupOtaHttpEndpoints() {
 
         if (success) {
             diagLog.info("[OTA] Firmware flashing succeeded! Scheduling restart in 250ms...");
-            setBridgeLed(0, 80, 0); // Solid green final flash before reboot
+            setBridgeLed(0, 90, 0); // Solid green final flash before reboot
             delay(250);
             ESP.restart();
         } else {
@@ -414,18 +428,24 @@ void setupOtaHttpEndpoints() {
             otaUpdating = true;
             otaLeaseExpiryMs = millis() + 120000UL; // Extend lease during upload
             diagLog.info("[OTA] Commencing firmware stream: %s", upload.filename.c_str());
-            ledController.setMode(MODE_LED_OTA);
+            currentMode = MODE_OTA;
+            ledController.setMode(MODE_LED_OTA_FLASHING);
+            ledController.forceUpdate();
 
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                 diagLog.error("[OTA] Update.begin failed: %s", Update.errorString());
             }
         } else if (upload.status == UPLOAD_FILE_WRITE) {
+            currentMode = MODE_OTA;
+            ledController.setMode(MODE_LED_OTA_FLASHING);
+            ledController.update();
             if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
                 diagLog.error("[OTA] Update.write failed: %s", Update.errorString());
             }
         } else if (upload.status == UPLOAD_FILE_END) {
             if (Update.end(true)) {
                 diagLog.info("[OTA] Flash written cleanly: %u bytes committed", upload.totalSize);
+                setBridgeLed(0, 90, 0); // Solid green confirmation
             } else {
                 diagLog.error("[OTA] Update.end failed: %s", Update.errorString());
             }
@@ -449,7 +469,8 @@ void setupOtaHttpEndpoints() {
 
 void startOtaMode() {
     currentMode = MODE_OTA;
-    ledController.setMode(MODE_LED_OTA);
+    ledController.setMode(MODE_LED_OTA_AUTH);
+    ledController.forceUpdate();
     setupOtaHttpEndpoints();
     otaServer.begin();
     otaServerActive = true;
@@ -604,6 +625,9 @@ void populateStatusObject(JsonObject& res) {
     res["uptime_sec"] = millis() / 1000UL;
     res["tuya_enabled"] = tuyaController.isEnabled();
     res["tuya_connected"] = tuyaController.isConnected();
+    res["tuya_state"] = tuyaController.getConnStateStr();
+    res["tuya_retry_count"] = tuyaController.getRetryCount();
+    res["tuya_next_retry_sec"] = tuyaController.getNextRetrySec();
     res["tuya_region"] = tuyaController.getRegion();
     res["tuya_last_error"] = tuyaController.getLastError();
 
@@ -949,6 +973,13 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         result["published"] = ok;
         tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
     }
+    else if (strcmp(method, "bridge.reconnectTuya") == 0) {
+        tuyaController.forceReconnect();
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        result["reconnecting"] = true;
+        tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
+        broadcastBridgeStatusChanged("tuya_reconnecting");
+    }
     else {
         JsonObject errObj = resDoc["error"].to<JsonObject>();
         errObj["code"] = -32601;
@@ -1055,6 +1086,34 @@ void setup() {
     diagLog.setNotificationSink(broadcastLogNotification);
     backlogStore.begin();
     tuyaController.begin(&diagLog, executeUpsCommand);
+    tuyaController.setStateCallback([](TuyaConnState state, const char* reason) {
+        switch (state) {
+            case TUYA_STATE_DISABLED:
+                ledController.setTuyaState(TUYA_LED_DISABLED);
+                break;
+            case TUYA_STATE_WAITING_NTP:
+            case TUYA_STATE_CONNECTING:
+                ledController.setTuyaState(TUYA_LED_CONNECTING);
+                break;
+            case TUYA_STATE_CONNECTED:
+                ledController.setTuyaState(TUYA_LED_CONNECTED);
+                break;
+            case TUYA_STATE_RETRY_BACKOFF:
+                if (tuyaController.getRetryCount() >= 2) {
+                    ledController.setTuyaState(TUYA_LED_ERROR);
+                } else {
+                    ledController.setTuyaState(TUYA_LED_CONNECTING);
+                }
+                break;
+            case TUYA_STATE_AUTH_FAILED:
+                ledController.setTuyaState(TUYA_LED_ERROR);
+                break;
+        }
+        broadcastBridgeStatusChanged("tuya_state_changed");
+    });
+    tuyaController.setPublishCallback([]() {
+        ledController.triggerTuyaPublishTick();
+    });
 
     diagLog.info("[BOOT] UPSED ESP32-S3 Bridge v%s initialized (MAC: %s)",
                  BRIDGE_FIRMWARE_VER, WiFi.macAddress().c_str());
@@ -1133,6 +1192,15 @@ void loop() {
 
     // 4. Maintain OTA Services (ArduinoOTA & Leased HTTP Server)
     if (arduinoOtaStarted) {
+        if (ArduinoOTA._state == OTA_WAITAUTH) {
+            currentMode = MODE_OTA;
+            ledController.setMode(MODE_LED_OTA_AUTH);
+            ledController.update();
+        } else if (currentMode == MODE_OTA && !otaServerActive && ArduinoOTA._state == OTA_IDLE) {
+            currentMode = (millis() - lastDesktopContactMs > PROXY_TIMEOUT_MS) ? MODE_STANDALONE : MODE_PROXY;
+            ledController.setMode(currentMode == MODE_STANDALONE ? MODE_LED_STANDALONE : MODE_LED_PROXY);
+            ledController.forceUpdate();
+        }
         ArduinoOTA.handle();
     }
     if (otaServerActive) {

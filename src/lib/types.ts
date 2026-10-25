@@ -228,6 +228,9 @@ export interface BridgeStatus {
   is_compatible?: boolean;
   tuya_enabled?: boolean;
   tuya_connected?: boolean;
+  tuya_state?: 'disabled' | 'waiting_ntp' | 'connecting' | 'connected' | 'retrying' | 'auth_failed' | string;
+  tuya_retry_count?: number;
+  tuya_next_retry_sec?: number;
   tuya_region?: string;
   tuya_last_error?: string;
 
@@ -262,6 +265,9 @@ export interface TuyaBridgeConfig {
   off_mode: 'SOFF' | 'S.2' | string;
   interlock_pct: number;
   connected?: boolean;
+  state?: 'disabled' | 'waiting_ntp' | 'connecting' | 'connected' | 'retrying' | 'auth_failed' | string;
+  retry_count?: number;
+  next_retry_sec?: number;
   last_error?: string;
   output_enabled?: boolean;
   pc_online?: boolean;
