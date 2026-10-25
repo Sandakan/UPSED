@@ -147,30 +147,34 @@ export const PowerControlCard: React.FC<PowerControlCardProps> = ({
     return () => clearInterval(interval);
   }, [countdownEnd]);
 
-  // Action execution after typed confirmation
+  // Action execution after typed confirmation and fresh OS Auth verification
   const handleConfirmAction = async () => {
     if (!modalConfig) return;
     const { cmd, label } = modalConfig;
-    setModalConfig(null);
 
-    // If starting a delayed shutdown, prime countdown
-    if (cmd.type === 'ShutdownWithDelay') {
-      const delayMs = (cmd.payload.minutes || 0.3) * 60 * 1000;
-      setCountdownEnd(Date.now() + delayMs);
-    } else if (cmd.type === 'ShutdownAndRestore') {
-      const delayMs = (cmd.payload.minutes || 0.3) * 60 * 1000;
-      setCountdownEnd(Date.now() + delayMs);
-    } else if (cmd.type === 'CancelShutdown') {
-      setCountdownEnd(null);
-      setRemainingSeconds(null);
-    }
+    // Trigger fresh OS Native Auth prompt (or session verification)
+    await auth.requireFreshAuth(async () => {
+      setModalConfig(null);
 
-    await onSendCommand(cmd, label);
+      // If starting a delayed shutdown, prime countdown
+      if (cmd.type === 'ShutdownWithDelay') {
+        const delayMs = (cmd.payload.minutes || 0.3) * 60 * 1000;
+        setCountdownEnd(Date.now() + delayMs);
+      } else if (cmd.type === 'ShutdownAndRestore') {
+        const delayMs = (cmd.payload.minutes || 0.3) * 60 * 1000;
+        setCountdownEnd(Date.now() + delayMs);
+      } else if (cmd.type === 'CancelShutdown') {
+        setCountdownEnd(null);
+        setRemainingSeconds(null);
+      }
 
-    // Refresh outlet states if an outlet command was dispatched
-    if (cmd.type === 'OutletOn' || cmd.type === 'OutletOff') {
-      setTimeout(() => refreshOutlets(), 1000);
-    }
+      await onSendCommand(cmd, label);
+
+      // Refresh outlet states if an outlet command was dispatched
+      if (cmd.type === 'OutletOn' || cmd.type === 'OutletOff') {
+        setTimeout(() => refreshOutlets(), 1000);
+      }
+    }, `Authorize Stage T4 Power Operation: ${label}`);
   };
 
   const handleCancelCountdown = async () => {
@@ -225,16 +229,24 @@ export const PowerControlCard: React.FC<PowerControlCardProps> = ({
         {!isAuthenticated ? (
           <button
             type="button"
-            onClick={() => auth.openLoginModal()}
+            onClick={() => auth.requireAuth(() => {}, 'Unlock UPS Hardware Controls')}
             className="text-[11px] font-mono text-slate-300 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] px-2.5 py-1 rounded-xl flex items-center gap-1.5 self-start sm:self-auto cursor-pointer transition"
           >
             <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span>{t('control:power.protectedNeedsLogin', 'Protected · Click to Log In')}</span>
+            <span>
+              {auth.status?.os_auth_available
+                ? `Protected · Click to Verify (${auth.status.provider_name})`
+                : t('control:power.protectedNeedsLogin', 'Protected · Click to Log In')}
+            </span>
           </button>
         ) : (
           <div className="text-[11px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-xl flex items-center gap-1.5 self-start sm:self-auto">
             <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span>{t('control:power.authUnlocked', 'Unlocked · Typed confirmation required')}</span>
+            <span>
+              {auth.status?.os_auth_available
+                ? `Unlocked · Verified via ${auth.status.provider_name}`
+                : t('control:power.authUnlocked', 'Unlocked · Typed confirmation required')}
+            </span>
           </div>
         )}
       </div>

@@ -349,7 +349,7 @@ export const Control: React.FC<ControlProps> = ({
               >
                 <span>{t('control:auth.logOut', 'Log Out')}</span>
               </PrimaryButton>
-            ) : !auth.status?.configured ? (
+            ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
               <PrimaryButton
                 onClick={() => auth.openLoginModal()}
                 icon={<KeyRound className="w-3.5 h-3.5" />}
@@ -358,10 +358,14 @@ export const Control: React.FC<ControlProps> = ({
               </PrimaryButton>
             ) : (
               <PrimaryButton
-                onClick={() => auth.openLoginModal()}
+                onClick={() => auth.requireAuth(() => {}, 'Unlock UPS Hardware Controls')}
                 icon={<Unlock className="w-3.5 h-3.5" />}
               >
-                <span>{t('control:auth.logIn', 'Log In & Unlock')}</span>
+                <span>
+                  {auth.status?.os_auth_available
+                    ? `Unlock with ${auth.status.provider_name}`
+                    : t('control:auth.logIn', 'Log In & Unlock')}
+                </span>
               </PrimaryButton>
             )}
           </div>

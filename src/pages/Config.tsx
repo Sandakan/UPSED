@@ -64,11 +64,15 @@ export const Config: React.FC<ConfigProps> = ({ portName, upsId, safetyStage: _s
           </div>
           <button
             type="button"
-            onClick={() => auth.openLoginModal()}
+            onClick={() => auth.requireAuth(() => {}, 'Unlock Configuration Writes')}
             className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-950/40 transition cursor-pointer shrink-0 self-start sm:self-auto flex items-center gap-1.5"
           >
             <Unlock className="w-3.5 h-3.5" />
-            <span>{t('config:alert.unlockBtn', 'Log In to Unlock')}</span>
+            <span>
+              {auth.status?.os_auth_available
+                ? `Unlock with ${auth.status.provider_name}`
+                : t('config:alert.unlockBtn', 'Log In to Unlock')}
+            </span>
           </button>
         </div>
       )}

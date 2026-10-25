@@ -5037,11 +5037,14 @@ name = "upsed"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "block2",
  "chrono",
  "dotenvy",
  "hidapi",
  "keyring",
  "log",
+ "objc2",
+ "objc2-foundation",
  "rand 0.8.8",
  "reqwest 0.12.28",
  "rfd",
@@ -5061,6 +5064,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tungstenite",
+ "windows 0.62.2",
 ]
 
 [[package]]

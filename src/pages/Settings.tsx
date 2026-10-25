@@ -1397,21 +1397,28 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               </p>
             </div>
           </div>
-          <span
-            className={`text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full border ${
-              auth.status?.authenticated
-                ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+          <div className="flex items-center gap-2">
+            {auth.status?.os_auth_available && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
+                {auth.status.provider_name}
+              </span>
+            )}
+            <span
+              className={`text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full border ${
+                auth.status?.authenticated
+                  ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+                  : !auth.status?.configured
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
+              }`}
+            >
+              {auth.status?.authenticated
+                ? 'Authenticated'
                 : !auth.status?.configured
-                ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
-            }`}
-          >
-            {auth.status?.authenticated
-              ? 'Authenticated'
-              : !auth.status?.configured
-              ? 'Unconfigured'
-              : 'Protected'}
-          </span>
+                ? 'Unconfigured'
+                : 'Protected'}
+            </span>
+          </div>
         </div>
 
         {/* Current Status Row */}
@@ -1453,7 +1460,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               >
                 {t('common:buttons.logOut', 'Log Out')}
               </button>
-            ) : !auth.status?.configured ? (
+            ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
               <PrimaryButton
                 onClick={() => auth.openLoginModal()}
                 icon={<KeyRound className="w-3.5 h-3.5" />}
@@ -1462,17 +1469,21 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               </PrimaryButton>
             ) : (
               <PrimaryButton
-                onClick={() => auth.openLoginModal()}
+                onClick={() => auth.requireAuth(() => {}, 'Unlock Security Settings')}
                 icon={<Lock className="w-3.5 h-3.5" />}
               >
-                <span>{t('settings:securitySection.unlockSession', 'Log In & Unlock')}</span>
+                <span>
+                  {auth.status?.os_auth_available
+                    ? `Unlock with ${auth.status.provider_name}`
+                    : t('settings:securitySection.unlockSession', 'Log In & Unlock')}
+                </span>
               </PrimaryButton>
             )}
           </div>
         </div>
 
-        {/* Change Password Sub-Card */}
-        {auth.status?.configured && (
+        {/* Change Password Sub-Card (Only relevant when not using OS Native Auth or if fallback password is in use) */}
+        {auth.status?.configured && !auth.status?.os_auth_available && (
           <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-3">
             <div className="flex items-center justify-between">
               <h5 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
@@ -1556,8 +1567,8 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           </div>
         )}
 
-        {/* Reset Danger Zone */}
-        {auth.status?.configured && (
+        {/* Reset Danger Zone (Only relevant for fallback password store) */}
+        {auth.status?.configured && !auth.status?.os_auth_available && (
           <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.03] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-rose-300">

@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth';
 
 export const LoginModal: React.FC = () => {
   const { t } = useTranslation(['control', 'common']);
-  const { status, isLoginModalOpen, closeLoginModal, login, setup } = useAuth();
+  const { status, isLoginModalOpen, loginModalError, closeLoginModal, login, setup, verifyOs } = useAuth();
 
   const isConfigured = Boolean(status?.configured);
   const [username, setUsername] = useState('');
@@ -23,7 +23,7 @@ export const LoginModal: React.FC = () => {
     if (isLoginModalOpen) {
       setShouldRender(true);
       setIsClosing(false);
-      setErrorMessage(null);
+      setErrorMessage(loginModalError || null);
       setPassword('');
       setConfirmPassword('');
       if (status?.username) {
@@ -40,7 +40,7 @@ export const LoginModal: React.FC = () => {
       }, 180);
       return () => clearTimeout(timer);
     }
-  }, [isLoginModalOpen, shouldRender, status?.username]);
+  }, [isLoginModalOpen, shouldRender, status?.username, loginModalError]);
 
   // Handle ESC key to dismiss
   useEffect(() => {
@@ -158,6 +158,40 @@ export const LoginModal: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Quick OS Native Auth Option if available */}
+        {status?.os_auth_available && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={async () => {
+                setErrorMessage(null);
+                const ok = await verifyOs('Unlock UPSED Hardware Operations');
+                if (ok) {
+                  closeLoginModal();
+                } else {
+                  setErrorMessage(`${status.provider_name} was cancelled or failed.`);
+                }
+              }}
+              className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-lg shadow-indigo-950/50 border border-indigo-400/30 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Shield className="w-4 h-4" />
+              <span>
+                {loginModalError || errorMessage
+                  ? `Try Again with ${status.provider_name}`
+                  : `Unlock with ${status.provider_name}`}
+              </span>
+            </button>
+            <div className="relative my-3 text-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/[0.08]" />
+              </div>
+              <span className="relative px-2 bg-[#0f1117] text-[10px] uppercase font-mono text-slate-500">
+                Or enter app passcode
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Error Alert */}
         {errorMessage && (

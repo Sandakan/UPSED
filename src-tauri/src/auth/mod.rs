@@ -7,9 +7,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+pub mod os_auth;
+pub use os_auth::{NativeOsAuthenticator, OsAuthenticator};
+
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60); // 15 minutes
 
-#[derive(Error, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Error, Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum AuthError {
     #[error("Credentials already configured")]
     AlreadyConfigured,
@@ -31,6 +34,12 @@ pub enum AuthError {
 
     #[error("Session expired")]
     SessionExpired,
+
+    #[error("Authentication was cancelled by the user")]
+    Cancelled,
+
+    #[error("OS native authentication is unavailable: {0}")]
+    OsAuthUnavailable(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +256,7 @@ struct FailureTracker {
 
 pub struct AuthManager {
     store: Box<dyn CredentialStore>,
+    os_auth: Box<dyn OsAuthenticator>,
     session: Mutex<Option<Session>>,
     failures: Mutex<FailureTracker>,
     idle_timeout: Duration,
@@ -256,6 +266,20 @@ impl AuthManager {
     pub fn new(store: Box<dyn CredentialStore>) -> Self {
         Self {
             store,
+            os_auth: Box::new(NativeOsAuthenticator::new()),
+            session: Mutex::new(None),
+            failures: Mutex::new(FailureTracker::default()),
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+        }
+    }
+
+    pub fn new_with_os_auth(
+        store: Box<dyn CredentialStore>,
+        os_auth: Box<dyn OsAuthenticator>,
+    ) -> Self {
+        Self {
+            store,
+            os_auth,
             session: Mutex::new(None),
             failures: Mutex::new(FailureTracker::default()),
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
@@ -263,7 +287,13 @@ impl AuthManager {
     }
 
     pub fn new_in_memory() -> Self {
-        Self::new(Box::new(MemoryStore::new()))
+        Self {
+            store: Box::new(MemoryStore::new()),
+            os_auth: Box::new(os_auth::MockOsAuthenticator::unavailable()),
+            session: Mutex::new(None),
+            failures: Mutex::new(FailureTracker::default()),
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+        }
     }
 
     pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
@@ -271,12 +301,56 @@ impl AuthManager {
         self
     }
 
+    pub fn is_os_auth_available(&self) -> bool {
+        self.os_auth.is_available()
+    }
+
+    pub fn provider_name(&self) -> &'static str {
+        if self.is_os_auth_available() {
+            self.os_auth.provider_name()
+        } else {
+            "Password Fallback"
+        }
+    }
+
     pub fn is_configured(&self) -> bool {
+        // Fast path per user instruction: if native OS authentication is available,
+        // it is already configured at the OS level! Never touch Keyring unnecessarily.
+        if self.is_os_auth_available() {
+            return true;
+        }
+
         self.store
             .get_credentials()
             .ok()
             .flatten()
             .is_some()
+    }
+
+    pub fn verify_os(&self, reason: &str) -> Result<String, AuthError> {
+        if !self.is_os_auth_available() {
+            return Err(AuthError::OsAuthUnavailable(
+                "OS Native Authentication is not available on this device".into(),
+            ));
+        }
+
+        let user = self.os_auth.verify_user(reason)?;
+
+        // Reset failures & establish active session
+        {
+            let mut failures = self.failures.lock().unwrap();
+            *failures = FailureTracker::default();
+        }
+
+        {
+            let mut session = self.session.lock().unwrap();
+            *session = Some(Session {
+                username: user.clone(),
+                last_activity: Instant::now(),
+            });
+        }
+
+        Ok(user)
     }
 
     pub fn setup(&self, username: &str, password: &str) -> Result<(), AuthError> {

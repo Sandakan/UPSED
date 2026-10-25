@@ -265,6 +265,7 @@ pub fn run() {
             commands::get_outlet_states,
             commands::send_command,
             commands::auth_status,
+            commands::auth_verify_os,
             commands::auth_setup,
             commands::auth_login,
             commands::auth_logout,

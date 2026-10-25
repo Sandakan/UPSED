@@ -45,6 +45,9 @@ export const api = {
 
   authStatus: () => invoke<AuthStatus>('auth_status'),
 
+  authVerifyOs: (reason?: string) =>
+    invoke<AuthStatus>('auth_verify_os', { reason: reason || null }),
+
   authSetup: (username: string, password: string) =>
     invoke<void>('auth_setup', { username, password }),
 

@@ -62,6 +62,7 @@ import {
   BridgeCmdExecutedEvent,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { useAuth } from '../lib/auth';
 
 export interface IoTProps {
   portName?: string | null;
@@ -240,6 +241,8 @@ const BridgeLedGuide: React.FC = () => {
 
 export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) => {
   const queryClient = useQueryClient();
+  const auth = useAuth();
+  const isAuthenticated = Boolean(auth.status?.authenticated);
 
   // Status & Telemetry via TanStack Query
   const {
@@ -404,20 +407,22 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
 
   const handleSaveTuyaConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSavingTuya(true);
-    try {
-      const updated = await api.setBridgeTuyaConfig(tuyaConfig, portName ?? undefined);
-      setTuyaConfig({
-        ...updated,
-        device_secret: updated.has_secret ? '********' : '',
-      });
-      await refreshStatus();
-      toast.success('TuyaLink MQTT configuration saved to ESP32 NVS');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsSavingTuya(false);
-    }
+    await auth.requireAuth(async () => {
+      setIsSavingTuya(true);
+      try {
+        const updated = await api.setBridgeTuyaConfig(tuyaConfig, portName ?? undefined);
+        setTuyaConfig({
+          ...updated,
+          device_secret: updated.has_secret ? '********' : '',
+        });
+        await refreshStatus();
+        toast.success('TuyaLink MQTT configuration saved to ESP32 NVS');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsSavingTuya(false);
+      }
+    }, 'Authorize Bridge TuyaLink Configuration Update');
   };
 
   const handleTestTuyaPublish = async () => {
@@ -977,58 +982,60 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   // Execute Wireless OTA Flash after explicit confirmation
   const executeFlashOta = async () => {
     setIsOtaConfirmOpen(false);
-    setIsFlashingOta(true);
-    setOtaProgress({
-      phase: 'leasing',
-      percentage: 5,
-      bytes_transferred: 0,
-      total_bytes: 0,
-      message: 'Requesting on-demand OTA lease from ESP32...',
-    });
-
-    try {
-      const res = await api.flashBridgeFirmware({
-        portName: portName ?? undefined,
-        source: otaSource,
-        customPath: otaSource === 'file' ? customBinaryPath : undefined,
-        downloadUrl: otaSource === 'github' ? firmwareCheck?.download_url ?? undefined : undefined,
-      });
-
-      toast.custom(
-        JSON.stringify({
-          title: 'Bridge Firmware Flashed',
-          description: res || 'ESP32 successfully updated and rebooted.',
-          event: {
-            severity: 'info',
-            event_type: 'BRIDGE_OTA_SUCCESS',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
-      await refreshStatus();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.custom(
-        JSON.stringify({
-          title: 'OTA Flash Failed',
-          description: msg,
-          event: {
-            severity: 'critical',
-            event_type: 'BRIDGE_OTA_ERR',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
+    await auth.requireFreshAuth(async () => {
+      setIsFlashingOta(true);
       setOtaProgress({
-        phase: 'error',
-        percentage: 0,
+        phase: 'leasing',
+        percentage: 5,
         bytes_transferred: 0,
         total_bytes: 0,
-        message: msg,
+        message: 'Requesting on-demand OTA lease from ESP32...',
       });
-    } finally {
-      setIsFlashingOta(false);
-    }
+
+      try {
+        const res = await api.flashBridgeFirmware({
+          portName: portName ?? undefined,
+          source: otaSource,
+          customPath: otaSource === 'file' ? customBinaryPath : undefined,
+          downloadUrl: otaSource === 'github' ? firmwareCheck?.download_url ?? undefined : undefined,
+        });
+
+        toast.custom(
+          JSON.stringify({
+            title: 'Bridge Firmware Flashed',
+            description: res || 'ESP32 successfully updated and rebooted.',
+            event: {
+              severity: 'info',
+              event_type: 'BRIDGE_OTA_SUCCESS',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+        await refreshStatus();
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.custom(
+          JSON.stringify({
+            title: 'OTA Flash Failed',
+            description: msg,
+            event: {
+              severity: 'critical',
+              event_type: 'BRIDGE_OTA_ERR',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+        setOtaProgress({
+          phase: 'error',
+          percentage: 0,
+          bytes_transferred: 0,
+          total_bytes: 0,
+          message: msg,
+        });
+      } finally {
+        setIsFlashingOta(false);
+      }
+    }, 'Authorize ESP32 Bridge Firmware Flash');
   };
 
   // Wi-Fi Scan
@@ -1069,33 +1076,35 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
   // Wi-Fi Provision
   const handleConfigureWifi = async () => {
     if (!ssid.trim()) return;
-    setIsConfiguringWifi(true);
-    setProvisioningStep('saving');
-    setProvisioningTargetSsid(ssid.trim());
-    setProvisioningResult(null);
+    await auth.requireAuth(async () => {
+      setIsConfiguringWifi(true);
+      setProvisioningStep('saving');
+      setProvisioningTargetSsid(ssid.trim());
+      setProvisioningResult(null);
 
-    try {
-      const updated = await api.configureBridgeWifi(ssid.trim(), password, portName ?? undefined);
-      setStatus(updated);
-      setProvisioningStep('reconnecting');
-      // Background 'ups-wifi-provision-status' event listener finalizes 'connected', 'rollback', or 'failed'
-    } catch (e: unknown) {
-      setIsConfiguringWifi(false);
-      setProvisioningStep('failed');
-      const msg = e instanceof Error ? e.message : String(e);
-      setProvisioningResult({ error: msg });
-      toast.custom(
-        JSON.stringify({
-          title: 'ESP32 Wi-Fi Provisioning Failed',
-          description: msg,
-          event: {
-            severity: 'critical',
-            event_type: 'BRIDGE_WIFI_ERR',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
-    }
+      try {
+        const updated = await api.configureBridgeWifi(ssid.trim(), password, portName ?? undefined);
+        setStatus(updated);
+        setProvisioningStep('reconnecting');
+        // Background 'ups-wifi-provision-status' event listener finalizes 'connected', 'rollback', or 'failed'
+      } catch (e: unknown) {
+        setIsConfiguringWifi(false);
+        setProvisioningStep('failed');
+        const msg = e instanceof Error ? e.message : String(e);
+        setProvisioningResult({ error: msg });
+        toast.custom(
+          JSON.stringify({
+            title: 'ESP32 Wi-Fi Provisioning Failed',
+            description: msg,
+            event: {
+              severity: 'critical',
+              event_type: 'BRIDGE_WIFI_ERR',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      }
+    }, 'Authorize ESP32 Wi-Fi Provisioning');
   };
 
   // Test WebSocket
@@ -1199,43 +1208,50 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
 
   // Save Fallback Host
   const handleSaveFallbackHost = async () => {
-    setIsSavingHost(true);
-    try {
-      const cleanHost = fallbackHost.trim() || 'upsed-bridge.local';
-      await api.setBridgeFallbackHost(cleanHost);
-      queryClient.invalidateQueries({ queryKey: ['ports'] });
-      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
-      toast.custom(
-        JSON.stringify({
-          title: 'Bridge Failover Host Saved',
-          description: `Dual-Mode WebSocket failover will target ws://${cleanHost}:81 when USB is unplugged.`,
-          event: {
-            severity: 'success',
-            event_type: 'BRIDGE_HOST_SAVED',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
-    } finally {
-      setIsSavingHost(false);
-    }
+    await auth.requireAuth(async () => {
+      setIsSavingHost(true);
+      try {
+        const cleanHost = fallbackHost.trim() || 'upsed-bridge.local';
+        await api.setBridgeFallbackHost(cleanHost);
+        queryClient.invalidateQueries({ queryKey: ['ports'] });
+        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+        toast.custom(
+          JSON.stringify({
+            title: 'Bridge Failover Host Saved',
+            description: `Dual-Mode WebSocket failover will target ws://${cleanHost}:81 when USB is unplugged.`,
+            event: {
+              severity: 'success',
+              event_type: 'BRIDGE_HOST_SAVED',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(`Failed to save host: ${msg}`);
+      } finally {
+        setIsSavingHost(false);
+      }
+    }, 'Authorize Bridge Host Configuration');
   };
 
   // Reset Fallback Host to Default
   const handleResetFallbackHost = async () => {
-    setFallbackHost('upsed-bridge.local');
-    setIsSavingHost(true);
-    try {
-      await api.setBridgeFallbackHost('upsed-bridge.local');
-      queryClient.invalidateQueries({ queryKey: ['ports'] });
-      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
-      toast.success('Reset failover endpoint to default (upsed-bridge.local)');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`Reset failed: ${msg}`);
-    } finally {
-      setIsSavingHost(false);
-    }
+    await auth.requireAuth(async () => {
+      setFallbackHost('upsed-bridge.local');
+      setIsSavingHost(true);
+      try {
+        await api.setBridgeFallbackHost('upsed-bridge.local');
+        queryClient.invalidateQueries({ queryKey: ['ports'] });
+        queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+        toast.success('Reset failover endpoint to default (upsed-bridge.local)');
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(`Reset failed: ${msg}`);
+      } finally {
+        setIsSavingHost(false);
+      }
+    }, 'Authorize Bridge Host Configuration');
   };
 
   // Sync Host Time to ESP32 RTC
@@ -1313,37 +1329,39 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
 
   const executeClearBacklog = async () => {
     setIsPurgeConfirmOpen(false);
-    setIsClearingBacklog(true);
-    try {
-      await api.clearBridgeBacklog(portName ?? undefined);
-      await refreshStatus();
-      toast.custom(
-        JSON.stringify({
-          title: 'ESP32 Backlog Cleared',
-          description: 'PSRAM ring buffer has been reset to 0 records.',
-          event: {
-            severity: 'info',
-            event_type: 'BRIDGE_CLEARED',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.custom(
-        JSON.stringify({
-          title: 'Failed to Clear Backlog',
-          description: msg,
-          event: {
-            severity: 'critical',
-            event_type: 'BRIDGE_CLEAR_ERR',
-            timestamp: new Date().toISOString(),
-          },
-        })
-      );
-    } finally {
-      setIsClearingBacklog(false);
-    }
+    await auth.requireAuth(async () => {
+      setIsClearingBacklog(true);
+      try {
+        await api.clearBridgeBacklog(portName ?? undefined);
+        await refreshStatus();
+        toast.custom(
+          JSON.stringify({
+            title: 'ESP32 Backlog Cleared',
+            description: 'PSRAM ring buffer has been reset to 0 records.',
+            event: {
+              severity: 'info',
+              event_type: 'BRIDGE_CLEARED',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.custom(
+          JSON.stringify({
+            title: 'Failed to Clear Backlog',
+            description: msg,
+            event: {
+              severity: 'critical',
+              event_type: 'BRIDGE_CLEAR_ERR',
+              timestamp: new Date().toISOString(),
+            },
+          })
+        );
+      } finally {
+        setIsClearingBacklog(false);
+      }
+    }, 'Authorize Clearing Bridge Telemetry Backlog');
   };
 
   // Copy Logs
@@ -1585,6 +1603,53 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
           </div>
         </div>
       </div>
+
+      {/* ── Hardware Bridge Security Barrier Banner ───────────────────── */}
+      {!isAuthenticated ? (
+        <div className="p-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/[0.06] backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-indigo-950/20">
+          <div className="flex items-start sm:items-center space-x-3.5">
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="text-xs">
+              <h4 className="font-semibold text-indigo-300">
+                Hardware Bridge Settings are Protected
+              </h4>
+              <p className="text-slate-400 mt-0.5 leading-relaxed">
+                Modifying Wi-Fi credentials, TuyaLink cloud settings, fallback hosts, or flashing bridge firmware requires authenticated authorization.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => auth.requireAuth(() => {}, 'Unlock Bridge Settings')}
+            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold shadow-lg shadow-indigo-950/40 transition cursor-pointer shrink-0 self-start sm:self-auto flex items-center gap-1.5"
+          >
+            <Unlock className="w-3.5 h-3.5" />
+            <span>
+              {auth.status?.os_auth_available
+                ? `Unlock with ${auth.status.provider_name}`
+                : 'Log In to Unlock'}
+            </span>
+          </button>
+        </div>
+      ) : (
+        <div className="px-4 py-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] text-[11.5px] text-emerald-400 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              Hardware Bridge Settings Unlocked · Verified via {auth.status?.provider_name || 'Administrator'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => auth.logout()}
+            className="text-[11px] text-emerald-300 hover:text-emerald-100 transition cursor-pointer font-medium"
+          >
+            Log Out
+          </button>
+        </div>
+      )}
 
       {/* ── Sub-navigation Tabs ──────────────────────────────────────── */}
       <div className="flex items-center space-x-1 border-b border-white/[0.08] pb-1">
@@ -1930,7 +1995,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   </>
                 ) : (
                   <>
-                    <Send className="w-3.5 h-3.5 mr-1.5" />
+                    {!isAuthenticated ? (
+                      <Lock className="w-3.5 h-3.5 mr-1.5 text-slate-300" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5 mr-1.5" />
+                    )}
                     Save & Connect
                   </>
                 )}
@@ -2153,9 +2222,10 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   <button
                     onClick={handleSaveFallbackHost}
                     disabled={isSavingHost}
-                    className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 transition cursor-pointer disabled:opacity-50 shrink-0"
+                    className="flex items-center px-4 py-2 rounded-xl text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 transition cursor-pointer disabled:opacity-50 shrink-0"
                   >
-                    {isSavingHost ? 'Saving...' : 'Save Endpoint'}
+                    {!isAuthenticated && <Lock className="w-3.5 h-3.5 mr-1.5 text-slate-300" />}
+                    <span>{isSavingHost ? 'Saving...' : 'Save Endpoint'}</span>
                   </button>
                   <button
                     onClick={handleResetFallbackHost}
@@ -2163,7 +2233,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                     className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition cursor-pointer shrink-0"
                     title="Reset to default upsed-bridge.local"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" />
+                    {!isAuthenticated ? (
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    ) : (
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    )}
                     <span>Reset</span>
                   </button>
                 </div>
@@ -2313,7 +2387,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                 disabled={isClearingBacklog || (status?.backlog_records ?? 0) === 0}
                 className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition cursor-pointer disabled:opacity-40"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                {!isAuthenticated ? (
+                  <Lock className="w-3.5 h-3.5" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
                 <span>Clear Buffer</span>
               </button>
 
@@ -2757,7 +2835,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               <PrimaryButton
                 type="submit"
                 disabled={isSavingTuya}
-                icon={<CheckCircle2 className="w-4 h-4" />}
+                icon={!isAuthenticated ? <Lock className="w-4 h-4 text-slate-400" /> : <CheckCircle2 className="w-4 h-4" />}
               >
                 {isSavingTuya ? 'Saving to ESP32...' : 'Save TuyaLink Config'}
               </PrimaryButton>
@@ -3554,7 +3632,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                 Cancel
               </button>
               <PrimaryButton onClick={executeFlashOta} size="sm">
-                <Zap className="w-3.5 h-3.5" />
+                {!isAuthenticated ? <Lock className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
                 <span>Confirm & Flash Wirelessly</span>
               </PrimaryButton>
             </div>

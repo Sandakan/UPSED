@@ -214,7 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Log Out
             </button>
           </div>
-        ) : !auth.status?.configured ? (
+        ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
           <button
             onClick={() => auth.openLoginModal()}
             className="w-full text-center px-2 py-1 rounded-md border border-amber-700/40 bg-amber-950/60 text-[10.5px] font-medium text-amber-300 hover:bg-amber-900/60 transition cursor-pointer"
@@ -223,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         ) : (
           <button
-            onClick={() => auth.openLoginModal()}
+            onClick={() => auth.requireAuth(() => {}, 'Unlock UPSED Hardware Operations')}
             className="w-full text-center px-2 py-1 rounded-md border border-white/[0.08] bg-white/[0.04] text-[10.5px] font-medium text-slate-300 hover:bg-white/[0.08] transition cursor-pointer flex items-center justify-center gap-1.5"
           >
             <Lock className="w-3 h-3 text-slate-400" />

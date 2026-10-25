@@ -174,3 +174,108 @@ fn auth_005_command_gate_enforces_auth_barrier() {
     assert!(gate.check_command(&t3_cmd).is_err());
     assert!(gate.check_command(&t4_cmd).is_err());
 }
+
+#[test]
+fn auth_006_os_native_auth_unlocks_session_and_gate() {
+    use upsed_lib::auth::os_auth::MockOsAuthenticator;
+    use upsed_lib::auth::MemoryStore;
+
+    let os_mock = Box::new(MockOsAuthenticator::available());
+    let store = Box::new(MemoryStore::new());
+    let auth = Arc::new(AuthManager::new_with_os_auth(store, os_mock));
+    let gate = CommandGate::with_auth(Arc::clone(&auth));
+
+    // When OS auth is available, it is configured immediately without needing password setup!
+    assert!(auth.is_os_auth_available());
+    assert!(auth.is_configured());
+    assert!(!auth.is_authenticated());
+    assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
+
+    // T2 is blocked prior to verification
+    let t2_cmd = VoltronicCommand::TenSecondTest;
+    assert!(gate.check_command(&t2_cmd).is_err());
+
+    // Verify user with OS auth
+    let verify_res = auth.verify_os("Authorize UPS operation");
+    assert!(verify_res.is_ok());
+    assert_eq!(verify_res.unwrap(), "mock_operator");
+    assert!(auth.is_authenticated());
+    assert_eq!(auth.current_user(), Some("mock_operator".to_string()));
+    assert_eq!(gate.current_stage(), UnlockStage::T4PowerControl);
+
+    // Gate commands pass during the 15-minute sliding session
+    assert!(gate.check_command(&t2_cmd).is_ok());
+
+    // Logout immediately relocks gate
+    auth.logout();
+    assert!(!auth.is_authenticated());
+    assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
+    assert!(gate.check_command(&t2_cmd).is_err());
+}
+
+#[test]
+fn auth_007_os_native_auth_cancellation_preserves_lock() {
+    use upsed_lib::auth::os_auth::MockOsAuthenticator;
+    use upsed_lib::auth::MemoryStore;
+
+    let os_mock = Box::new(MockOsAuthenticator::with_cancellation());
+    let store = Box::new(MemoryStore::new());
+    let auth = Arc::new(AuthManager::new_with_os_auth(store, os_mock));
+    let gate = CommandGate::with_auth(Arc::clone(&auth));
+
+    assert!(auth.is_os_auth_available());
+    assert!(!auth.is_authenticated());
+
+    let res = auth.verify_os("Authorize UPS operation");
+    assert_eq!(res, Err(AuthError::Cancelled));
+    assert!(!auth.is_authenticated());
+    assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
+}
+
+#[test]
+fn auth_008_hybrid_fallback_when_os_auth_unavailable() {
+    use upsed_lib::auth::os_auth::MockOsAuthenticator;
+    use upsed_lib::auth::MemoryStore;
+
+    let os_mock = Box::new(MockOsAuthenticator::unavailable());
+    let store = Box::new(MemoryStore::new());
+    let auth = Arc::new(AuthManager::new_with_os_auth(store, os_mock));
+
+    // When OS auth is unavailable and no password set, is_configured is false
+    assert!(!auth.is_os_auth_available());
+    assert!(!auth.is_configured());
+
+    // Verify OS fails with unavailable error
+    let os_res = auth.verify_os("Authorize");
+    assert!(matches!(os_res, Err(AuthError::OsAuthUnavailable(_))));
+
+    // Fallback password setup works seamlessly
+    assert!(auth.setup("fallback_admin", "strong-password-123").is_ok());
+    assert!(auth.is_configured());
+    assert!(auth.is_authenticated());
+    assert_eq!(auth.current_user(), Some("fallback_admin".to_string()));
+}
+
+#[test]
+fn auth_009_bridge_operations_enforce_auth_barrier() {
+    use upsed_lib::auth::os_auth::MockOsAuthenticator;
+    use upsed_lib::auth::MemoryStore;
+
+    let os_mock = Box::new(MockOsAuthenticator::available());
+    let store = Box::new(MemoryStore::new());
+    let auth = Arc::new(AuthManager::new_with_os_auth(store, os_mock));
+
+    // Initially unauthenticated: persistent bridge commands must be rejected
+    assert!(!auth.is_authenticated());
+
+    // Native OS verification unlocks active session
+    let unlock_res = auth.verify_os("Authorize Bridge Operations");
+    assert!(unlock_res.is_ok());
+    assert!(auth.is_authenticated());
+    assert_eq!(auth.current_user(), Some("mock_operator".to_string()));
+
+    // Explicit logout immediately relocks persistent bridge commands
+    auth.logout();
+    assert!(!auth.is_authenticated());
+    assert_eq!(auth.current_user(), None);
+}

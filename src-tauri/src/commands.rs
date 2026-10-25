@@ -770,14 +770,86 @@ pub struct AuthStatus {
     pub configured: bool,
     pub authenticated: bool,
     pub username: Option<String>,
+    pub os_auth_available: bool,
+    pub auth_method: String,
+    pub provider_name: String,
 }
 
 #[tauri::command]
 pub fn auth_status(state: State<AppState>) -> AuthStatus {
+    let os_avail = state.auth.is_os_auth_available();
+    let auth_method = if os_avail {
+        "os_native".to_string()
+    } else {
+        "password_fallback".to_string()
+    };
     AuthStatus {
         configured: state.auth.is_configured(),
         authenticated: state.auth.is_authenticated(),
         username: state.auth.current_user(),
+        os_auth_available: os_avail,
+        auth_method,
+        provider_name: state.auth.provider_name().to_string(),
+    }
+}
+
+#[tauri::command]
+pub async fn auth_verify_os(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    reason: Option<String>,
+) -> Result<AuthStatus, String> {
+    let prompt_reason = reason.unwrap_or_else(|| {
+        "Authorize UPSED to execute protected hardware operations on connected UPS".to_string()
+    });
+
+    let auth_clone = Arc::clone(&state.auth);
+    let verify_res = tokio::task::spawn_blocking(move || auth_clone.verify_os(&prompt_reason))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    match verify_res {
+        Ok(verified_user) => {
+            let provider = state.auth.provider_name();
+            let event = EventLogRecord {
+                id: None,
+                timestamp: now,
+                ups_id: None,
+                event_type: "USER_ACTION".into(),
+                severity: "info".into(),
+                message: format!(
+                    "Security unlock: OS user '{}' authenticated via {}",
+                    verified_user, provider
+                ),
+                acknowledged: true,
+            };
+            let _ = state.db.insert_event(&event);
+            let _ = app.emit("ups-event", &event);
+            Ok(auth_status(state))
+        }
+        Err(crate::auth::AuthError::Cancelled) => {
+            // User cancelled OS prompt; return current status without error
+            Err("Authentication was cancelled by the user".into())
+        }
+        Err(err) => {
+            let provider = state.auth.provider_name();
+            let event = EventLogRecord {
+                id: None,
+                timestamp: now,
+                ups_id: None,
+                event_type: "USER_ACTION".into(),
+                severity: "warning".into(),
+                message: format!(
+                    "Security verification failed via {}: {}",
+                    provider, err
+                ),
+                acknowledged: false,
+            };
+            let _ = state.db.insert_event(&event);
+            let _ = app.emit("ups-event", &event);
+            Err(err.to_string())
+        }
     }
 }
 
@@ -1693,6 +1765,13 @@ pub async fn configure_bridge_wifi(
     ssid: String,
     password: String,
 ) -> Result<BridgeStatus, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to configure bridge Wi-Fi"
+                .into(),
+        );
+    }
+
     let _ = app.emit(
         "ups-wifi-provision-status",
         WifiProvisionStatusEvent {
@@ -1737,6 +1816,22 @@ pub async fn configure_bridge_wifi(
     })
     .await
     .map_err(|e| e.to_string())??;
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' configured ESP32 Hardware Bridge Wi-Fi credentials (SSID: '{}')",
+            user, ssid
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
 
     let _ = app.emit(
         "ups-wifi-provision-status",
@@ -1896,11 +1991,40 @@ pub fn get_bridge_fallback_host(state: State<'_, AppState>) -> Result<String, St
 }
 
 #[tauri::command]
-pub fn set_bridge_fallback_host(state: State<'_, AppState>, host: String) -> Result<(), String> {
+pub fn set_bridge_fallback_host(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    host: String,
+) -> Result<(), String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to update bridge fallback host"
+                .into(),
+        );
+    }
+    let clean_host = host.trim();
     state
         .db
-        .set_setting("bridge_fallback_host", host.trim())
-        .map_err(|e| e.to_string())
+        .set_setting("bridge_fallback_host", clean_host)
+        .map_err(|e| e.to_string())?;
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' updated bridge fallback host to '{}'",
+            user, clean_host
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1938,18 +2062,43 @@ pub async fn scan_bridge_wifi(
 
 #[tauri::command]
 pub async fn clear_bridge_backlog(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     port_name: Option<String>,
 ) -> Result<usize, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to clear bridge backlog"
+                .into(),
+        );
+    }
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
+    let count = tokio::task::spawn_blocking(move || {
         state_clone
             .manager
             .with_bridge_transport(port_name.as_deref(), |bridge, _key| bridge.clear_backlog())
             .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' cleared ESP32 telemetry backlog ({} records removed)",
+            user, count
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+
+    Ok(count)
 }
 
 #[tauri::command]
@@ -2219,6 +2368,13 @@ pub async fn flash_bridge_firmware(
     custom_path: Option<String>,
     download_url: Option<String>,
 ) -> Result<String, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to flash bridge firmware"
+                .into(),
+        );
+    }
+
     // 1. Strict secret verification
     let _ = dotenvy::dotenv();
     let secret = std::env::var("UPSED_OTA_SECRET").map_err(|_| {
@@ -2282,6 +2438,22 @@ pub async fn flash_bridge_firmware(
             binary_bytes[0]
         ));
     }
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' authorized and initiated wireless OTA firmware flash (source: {}, size: {} bytes)",
+            user, source, total_len
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
 
     push_bridge_log(BridgeLogEntry {
         seq: 0,

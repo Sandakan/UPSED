@@ -302,7 +302,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             <span className="font-mono">{auth.status.username}</span>
             <span className="text-[10px] text-indigo-400 font-normal opacity-80">· Log Out</span>
           </button>
-        ) : !auth.status?.configured ? (
+        ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
           <button
             type="button"
             onClick={() => auth.openLoginModal()}
@@ -315,12 +315,12 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         ) : (
           <button
             type="button"
-            onClick={() => auth.openLoginModal()}
+            onClick={() => auth.requireAuth(() => {}, 'Unlock UPSED Hardware Operations')}
             className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-slate-900/80 text-slate-300 border-white/[0.1] hover:bg-white/[0.06] transition cursor-pointer"
-            title="Write commands protected. Click to log in."
+            title="Write commands protected. Click to unlock."
           >
             <Lock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Protected</span>
+            <span>Protected · Unlock</span>
           </button>
         )}
 

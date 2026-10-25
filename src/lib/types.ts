@@ -8,6 +8,9 @@ export interface AuthStatus {
   configured: boolean;
   authenticated: boolean;
   username?: string | null;
+  os_auth_available: boolean;
+  auth_method: 'os_native' | 'password_fallback';
+  provider_name: string;
 }
 
 export interface DeviceCapabilities {
