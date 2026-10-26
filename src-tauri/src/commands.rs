@@ -159,6 +159,9 @@ pub fn connect_device_internal(
     port_name: &str,
     baud_rate: Option<u32>,
 ) -> Result<DiscoveredDevice, String> {
+    static CONNECT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _connect_guard = CONNECT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     // Idempotency: If this port is already registered and active in MultiPortManager, reuse it!
     let alt_bridge_name = if port_name.starts_with("BRIDGE:") {
         port_name.strip_prefix("BRIDGE:").unwrap_or(port_name).to_string()

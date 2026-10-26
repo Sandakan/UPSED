@@ -330,24 +330,32 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building UPSED application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                static EXIT_LOGGED: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !EXIT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                    tracing::info!("[LIFECYCLE] UPSED application is exiting...");
-                    if let Some(state) = app_handle.try_state::<AppState>() {
-                        let exit_event = db::EventLogRecord {
-                            id: None,
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                            ups_id: None,
-                            event_type: "APP_EXIT".into(),
-                            severity: "info".into(),
-                            message: "UPSED application process exiting".into(),
-                            acknowledged: true,
-                        };
-                        let _ = state.db.insert_event(&exit_event);
+            match event {
+                tauri::RunEvent::ExitRequested { .. } => {
+                    static EXIT_LOGGED: std::sync::atomic::AtomicBool =
+                        std::sync::atomic::AtomicBool::new(false);
+                    if !EXIT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        tracing::info!("[LIFECYCLE] UPSED application is exiting...");
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let exit_event = db::EventLogRecord {
+                                id: None,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                ups_id: None,
+                                event_type: "APP_EXIT".into(),
+                                severity: "info".into(),
+                                message: "UPSED application process exiting".into(),
+                                acknowledged: true,
+                            };
+                            let _ = state.db.insert_event(&exit_event);
+                        }
+                        serial::hid_actor::shutdown_actor();
                     }
                 }
+                tauri::RunEvent::Exit => {
+                    tracing::info!("[LIFECYCLE] RunEvent::Exit received, exiting process immediately");
+                    std::process::exit(0);
+                }
+                _ => {}
             }
         });
 }

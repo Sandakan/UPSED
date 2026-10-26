@@ -390,6 +390,7 @@ pub struct BridgeTransport {
     serial_port_name: Option<String>,
     serial_port: Option<Box<dyn SerialPort>>,
     ws_host: Option<String>,
+    fallback_ws_host: Option<String>,
     ws_port: u16,
     ws_socket: Option<WebSocket<TcpStream>>,
     active_medium: String,
@@ -402,17 +403,18 @@ impl BridgeTransport {
         port_identifier: &str,
         fallback_ws_host: Option<String>,
     ) -> Result<Self, ProtocolError> {
+        let clean_fallback = fallback_ws_host.filter(|s| !s.trim().is_empty());
         push_bridge_log(BridgeLogEntry {
             seq: 0,
             ms: 0,
             level: "INFO".into(),
-            msg: format!("Opening BridgeTransport for '{}' (fallback host: {:?})", port_identifier, fallback_ws_host),
+            msg: format!("Opening BridgeTransport for '{}' (fallback host: {:?})", port_identifier, clean_fallback),
             timestamp: chrono::Utc::now().to_rfc3339(),
             source: "BRIDGE-RPC".into(),
         });
 
         let mut serial_port_name = None;
-        let mut ws_host = fallback_ws_host.filter(|s| !s.trim().is_empty());
+        let mut ws_host = clean_fallback.clone();
         let mut ws_port = BRIDGE_DEFAULT_WS_PORT;
 
         if let Some(ws_target) = port_identifier.strip_prefix("BRIDGE:WS:") {
@@ -436,6 +438,7 @@ impl BridgeTransport {
             serial_port_name,
             serial_port: None,
             ws_host,
+            fallback_ws_host: clean_fallback,
             ws_port,
             ws_socket: None,
             active_medium: initial_medium,
@@ -1030,23 +1033,38 @@ impl BridgeTransport {
         serialized_req: &str,
         timeout: Duration,
     ) -> Result<Value, ProtocolError> {
-        let candidate_hosts: Vec<String> = match &self.ws_host {
-            Some(host) if host != BRIDGE_DEFAULT_MDNS_HOST => {
-                vec![host.clone(), BRIDGE_DEFAULT_MDNS_HOST.to_string()]
+        let mut candidate_hosts: Vec<String> = Vec::new();
+        if let Some(ref host) = self.ws_host {
+            let clean = host.trim();
+            if !clean.is_empty() && !candidate_hosts.contains(&clean.to_string()) {
+                candidate_hosts.push(clean.to_string());
             }
-            _ => vec![BRIDGE_DEFAULT_MDNS_HOST.to_string()],
-        };
+        }
+        if let Some(ref fb) = self.fallback_ws_host {
+            let clean = fb.trim();
+            if !clean.is_empty() && !candidate_hosts.contains(&clean.to_string()) {
+                candidate_hosts.push(clean.to_string());
+            }
+        }
+        let mdns = BRIDGE_DEFAULT_MDNS_HOST.to_string();
+        if !candidate_hosts.contains(&mdns) {
+            candidate_hosts.push(mdns);
+        }
 
         let mut attempt_errors = Vec::new();
 
         for host in candidate_hosts {
             if self.ws_socket.is_none() {
-                if let Ok(ws) = connect_ws(&host, self.ws_port, timeout) {
-                    self.ws_socket = Some(ws);
-                    self.ws_host = Some(host.clone());
-                } else {
-                    attempt_errors.push(format!("ws://{}:{} (connection failed)", host, self.ws_port));
-                    continue;
+                match connect_ws(&host, self.ws_port, timeout) {
+                    Ok(ws) => {
+                        self.ws_socket = Some(ws);
+                        self.ws_host = Some(host.clone());
+                    }
+                    Err(err) => {
+                        tracing::warn!("[BRIDGE-RPC] Failed to connect to ws://{}:{}: {:?}", host, self.ws_port, err);
+                        attempt_errors.push(format!("ws://{}:{} ({:?})", host, self.ws_port, err));
+                        continue;
+                    }
                 }
             }
 
@@ -1374,20 +1392,20 @@ fn connect_ws(
     let addr_str = format!("{}:{}", host, port);
     let mut addrs = addr_str
         .to_socket_addrs()
-        .map_err(|e| ProtocolError::IoError(e.to_string()))?;
+        .map_err(|e| ProtocolError::IoError(format!("DNS resolution failed for {}: {}", addr_str, e)))?;
     let sock_addr = addrs
         .next()
         .ok_or_else(|| ProtocolError::IoError(format!("Could not resolve {}", addr_str)))?;
 
     let stream = TcpStream::connect_timeout(&sock_addr, timeout)
-        .map_err(|e| ProtocolError::IoError(e.to_string()))?;
+        .map_err(|e| ProtocolError::IoError(format!("TCP connect to {} failed: {}", sock_addr, e)))?;
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
     let _ = stream.set_nodelay(true);
 
     let ws_url = format!("ws://{}:{}/", host, port);
     let (ws, _resp) = tungstenite::client(ws_url.as_str(), stream)
-        .map_err(|e| ProtocolError::IoError(e.to_string()))?;
+        .map_err(|e| ProtocolError::IoError(format!("WebSocket handshake with {} failed: {}", ws_url, e)))?;
     Ok(ws)
 }
 
@@ -1421,12 +1439,12 @@ pub fn probe_serial_bridge(port_name: &str) -> Option<BridgeStatus> {
 
 pub fn probe_ws_bridge(host_or_addr: &str) -> Option<(String, BridgeStatus)> {
     let (host, port) = parse_host_port(host_or_addr, BRIDGE_DEFAULT_WS_PORT);
-    let mut ws = connect_ws(&host, port, Duration::from_millis(900)).ok()?;
+    let mut ws = connect_ws(&host, port, Duration::from_millis(2000)).ok()?;
 
     let ping_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"bridge.ping\",\"params\":{}}";
     ws.send(Message::Text(ping_req.into())).ok()?;
 
-    let timeout = Duration::from_millis(1500);
+    let timeout = Duration::from_millis(2500);
     let start = Instant::now();
     while start.elapsed() < timeout {
         match ws.read() {
@@ -1586,32 +1604,40 @@ fn detect_local_subnets() -> Vec<String> {
 /// Sweeps candidate local subnets in parallel for listening UPSED WebSocket bridges on port 81.
 pub fn scan_lan_for_bridge() -> Vec<(String, BridgeStatus)> {
     let subnets = detect_local_subnets();
-    let primary_subnet = subnets.first().cloned().unwrap_or_else(|| "192.168.0".to_string());
+    let subnets_to_scan: Vec<String> = if subnets.is_empty() {
+        vec!["192.168.0".to_string()]
+    } else {
+        subnets.into_iter().take(2).collect()
+    };
 
     let found_ips = Arc::new(Mutex::new(Vec::new()));
-    let timeout = Duration::from_millis(150);
+    let timeout = Duration::from_millis(300);
 
-    // Parallel sweep of primary subnet (2..=254) in chunks across scoped threads
+    // Parallel sweep across subnets in chunks of 16 IPs across scoped threads
     std::thread::scope(|s| {
         let all_ips: Vec<u8> = (2..=254u8).collect();
-        for chunk in all_ips.chunks(32) {
-            let chunk_ips: Vec<String> = chunk.iter().map(|i| format!("{}.{}", primary_subnet, i)).collect();
-            let found_ref = Arc::clone(&found_ips);
-            s.spawn(move || {
-                for ip in chunk_ips {
-                    let addr = format!("{}:{}", ip, BRIDGE_DEFAULT_WS_PORT);
-                    if let Ok(mut addrs) = addr.to_socket_addrs() {
-                        if let Some(sock_addr) = addrs.next() {
-                            if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, timeout) {
-                                drop(stream);
-                                if let Ok(mut guard) = found_ref.lock() {
-                                    guard.push(ip);
+        for subnet in &subnets_to_scan {
+            for chunk in all_ips.chunks(16) {
+                let chunk_ips: Vec<String> = chunk.iter().map(|i| format!("{}.{}", subnet, i)).collect();
+                let found_ref = Arc::clone(&found_ips);
+                s.spawn(move || {
+                    for ip in chunk_ips {
+                        let addr = format!("{}:{}", ip, BRIDGE_DEFAULT_WS_PORT);
+                        if let Ok(mut addrs) = addr.to_socket_addrs() {
+                            if let Some(sock_addr) = addrs.next() {
+                                if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, timeout) {
+                                    drop(stream);
+                                    if let Ok(mut guard) = found_ref.lock() {
+                                        if !guard.contains(&ip) {
+                                            guard.push(ip);
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
+                });
+            }
         }
     });
 

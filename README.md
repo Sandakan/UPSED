@@ -274,6 +274,30 @@ Ensure the following are installed:
    npm run tauri build
    ```
 
+### 🍎 macOS Installation & Local Network Permissions
+
+When installing the packaged DMG (`UPSED_0.1.0_aarch64.dmg` or `UPSED_0.1.0_x64.dmg`) on macOS:
+
+1. **Install to Applications:**
+   Open the DMG disk image and drag **UPSED.app** into **/Applications**.
+   > [!IMPORTANT]
+   > Do **not** launch UPSED directly from inside the mounted DMG volume. Running from the disk image triggers macOS Gatekeeper **App Translocation**, which places the app in a temporary isolated sandbox container and blocks local network traffic (mDNS `.local` host resolution, UDP broadcasts, and WebSocket bridge communication).
+
+2. **Clear Quarantine & Re-Sign Bundle (macOS Sequoia 15+ / Ad-Hoc Builds):**
+   For ad-hoc signed releases or newly packaged builds on macOS 15+, run the following in Terminal to remove Gatekeeper download flags and bind the application bundle identity to `Info.plist`:
+
+   ```bash
+   # Clear macOS download quarantine attribute
+   xattr -cr /Applications/UPSED.app
+
+   # Sign the application bundle with ad-hoc signature to bind Info.plist permissions
+   codesign --force --deep -s - /Applications/UPSED.app
+   ```
+
+3. **Grant Local Network Access:**
+   - On first launch, macOS displays a privacy prompt: ***"UPSED" would like to find and connect to devices on your local network***. Click **Allow**.
+   - If the dialog was previously dismissed, navigate to **System Settings > Privacy & Security > Local Network** and verify that **UPSED** is toggled **ON**.
+
 ---
 
 ## 📖 Usage Guide

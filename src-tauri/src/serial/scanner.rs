@@ -3,7 +3,7 @@ use crate::protocol::{
 };
 use crate::serial::adapter::{PhysicalSerialPort, SerialTransport};
 use crate::serial::hid_adapter::HidTransport;
-use hidapi::{DeviceInfo, HidApi};
+use hidapi::DeviceInfo;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ pub fn is_candidate_ups_hid(dev: &DeviceInfo) -> bool {
 }
 
 /// Extracts a clean identifier token from a HID device path or serial.
-fn extract_hid_id(dev: &DeviceInfo) -> String {
+pub fn extract_hid_id(dev: &DeviceInfo) -> String {
     if let Some(sn) = dev.serial_number() {
         if !sn.trim().is_empty() {
             return sn.trim().to_uppercase();
@@ -169,30 +169,7 @@ fn extract_hid_id(dev: &DeviceInfo) -> String {
 /// Resolves the physical USB UUID / instance ID for a port (HID path or Serial USB PNP/Serial).
 pub fn get_port_usb_uuid(port_name: &str) -> Option<String> {
     if port_name.starts_with("USB:") {
-        if let Ok(api) = HidApi::new() {
-            let parts: Vec<&str> = port_name.split(':').collect();
-            if parts.len() >= 3 {
-                let vid = u16::from_str_radix(parts[1], 16).ok()?;
-                let pid = u16::from_str_radix(parts[2], 16).ok()?;
-                let id_filter = if parts.len() >= 4 {
-                    parts[3].to_lowercase()
-                } else {
-                    String::new()
-                };
-
-                for dev in api.device_list() {
-                    if dev.vendor_id() == vid && dev.product_id() == pid {
-                        let path_str = dev.path().to_string_lossy().to_string();
-                        if id_filter.is_empty()
-                            || path_str.to_lowercase().contains(&id_filter)
-                            || dev.serial_number().unwrap_or("").to_lowercase().contains(&id_filter)
-                        {
-                            return Some(path_str);
-                        }
-                    }
-                }
-            }
-        }
+        super::hid_actor::resolve_usb_uuid(port_name)
     } else if let Ok(ports) = serialport::available_ports() {
         for p in ports {
             if p.port_name == port_name {
@@ -203,8 +180,10 @@ pub fn get_port_usb_uuid(port_name: &str) -> Option<String> {
                 }
             }
         }
+        None
+    } else {
+        None
     }
-    None
 }
 
 /// Safely probes a USB HID device using ONLY Stage T1 read-only queries (QPI, fallback Q1, and QID).
@@ -288,41 +267,6 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         hardware_signature,
         capabilities,
     })
-}
-
-/// Scans connected USB HID devices for candidate UPS units.
-pub fn scan_hid_devices() -> Vec<DiscoveredDevice> {
-    let mut discovered = Vec::new();
-
-    let api = match HidApi::new() {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!("Failed to initialize HID API during scan: {}", e);
-            return discovered;
-        }
-    };
-
-    for dev in api.device_list() {
-        if is_candidate_ups_hid(dev) {
-            if let Some(device) = probe_hid_device(dev) {
-                // Avoid duplicates if multiple interface endpoints exist for same UPS
-                if !discovered
-                    .iter()
-                    .any(|d: &DiscoveredDevice| d.port_name == device.port_name)
-                {
-                    tracing::info!(
-                        "Discovered USB HID UPS on {} (ID: {}) with protocol ID: {}",
-                        device.port_name,
-                        device.unique_id,
-                        device.protocol_id
-                    );
-                    discovered.push(device);
-                }
-            }
-        }
-    }
-
-    discovered
 }
 
 /// Safely probes an ESP32 Hardware Bridge (`BRIDGE:COMx` or `BRIDGE:WS:...`) using Stage T1 read-only queries.
@@ -550,6 +494,9 @@ pub fn scan_available_ports_with_context(
     active_devices: &[DiscoveredDevice],
     fallback_ws_host: Option<&str>,
 ) -> Vec<DiscoveredDevice> {
+    static SCAN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _scan_guard = SCAN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let mut discovered = Vec::new();
     let mut found_usb_bridge = false;
 
@@ -606,8 +553,9 @@ pub fn scan_available_ports_with_context(
         tracing::warn!("Failed to enumerate serial ports");
     }
 
-    // 3. Scan USB HID devices
-    for dev in scan_hid_devices() {
+    // 3. Scan USB HID devices via dedicated actor thread
+    let active_ports: Vec<String> = active_devices.iter().map(|d| d.port_name.clone()).collect();
+    for dev in super::hid_actor::scan_hid_devices(&active_ports) {
         if !discovered.iter().any(|d| d.port_name == dev.port_name) {
             discovered.push(dev);
         }
