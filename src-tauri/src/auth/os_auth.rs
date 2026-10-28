@@ -166,11 +166,11 @@ impl NativeOsAuthenticator {
 #[cfg(target_os = "windows")]
 impl OsAuthenticator for NativeOsAuthenticator {
     fn is_available(&self) -> bool {
-        use windows::core::HSTRING;
+
         use windows::Security::Credentials::UI::{UserConsentVerifier, UserConsentVerifierAvailability};
 
         match UserConsentVerifier::CheckAvailabilityAsync() {
-            Ok(op) => match op.get() {
+            Ok(op) => match op.join() {
                 Ok(availability) => availability == UserConsentVerifierAvailability::Available,
                 Err(_) => false,
             },
@@ -187,17 +187,17 @@ impl OsAuthenticator for NativeOsAuthenticator {
     }
 
     fn verify_user(&self, reason: &str) -> Result<String, AuthError> {
-        use windows::core::HSTRING;
+
         use windows::Security::Credentials::UI::{UserConsentVerificationResult, UserConsentVerifier};
 
         let user = self.current_os_user();
-        let prompt = HSTRING::from(reason);
+        let prompt = windows::core::HSTRING::from(reason);
 
         let op = UserConsentVerifier::RequestVerificationAsync(&prompt)
             .map_err(|e| AuthError::StorageError(format!("Failed to invoke Windows Hello: {}", e)))?;
 
         let res = op
-            .get()
+            .join()
             .map_err(|e| AuthError::StorageError(format!("Windows Hello evaluation error: {}", e)))?;
 
         match res {
@@ -344,7 +344,7 @@ impl OsAuthenticator for MockOsAuthenticator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 

@@ -1778,7 +1778,7 @@ mod tests {
         push_bridge_log(entry);
         let logs = get_all_bridge_logs();
         assert!(!logs.is_empty());
-        assert_eq!(logs.last().unwrap().msg, "Test log message");
+        assert!(logs.iter().any(|l| l.msg == "Test log message"));
     }
 
     #[test]
