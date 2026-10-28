@@ -134,6 +134,32 @@ pub struct BridgeStatus {
     pub cache_capacity: usize,
     #[serde(default)]
     pub cache_ttl_ms: u64,
+
+    // Hardware LED Illumination Policy
+    #[serde(default)]
+    pub night_mode_active: bool,
+    #[serde(default)]
+    pub night_mode_enabled: bool,
+    #[serde(default = "default_dimmed")]
+    pub night_mode_type: String,
+    #[serde(default = "default_ten")]
+    pub night_dim_pct: u8,
+    #[serde(default = "default_true")]
+    pub night_wake_alert: bool,
+    #[serde(default = "default_night_start")]
+    pub night_start_min: u16,
+    #[serde(default = "default_night_end")]
+    pub night_end_min: u16,
+    #[serde(default)]
+    pub night_override: i8,
+    #[serde(default)]
+    pub proxy_stealth_active: bool,
+    #[serde(default)]
+    pub proxy_stealth_enabled: bool,
+    #[serde(default = "default_dimmed")]
+    pub proxy_stealth_type: String,
+    #[serde(default = "default_ten")]
+    pub proxy_stealth_dim_pct: u8,
 }
 
 /// Configuration and live state of the ESP32-S3 TuyaLink MQTT Controller.
@@ -208,6 +234,49 @@ fn default_hostname() -> String {
 
 fn default_ws_port() -> u16 {
     BRIDGE_DEFAULT_WS_PORT
+}
+
+fn default_dimmed() -> String {
+    "dimmed".to_string()
+}
+
+fn default_ten() -> u8 {
+    10
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_night_start() -> u16 {
+    1320
+}
+
+fn default_night_end() -> u16 {
+    420
+}
+
+/// Illumination policy settings for the ESP32-S3 hardware bridge.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BridgeIlluminationConfig {
+    #[serde(default)]
+    pub night_enabled: bool,
+    #[serde(default = "default_dimmed")]
+    pub night_type: String,
+    #[serde(default = "default_ten")]
+    pub night_dim_pct: u8,
+    #[serde(default = "default_true")]
+    pub night_wake_alert: bool,
+    #[serde(default = "default_night_start")]
+    pub night_start_min: u16,
+    #[serde(default = "default_night_end")]
+    pub night_end_min: u16,
+    #[serde(default)]
+    pub stealth_enabled: bool,
+    #[serde(default = "default_dimmed")]
+    pub stealth_type: String,
+    #[serde(default = "default_ten")]
+    pub stealth_dim_pct: u8,
 }
 
 /// Offline telemetry record deserialized from the ESP32's MessagePack PSRAM ring buffer.
@@ -810,6 +879,81 @@ impl BridgeTransport {
             ProtocolError::ParseError(format!("Invalid bridge.reconnectTuya payload: {}", e))
         })?;
         Ok(cfg)
+    }
+
+    pub fn configure_illumination(
+        &mut self,
+        cfg: &BridgeIlluminationConfig,
+    ) -> Result<BridgeStatus, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: format!(
+                "Configuring hardware illumination policy: Night[en={}, type={}, dim={}% ({:02}:{:02}-{:02}:{:02}), wake={}], Stealth[en={}, type={}, dim={}%]",
+                cfg.night_enabled, cfg.night_type, cfg.night_dim_pct, cfg.night_start_min / 60, cfg.night_start_min % 60, cfg.night_end_min / 60, cfg.night_end_min % 60, cfg.night_wake_alert,
+                cfg.stealth_enabled, cfg.stealth_type, cfg.stealth_dim_pct
+            ),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.setIllumination",
+            json!({
+                "night_enabled": cfg.night_enabled,
+                "night_type": cfg.night_type,
+                "night_dim_pct": cfg.night_dim_pct,
+                "night_wake_alert": cfg.night_wake_alert,
+                "night_start_min": cfg.night_start_min,
+                "night_end_min": cfg.night_end_min,
+                "stealth_enabled": cfg.stealth_enabled,
+                "stealth_type": cfg.stealth_type,
+                "stealth_dim_pct": cfg.stealth_dim_pct,
+            }),
+            Duration::from_millis(3000),
+        )?;
+        let mut status: BridgeStatus = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.setIllumination response: {}", e))
+        })?;
+        status.enrich_compatibility();
+        if let Ok(mut guard) = self.last_status.lock() {
+            *guard = Some(status.clone());
+        }
+        Ok(status)
+    }
+
+    pub fn toggle_night_mode_now(
+        &mut self,
+        override_val: Option<i8>,
+    ) -> Result<BridgeStatus, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: format!("Toggling manual night mode override (override={:?})...", override_val),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let params = match override_val {
+            Some(v) => json!({ "override": v }),
+            None => json!({}),
+        };
+
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.toggleNightModeNow",
+            params,
+            Duration::from_millis(3000),
+        )?;
+        let mut status: BridgeStatus = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.toggleNightModeNow response: {}", e))
+        })?;
+        status.enrich_compatibility();
+        if let Ok(mut guard) = self.last_status.lock() {
+            *guard = Some(status.clone());
+        }
+        Ok(status)
     }
 
     pub fn call_rpc(
@@ -1949,5 +2093,42 @@ mod tests {
         let logs = get_all_bridge_logs();
         assert!(logs.iter().any(|l| l.msg == "--- Starting bridge log playback ---"));
         assert!(logs.iter().any(|l| l.msg.contains("--- Completed bridge log playback (2 entries, up to 2026-10-27T11:39:46Z (seq #102)) ---")));
+    }
+
+    #[test]
+    fn test_bridge_status_illumination_deserialization() {
+        let json_str = r#"{
+            "bridge": "UPSED_BRIDGE_V1",
+            "fw": "1.5.0",
+            "mac": "80:65:99:A6:B9:F8",
+            "mode": "proxy",
+            "night_mode_active": true,
+            "night_mode_enabled": true,
+            "night_mode_type": "dimmed",
+            "night_dim_pct": 15,
+            "night_wake_alert": true,
+            "night_start_min": 1380,
+            "night_end_min": 360,
+            "night_override": 1,
+            "proxy_stealth_active": false,
+            "proxy_stealth_enabled": true,
+            "proxy_stealth_type": "off",
+            "proxy_stealth_dim_pct": 10
+        }"#;
+
+        let status: BridgeStatus = serde_json::from_str(json_str)
+            .expect("BridgeStatus must deserialize illumination policy fields");
+        assert!(status.night_mode_active);
+        assert!(status.night_mode_enabled);
+        assert_eq!(status.night_mode_type, "dimmed");
+        assert_eq!(status.night_dim_pct, 15);
+        assert!(status.night_wake_alert);
+        assert_eq!(status.night_start_min, 1380);
+        assert_eq!(status.night_end_min, 360);
+        assert_eq!(status.night_override, 1);
+        assert!(!status.proxy_stealth_active);
+        assert!(status.proxy_stealth_enabled);
+        assert_eq!(status.proxy_stealth_type, "off");
+        assert_eq!(status.proxy_stealth_dim_pct, 10);
     }
 }

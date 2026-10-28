@@ -683,6 +683,20 @@ void populateStatusObject(JsonObject& res) {
     res["urgent_fast_poll"] = urgentFastPollEnabled;
     res["host_poll_sec"] = hostPollSec;
     res["is_urgent"] = upsTelemetry.isUrgentCondition();
+
+    // Hardware LED Illumination Policy
+    res["night_mode_active"] = ledController.isNightModeActive();
+    res["night_mode_enabled"] = ledController.isNightEnabled();
+    res["night_mode_type"] = (ledController.getNightType() == 1) ? "off" : "dimmed";
+    res["night_dim_pct"] = ledController.getNightDimPct();
+    res["night_wake_alert"] = ledController.getNightWakeAlert();
+    res["night_start_min"] = ledController.getNightStartMin();
+    res["night_end_min"] = ledController.getNightEndMin();
+    res["night_override"] = ledController.getNightOverride();
+    res["proxy_stealth_active"] = ledController.isProxyStealthActive();
+    res["proxy_stealth_enabled"] = ledController.isStealthEnabled();
+    res["proxy_stealth_type"] = (ledController.getStealthType() == 1) ? "off" : "dimmed";
+    res["proxy_stealth_dim_pct"] = ledController.getStealthDimPct();
 }
 
 // ============================================================================
@@ -986,6 +1000,61 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         tuyaController.populateConfigJson(result, upsTelemetry, currentMode == MODE_PROXY);
         broadcastBridgeStatusChanged("tuya_reconnecting");
     }
+    else if (strcmp(method, "bridge.setIllumination") == 0) {
+        if (!reqDoc["params"].isNull() && reqDoc["params"].is<JsonObject>()) {
+            JsonObject p = reqDoc["params"].as<JsonObject>();
+            bool nightEn = p["night_enabled"] | ledController.isNightEnabled();
+            const char* nTypeStr = p["night_type"] | ((ledController.getNightType() == 1) ? "off" : "dimmed");
+            uint8_t nType = (strcmp(nTypeStr, "off") == 0) ? 1 : 0;
+            uint8_t nDim = p["night_dim_pct"] | ledController.getNightDimPct();
+            bool nWake = p["night_wake_alert"] | ledController.getNightWakeAlert();
+            uint16_t nStart = p["night_start_min"] | ledController.getNightStartMin();
+            uint16_t nEnd = p["night_end_min"] | ledController.getNightEndMin();
+
+            bool sEn = p["stealth_enabled"] | ledController.isStealthEnabled();
+            const char* sTypeStr = p["stealth_type"] | ((ledController.getStealthType() == 1) ? "off" : "dimmed");
+            uint8_t sType = (strcmp(sTypeStr, "off") == 0) ? 1 : 0;
+            uint8_t sDim = p["stealth_dim_pct"] | ledController.getStealthDimPct();
+
+            ledController.setNightModeConfig(nightEn, nType, nDim, nWake, nStart, nEnd);
+            ledController.setProxyStealthConfig(sEn, sType, sDim);
+
+            prefs.begin("upsed-conf", false);
+            prefs.putBool("night_en", nightEn);
+            prefs.putUChar("night_type", nType);
+            prefs.putUChar("night_dim", nDim);
+            prefs.putBool("night_wake", nWake);
+            prefs.putUShort("night_start", nStart);
+            prefs.putUShort("night_end", nEnd);
+            prefs.putBool("stealth_en", sEn);
+            prefs.putUChar("stealth_type", sType);
+            prefs.putUChar("stealth_dim", sDim);
+            prefs.end();
+
+            diagLog.info("[LED] Illumination policy saved (Night: %s, %s %d%% [%02d:%02d-%02d:%02d], Stealth: %s, %s %d%%)",
+                         nightEn ? "true" : "false", (nType == 1) ? "off" : "dimmed", nDim,
+                         nStart / 60, nStart % 60, nEnd / 60, nEnd % 60,
+                         sEn ? "true" : "false", (sType == 1) ? "off" : "dimmed", sDim);
+            broadcastBridgeStatusChanged("illumination_changed");
+        }
+        JsonObject res = resDoc["result"].to<JsonObject>();
+        populateStatusObject(res);
+    }
+    else if (strcmp(method, "bridge.toggleNightModeNow") == 0) {
+        int8_t overrideVal = 0;
+        if (!reqDoc["params"].isNull() && reqDoc["params"].is<JsonObject>() && reqDoc["params"]["override"].is<int8_t>()) {
+            overrideVal = reqDoc["params"]["override"].as<int8_t>();
+        } else {
+            // Toggle based on current active state
+            overrideVal = ledController.isNightModeActive() ? -1 : 1;
+        }
+        ledController.setNightOverride(overrideVal);
+        diagLog.info("[LED] Manual night override set to %d (Active: %s)",
+                     overrideVal, ledController.isNightModeActive() ? "true" : "false");
+        broadcastBridgeStatusChanged("night_override_changed");
+        JsonObject res = resDoc["result"].to<JsonObject>();
+        populateStatusObject(res);
+    }
     else {
         JsonObject errObj = resDoc["error"].to<JsonObject>();
         errObj["code"] = -32601;
@@ -1139,7 +1208,19 @@ void setup() {
     prefs.begin("upsed-conf", true);
     urgentFastPollEnabled = prefs.getBool("urg_fast", true);
     hostPollSec = prefs.getUInt("host_poll", 10);
+    bool nightEn = prefs.getBool("night_en", false);
+    uint8_t nightType = prefs.getUChar("night_type", 0);
+    uint8_t nightDim = prefs.getUChar("night_dim", 10);
+    bool nightWake = prefs.getBool("night_wake", true);
+    uint16_t nightStart = prefs.getUShort("night_start", 1320);
+    uint16_t nightEnd = prefs.getUShort("night_end", 420);
+    bool stealthEn = prefs.getBool("stealth_en", false);
+    uint8_t stealthType = prefs.getUChar("stealth_type", 0);
+    uint8_t stealthDim = prefs.getUChar("stealth_dim", 10);
     prefs.end();
+
+    ledController.setNightModeConfig(nightEn, nightType, nightDim, nightWake, nightStart, nightEnd);
+    ledController.setProxyStealthConfig(stealthEn, stealthType, stealthDim);
 
     if (savedSsid.length() > 0) {
         connectToWifi(savedSsid, savedPass, 8000);

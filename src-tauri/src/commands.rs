@@ -6,7 +6,7 @@ use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
 use crate::serial::{
     get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge,
     push_bridge_log, scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection,
-    BridgeBacklogRecord, BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice,
+    BridgeBacklogRecord, BridgeIlluminationConfig, BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice,
     HidTransport, PhysicalSerialPort, SerialTransport, TuyaBridgeConfig, WifiScanNetwork,
     WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
 };
@@ -2710,6 +2710,71 @@ pub async fn reconnect_bridge_tuya(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn configure_bridge_illumination(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    config: BridgeIlluminationConfig,
+) -> Result<BridgeStatus, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to modify hardware illumination settings"
+                .into(),
+        );
+    }
+
+    let state_clone = state.inner().clone();
+    let cfg_clone = config.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.configure_illumination(&cfg_clone)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let user = state.auth.current_user().unwrap_or_else(|| "admin".into());
+    let event = EventLogRecord {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        ups_id: None,
+        event_type: "USER_ACTION".into(),
+        severity: "info".into(),
+        message: format!(
+            "User '{}' updated bridge illumination policy (Night: en={}, type={}, dim={}% [{:02}:{:02}-{:02}:{:02}], wake={}; Stealth: en={}, type={}, dim={}%)",
+            user, config.night_enabled, config.night_type, config.night_dim_pct, config.night_start_min / 60, config.night_start_min % 60, config.night_end_min / 60, config.night_end_min % 60, config.night_wake_alert,
+            config.stealth_enabled, config.stealth_type, config.stealth_dim_pct
+        ),
+        acknowledged: true,
+    };
+    let _ = state.db.insert_event(&event);
+    let _ = app.emit("ups-event", &event);
+    let _ = app.emit("bridge-status", &res);
+
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn toggle_bridge_night_mode_now(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    port_name: Option<String>,
+    override_val: Option<i8>,
+) -> Result<BridgeStatus, String> {
+    let state_clone = state.inner().clone();
+    let res = tokio::task::spawn_blocking(move || {
+        execute_on_any_bridge(&state_clone, port_name.as_deref(), |bridge| {
+            bridge.toggle_night_mode_now(override_val)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let _ = app.emit("bridge-status", &res);
+    Ok(res)
 }
 
 #[tauri::command]

@@ -325,6 +325,8 @@ pub fn run() {
             commands::set_bridge_tuya_config,
             commands::test_bridge_tuya_publish,
             commands::reconnect_bridge_tuya,
+            commands::configure_bridge_illumination,
+            commands::toggle_bridge_night_mode_now,
             commands::save_file_with_dialog
         ])
         .build(tauri::generate_context!())

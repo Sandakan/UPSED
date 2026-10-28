@@ -131,6 +131,18 @@ public:
         }
     }
 
+    uint16_t localMinuteOfDay() const {
+        if (!isSynced()) {
+            return 0;
+        }
+        uint32_t nowSec = nowEpochSec();
+        int64_t localSec = static_cast<int64_t>(nowSec) + (static_cast<int64_t>(tzOffsetMin_) * 60);
+        time_t rawLocal = static_cast<time_t>(localSec);
+        struct tm tmBuf;
+        gmtime_r(&rawLocal, &tmBuf);
+        return static_cast<uint16_t>(tmBuf.tm_hour * 60 + tmBuf.tm_min);
+    }
+
     String formatIso8601(uint32_t epochSec) const {
         if (epochSec < 1700000000) {
             return "";

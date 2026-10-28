@@ -17,6 +17,7 @@ import {
   BridgeLogEntry,
   BridgeFirmwareCheckResult,
   TuyaBridgeConfig,
+  BridgeIlluminationConfig,
 } from './types';
 
 export const api = {
@@ -256,6 +257,18 @@ export const api = {
 
   bridgeClearCache: (portName?: string) =>
     invoke<number>('bridge_clear_cache', { portName }),
+
+  configureBridgeIllumination: (config: BridgeIlluminationConfig, portName?: string) =>
+    invoke<BridgeStatus>('configure_bridge_illumination', {
+      portName: portName || null,
+      config,
+    }),
+
+  toggleBridgeNightModeNow: (overrideVal?: number, portName?: string) =>
+    invoke<BridgeStatus>('toggle_bridge_night_mode_now', {
+      portName: portName || null,
+      overrideVal: overrideVal ?? null,
+    }),
 
   saveFileWithDialog: (
     defaultFilename: string,

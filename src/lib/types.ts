@@ -255,6 +255,32 @@ export interface BridgeStatus {
   cache_entries?: number;
   cache_capacity?: number;
   cache_ttl_ms?: number;
+
+  // Hardware LED Illumination Policy
+  night_mode_active?: boolean;
+  night_mode_enabled?: boolean;
+  night_mode_type?: 'dimmed' | 'off' | string;
+  night_dim_pct?: number;
+  night_wake_alert?: boolean;
+  night_start_min?: number;
+  night_end_min?: number;
+  night_override?: number;
+  proxy_stealth_active?: boolean;
+  proxy_stealth_enabled?: boolean;
+  proxy_stealth_type?: 'dimmed' | 'off' | string;
+  proxy_stealth_dim_pct?: number;
+}
+
+export interface BridgeIlluminationConfig {
+  night_enabled: boolean;
+  night_type: 'dimmed' | 'off';
+  night_dim_pct: number;
+  night_wake_alert: boolean;
+  night_start_min: number;
+  night_end_min: number;
+  stealth_enabled: boolean;
+  stealth_type: 'dimmed' | 'off';
+  stealth_dim_pct: number;
 }
 
 export interface TuyaBridgeConfig {

@@ -42,6 +42,8 @@ import {
   ChevronUp,
   Sliders,
   Users,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { marked } from 'marked';
 import * as XLSX from 'xlsx';
@@ -60,6 +62,7 @@ import {
   OtaProgressEvent,
   TuyaBridgeConfig,
   BridgeCmdExecutedEvent,
+  BridgeIlluminationConfig,
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useAuth } from '../lib/auth';
@@ -239,6 +242,507 @@ const BridgeLedGuide: React.FC = () => {
   );
 };
 
+interface HardwareLedIlluminationCardProps {
+  status: BridgeStatus | null;
+  portName?: string | null;
+  onStatusUpdate: (st: BridgeStatus | null) => void;
+  onRefresh: () => Promise<void>;
+}
+
+const minToTime = (min?: number) => {
+  if (min === undefined || min === null) return '00:00';
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const timeToMin = (timeStr: string) => {
+  const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10));
+  if (isNaN(h) || isNaN(m)) return 0;
+  return ((h % 24) * 60 + (m % 60)) % 1440;
+};
+
+const HardwareLedIlluminationCard: React.FC<HardwareLedIlluminationCardProps> = ({
+  status,
+  portName,
+  onStatusUpdate,
+  onRefresh,
+}) => {
+  const auth = useAuth();
+  const isAuthenticated = Boolean(auth.status?.authenticated);
+
+  const [nightEnabled, setNightEnabled] = useState(status?.night_mode_enabled ?? true);
+  const [nightType, setNightType] = useState<'dimmed' | 'off'>(
+    (status?.night_mode_type as 'off' | 'dimmed') || 'dimmed'
+  );
+  const [nightDimPct, setNightDimPct] = useState(status?.night_dim_pct ?? 10);
+  const [nightWakeAlert, setNightWakeAlert] = useState(status?.night_wake_alert ?? true);
+  const [nightStartTime, setNightStartTime] = useState(minToTime(status?.night_start_min ?? 1320));
+  const [nightEndTime, setNightEndTime] = useState(minToTime(status?.night_end_min ?? 420));
+
+  const [stealthEnabled, setStealthEnabled] = useState(status?.proxy_stealth_enabled ?? true);
+  const [stealthType, setStealthType] = useState<'dimmed' | 'off'>(
+    (status?.proxy_stealth_type as 'off' | 'dimmed') || 'dimmed'
+  );
+  const [stealthDimPct, setStealthDimPct] = useState(status?.proxy_stealth_dim_pct ?? 10);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTogglingNow, setIsTogglingNow] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  useEffect(() => {
+    if (!status || isDirty) return;
+    setNightEnabled(status.night_mode_enabled ?? true);
+    setNightType((status.night_mode_type as 'off' | 'dimmed') || 'dimmed');
+    setNightDimPct(status.night_dim_pct ?? 10);
+    setNightWakeAlert(status.night_wake_alert ?? true);
+    setNightStartTime(minToTime(status.night_start_min ?? 1320));
+    setNightEndTime(minToTime(status.night_end_min ?? 420));
+
+    setStealthEnabled(status.proxy_stealth_enabled ?? true);
+    setStealthType((status.proxy_stealth_type as 'off' | 'dimmed') || 'dimmed');
+    setStealthDimPct(status.proxy_stealth_dim_pct ?? 10);
+  }, [status, isDirty]);
+
+  const handleReset = () => {
+    if (!status) return;
+    setNightEnabled(status.night_mode_enabled ?? true);
+    setNightType((status.night_mode_type as 'off' | 'dimmed') || 'dimmed');
+    setNightDimPct(status.night_dim_pct ?? 10);
+    setNightWakeAlert(status.night_wake_alert ?? true);
+    setNightStartTime(minToTime(status.night_start_min ?? 1320));
+    setNightEndTime(minToTime(status.night_end_min ?? 420));
+
+    setStealthEnabled(status.proxy_stealth_enabled ?? true);
+    setStealthType((status.proxy_stealth_type as 'off' | 'dimmed') || 'dimmed');
+    setStealthDimPct(status.proxy_stealth_dim_pct ?? 10);
+    setIsDirty(false);
+  };
+
+  const handleToggleNightModeNow = async () => {
+    setIsTogglingNow(true);
+    try {
+      let nextVal = 0;
+      if (status?.night_override !== 0 && status?.night_override !== undefined) {
+        nextVal = 0;
+      } else if (status?.night_mode_active) {
+        nextVal = -1;
+      } else {
+        nextVal = 1;
+      }
+
+      const updated = await api.toggleBridgeNightModeNow(nextVal, portName ?? undefined);
+      onStatusUpdate(updated);
+      await onRefresh();
+      if (nextVal === 1) {
+        toast.success('Bridge manual night mode activated');
+      } else if (nextVal === -1) {
+        toast.success('Bridge manual daylight mode activated');
+      } else {
+        toast.success('Bridge returned to automatic schedule');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsTogglingNow(false);
+    }
+  };
+
+  const handleSaveIllumination = async () => {
+    await auth.requireAuth(async () => {
+      setIsSaving(true);
+      try {
+        const config: BridgeIlluminationConfig = {
+          night_enabled: nightEnabled,
+          night_type: nightType,
+          night_dim_pct: nightDimPct,
+          night_wake_alert: nightWakeAlert,
+          night_start_min: timeToMin(nightStartTime),
+          night_end_min: timeToMin(nightEndTime),
+          stealth_enabled: stealthEnabled,
+          stealth_type: stealthType,
+          stealth_dim_pct: stealthDimPct,
+        };
+
+        const updated = await api.configureBridgeIllumination(config, portName ?? undefined);
+        onStatusUpdate(updated);
+        await onRefresh();
+        setIsDirty(false);
+        toast.success('Hardware LED illumination policy saved to ESP32 NVS');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsSaving(false);
+      }
+    }, 'Authorize Hardware LED Illumination Policy Update');
+  };
+
+  return (
+    <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 lg:col-span-2 space-y-5">
+      {/* Header with Title, Live Badges & Quick Action */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/[0.08]">
+        <div className="flex items-center space-x-2.5">
+          <Moon className="w-5 h-5 text-indigo-400 shrink-0" />
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-white">Hardware LED Illumination & Sleep Policies</h3>
+              {status?.night_mode_active ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  Night Active ({status.night_mode_type === 'off' ? 'Dark' : `${status.night_dim_pct}% Dim`})
+                </span>
+              ) : status?.proxy_stealth_active ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  Desk Stealth Active ({status.proxy_stealth_type === 'off' ? 'Dark' : `${status.proxy_stealth_dim_pct}% Dim`})
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  Daylight Active (100%)
+                </span>
+              )}
+              {status?.night_override === 1 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-700/50">
+                  Manual Night
+                </span>
+              )}
+              {status?.night_override === -1 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-950/80 text-amber-300 border border-amber-700/50">
+                  Manual Day
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400">
+              Automated bedtime dimming, desktop distraction-free stealth mode, and critical alarm bypass
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Action Button */}
+        <button
+          type="button"
+          onClick={handleToggleNightModeNow}
+          disabled={isTogglingNow}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-slate-200 hover:text-white transition cursor-pointer self-start sm:self-auto shrink-0"
+        >
+          {isTogglingNow ? (
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          ) : status?.night_override !== 0 && status?.night_override !== undefined ? (
+            <>
+              <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Resume Clock Schedule</span>
+            </>
+          ) : status?.night_mode_active ? (
+            <>
+              <Sun className="w-3.5 h-3.5 text-amber-400" />
+              <span>Force Daylight Mode</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Force Night Mode Now</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Two-Column Policies Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Column 1: Automated Night Schedule */}
+        <div className="p-4 rounded-xl border border-white/[0.06] bg-black/20 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-4 h-4 text-indigo-400" />
+              <span className="text-sm font-semibold text-white">Automated Night Schedule</span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nightEnabled}
+                onChange={(e) => {
+                  setNightEnabled(e.target.checked);
+                  setIsDirty(true);
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Automatically dims or turns off the bridge status LED during sleeping hours. Ideal when your UPS is in or near a bedroom.
+          </p>
+
+          {/* Time Span Inputs */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Night Begins (Bedtime)</label>
+              <input
+                type="time"
+                value={nightStartTime}
+                disabled={!nightEnabled}
+                onChange={(e) => {
+                  setNightStartTime(e.target.value);
+                  setIsDirty(true);
+                }}
+                className="w-full bg-[#12141a] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Night Ends (Sunrise)</label>
+              <input
+                type="time"
+                value={nightEndTime}
+                disabled={!nightEnabled}
+                onChange={(e) => {
+                  setNightEndTime(e.target.value);
+                  setIsDirty(true);
+                }}
+                className="w-full bg-[#12141a] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-40"
+              />
+            </div>
+          </div>
+
+          {/* Night Style Mode Options */}
+          <div className="space-y-1.5 pt-1">
+            <label className="block text-[11px] font-medium text-slate-300">Night Illumination Style</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={!nightEnabled}
+                onClick={() => {
+                  setNightType('dimmed');
+                  setIsDirty(true);
+                }}
+                className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-40 ${
+                  nightType === 'dimmed'
+                    ? 'border-indigo-500/50 bg-indigo-500/10 text-white'
+                    : 'border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="text-xs font-semibold mb-0.5">Dimmed Glow</div>
+                <div className="text-[10px] text-slate-400">Subtle ambient glow</div>
+              </button>
+              <button
+                type="button"
+                disabled={!nightEnabled}
+                onClick={() => {
+                  setNightType('off');
+                  setIsDirty(true);
+                }}
+                className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-40 ${
+                  nightType === 'off'
+                    ? 'border-indigo-500/50 bg-indigo-500/10 text-white'
+                    : 'border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="text-xs font-semibold mb-0.5">Completely Dark</div>
+                <div className="text-[10px] text-slate-400">0% brightness (Off)</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Dim percentage slider */}
+          {nightType === 'dimmed' && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-300">Night Glow Brightness</span>
+                <span className="text-indigo-400 font-mono font-semibold">{nightDimPct}%</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="30"
+                step="1"
+                value={nightDimPct}
+                disabled={!nightEnabled}
+                onChange={(e) => {
+                  setNightDimPct(parseInt(e.target.value, 10));
+                  setIsDirty(true);
+                }}
+                className="w-full accent-indigo-500 disabled:opacity-40 cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                <span>5% (Minimum)</span>
+                <span>10% (Default)</span>
+                <span>30% (Max)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Alarm Wakeup Checkbox */}
+          <div className="pt-2 border-t border-white/[0.06]">
+            <label className="flex items-start space-x-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nightWakeAlert}
+                disabled={!nightEnabled}
+                onChange={(e) => {
+                  setNightWakeAlert(e.target.checked);
+                  setIsDirty(true);
+                }}
+                className="mt-0.5 rounded border-white/20 bg-slate-900 text-indigo-500 focus:ring-0 disabled:opacity-40"
+              />
+              <div>
+                <span className="text-xs font-medium text-slate-200">
+                  Wake LED on Power Failure & Faults (Recommended)
+                </span>
+                <p className="text-[10px] text-slate-400 leading-normal">
+                  Critical alarms (utility grid outage / running on battery, inverter errors, OTA flash) immediately wake the LED at 100% full brightness.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Column 2: In-Use Desktop Stealth Mode */}
+        <div className="p-4 rounded-xl border border-white/[0.06] bg-black/20 space-y-4 flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sliders className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-semibold text-white">Desk Stealth Mode (When In Use)</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stealthEnabled}
+                  onChange={(e) => {
+                    setStealthEnabled(e.target.checked);
+                    setIsDirty(true);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600"></div>
+              </label>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Mutes or dims the LED while the UPSED desktop app is actively connected on your desk. Prevents peripheral glare while you work.
+            </p>
+
+            {/* Stealth Style Mode Options */}
+            <div className="space-y-1.5 pt-1">
+              <label className="block text-[11px] font-medium text-slate-300">Desk Stealth Style</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={!stealthEnabled}
+                  onClick={() => {
+                    setStealthType('dimmed');
+                    setIsDirty(true);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-40 ${
+                    stealthType === 'dimmed'
+                      ? 'border-cyan-500/50 bg-cyan-500/10 text-white'
+                      : 'border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-semibold mb-0.5">Dimmed Glow</div>
+                  <div className="text-[10px] text-slate-400">Gentle desk lighting</div>
+                </button>
+                <button
+                  type="button"
+                  disabled={!stealthEnabled}
+                  onClick={() => {
+                    setStealthType('off');
+                    setIsDirty(true);
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition cursor-pointer disabled:opacity-40 ${
+                    stealthType === 'off'
+                      ? 'border-cyan-500/50 bg-cyan-500/10 text-white'
+                      : 'border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-semibold mb-0.5">Completely Dark</div>
+                  <div className="text-[10px] text-slate-400">Zero glare (Off)</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Stealth dim percentage slider */}
+            {stealthType === 'dimmed' && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300">Stealth Glow Brightness</span>
+                  <span className="text-cyan-400 font-mono font-semibold">{stealthDimPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="30"
+                  step="1"
+                  value={stealthDimPct}
+                  disabled={!stealthEnabled}
+                  onChange={(e) => {
+                    setStealthDimPct(parseInt(e.target.value, 10));
+                    setIsDirty(true);
+                  }}
+                  className="w-full accent-cyan-500 disabled:opacity-40 cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                  <span>5% (Subtle)</span>
+                  <span>10% (Default)</span>
+                  <span>30% (Max)</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
+            <span className="font-semibold text-slate-300">Automatic Restore:</span> When you shut down or put your computer to sleep, the bridge transitions back to its standard daylight or bedtime schedule.
+          </div>
+        </div>
+      </div>
+
+      {/* Save Settings Bar */}
+      <div className="pt-4 border-t border-white/[0.08] flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          {isDirty ? (
+            <span className="text-xs text-amber-400 font-medium">Unsaved changes</span>
+          ) : (
+            <span className="text-xs text-slate-500">Settings synced with ESP32 NVS</span>
+          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          {isDirty && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white transition cursor-pointer"
+            >
+              Discard Changes
+            </button>
+          )}
+          <PrimaryButton
+            onClick={handleSaveIllumination}
+            disabled={isSaving || !isDirty}
+            variant="primary"
+            className="text-xs"
+          >
+            {isSaving ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                Saving to Bridge...
+              </>
+            ) : (
+              <>
+                {!isAuthenticated ? (
+                  <Lock className="w-3.5 h-3.5 mr-1.5 text-slate-300" />
+                ) : (
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Save Illumination Policy
+              </>
+            )}
+          </PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) => {
   const queryClient = useQueryClient();
   const auth = useAuth();
@@ -270,7 +774,9 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     [queryClient, portName]
   );
 
-  const [activeTab, setActiveTab] = useState<'wifi' | 'ws' | 'backlog' | 'ota' | 'logs' | 'smart-home'>('wifi');
+  const [activeTab, setActiveTab] = useState<
+    'wifi' | 'ws' | 'led' | 'backlog' | 'ota' | 'logs' | 'smart-home'
+  >('wifi');
 
   // Firmware & Wireless OTA
   const [firmwareCheck, setFirmwareCheck] = useState<BridgeFirmwareCheckResult | null>(null);
@@ -1678,6 +2184,21 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
         </button>
 
         <button
+          onClick={() => setActiveTab('led')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+            activeTab === 'led'
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+          }`}
+        >
+          <Moon className="w-3.5 h-3.5" />
+          <span>Status LED & Night Mode</span>
+          {status?.night_mode_active && (
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('backlog')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
             activeTab === 'backlog'
@@ -2006,9 +2527,6 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               </PrimaryButton>
             </div>
           </div>
-
-          {/* Hardware Status LED Diagnostic Guide */}
-          <BridgeLedGuide />
         </div>
       )}
 
@@ -2367,7 +2885,23 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       </div>
     )}
 
-      {/* 3. MessagePack Offline Backlog Tab */}
+      {/* 3. Status LED & Night Mode Tab */}
+      {activeTab === 'led' && (
+        <div className="space-y-6">
+          {/* Hardware Status LED Illumination & Sleep Policies */}
+          <HardwareLedIlluminationCard
+            status={status}
+            portName={portName}
+            onStatusUpdate={setStatus}
+            onRefresh={refreshStatus}
+          />
+
+          {/* Hardware Status LED Diagnostic Guide */}
+          <BridgeLedGuide />
+        </div>
+      )}
+
+      {/* 4. MessagePack Offline Backlog Tab */}
       {activeTab === 'backlog' && (
         <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3688,3 +4222,4 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     </div>
   );
 };
+

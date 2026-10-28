@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] - 2026-10-28
+
+### Added
+- **Hardware LED Illumination Policy (Night Schedule + Desktop Stealth Mode):** Added dual-tier autonomous illumination control for the onboard WS2812 RGB LED:
+  - **Autonomous Night Schedule:** Scheduled dimming (5%–30% customizable, default 10%) or total dark mode (completely off) running on the bridge's local real-time clock across overnight spans (e.g. 22:00 to 07:00).
+  - **Proxy Stealth Mode:** Dims or extinguishes the LED on your desk while the UPSED desktop application is actively monitoring, eliminating desk glare and automatically restoring normal status lighting when the app is closed.
+  - **Critical Alert Wakeup Bypass:** Critical hardware alerts (AC power outage / on-battery mode, inverter faults) automatically override both Night Mode and Stealth Mode at full brightness, ensuring power emergencies are never missed.
+  - **Manual Override & JSON-RPC Controls:** Added `bridge.setIllumination` and `bridge.toggleNightModeNow` JSON-RPC 2.0 endpoints with NVS flash persistence (`"upsed-conf"`).
+  - **Local Time Minute Helper:** Added `localMinuteOfDay()` to `BridgeClock` for efficient integer-based scheduling.
+
+---
+
 ## [1.4.2] - 2026-10-27
 
 ### Fixed

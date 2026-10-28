@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "config.h"
+#include "rtc_clock.h"
 
 // ============================================================================
 // UPSED Bridge LED State Controller
@@ -51,7 +52,17 @@ public:
           lastRenderedR(255),
           lastRenderedG(255),
           lastRenderedB(255),
-          lastUpdateMs(0) {}
+          lastUpdateMs(0),
+          nightEnabled(false),
+          nightType(0),
+          nightDimPct(10),
+          nightWakeAlert(true),
+          nightStartMin(1320), // 22:00
+          nightEndMin(420),    // 07:00
+          nightOverride(0),
+          stealthEnabled(false),
+          stealthType(0),
+          stealthDimPct(10) {}
 
     void setWifiState(WifiLedState state) {
         wifiState = state;
@@ -71,6 +82,63 @@ public:
         }
         tuyaState = state;
     }
+
+    // ------------------------------------------------------------------------
+    // Illumination Policy Configuration (Night Mode & Desktop Stealth)
+    // ------------------------------------------------------------------------
+    void setNightModeConfig(bool enabled, uint8_t type, uint8_t dimPct, bool wakeAlert, uint16_t startMin, uint16_t endMin) {
+        nightEnabled = enabled;
+        nightType = (type == 1) ? 1 : 0;
+        nightDimPct = constrain(dimPct, 5, 30);
+        nightWakeAlert = wakeAlert;
+        nightStartMin = (startMin < 1440) ? startMin : 1320;
+        nightEndMin = (endMin < 1440) ? endMin : 420;
+        forceUpdate();
+    }
+
+    void setNightOverride(int8_t overrideVal) {
+        nightOverride = (overrideVal > 0) ? 1 : (overrideVal < 0) ? -1 : 0;
+        forceUpdate();
+    }
+
+    void setProxyStealthConfig(bool enabled, uint8_t type, uint8_t dimPct) {
+        stealthEnabled = enabled;
+        stealthType = (type == 1) ? 1 : 0;
+        stealthDimPct = constrain(dimPct, 5, 30);
+        forceUpdate();
+    }
+
+    bool isNightModeActive() const {
+        if (nightOverride == 1) return true;
+        if (nightOverride == -1) return false;
+        if (!nightEnabled) return false;
+
+        extern BridgeClock bridgeClock;
+        if (!bridgeClock.isSynced()) return false;
+
+        uint16_t currMin = bridgeClock.localMinuteOfDay();
+        if (nightStartMin <= nightEndMin) {
+            return (currMin >= nightStartMin && currMin < nightEndMin);
+        } else {
+            return (currMin >= nightStartMin || currMin < nightEndMin);
+        }
+    }
+
+    bool isProxyStealthActive() const {
+        return stealthEnabled && (modeState == MODE_LED_PROXY);
+    }
+
+    bool isNightEnabled() const { return nightEnabled; }
+    uint8_t getNightType() const { return nightType; }
+    uint8_t getNightDimPct() const { return nightDimPct; }
+    bool getNightWakeAlert() const { return nightWakeAlert; }
+    uint16_t getNightStartMin() const { return nightStartMin; }
+    uint16_t getNightEndMin() const { return nightEndMin; }
+    int8_t getNightOverride() const { return nightOverride; }
+
+    bool isStealthEnabled() const { return stealthEnabled; }
+    uint8_t getStealthType() const { return stealthType; }
+    uint8_t getStealthDimPct() const { return stealthDimPct; }
 
     // Trigger a brief 60ms Blue activity flash when a command is executed
     void triggerActivityTick() {
@@ -256,6 +324,18 @@ private:
     uint8_t lastRenderedB;
     unsigned long lastUpdateMs;
 
+    // Illumination Policy State
+    bool nightEnabled;
+    uint8_t nightType;
+    uint8_t nightDimPct;
+    bool nightWakeAlert;
+    uint16_t nightStartMin;
+    uint16_t nightEndMin;
+    int8_t nightOverride;
+    bool stealthEnabled;
+    uint8_t stealthType;
+    uint8_t stealthDimPct;
+
     // Helper: Linear breathing wave without floating point or trigonometrics
     uint8_t getBreathingFactor(unsigned long now, uint16_t periodMs, uint8_t minVal, uint8_t maxVal) {
         if (periodMs == 0) return maxVal;
@@ -269,12 +349,53 @@ private:
         }
     }
 
+    uint8_t scaleDimmed(uint8_t val, uint8_t pct) const {
+        if (val == 0) return 0;
+        uint32_t scaled = (static_cast<uint32_t>(val) * pct) / 100UL;
+        return (scaled == 0) ? 1 : static_cast<uint8_t>(scaled);
+    }
+
     void applyColor(uint8_t r, uint8_t g, uint8_t b) {
-        if (r != lastRenderedR || g != lastRenderedG || b != lastRenderedB) {
-            lastRenderedR = r;
-            lastRenderedG = g;
-            lastRenderedB = b;
-            setBridgeLed(r, g, b);
+        uint8_t outR = r;
+        uint8_t outG = g;
+        uint8_t outB = b;
+
+        bool isCriticalAlert = (upsState == UPS_LED_ON_BATTERY || upsState == UPS_LED_ERROR || modeState == MODE_LED_OTA || modeState == MODE_LED_OTA_AUTH);
+
+        // Priority 1: Critical alert wake-up bypasses night mode and stealth mode
+        if (isCriticalAlert && nightWakeAlert) {
+            // Keep full unscaled brightness
+        } else if (isNightModeActive()) {
+            if (nightType == 1) {
+                // Completely Off
+                outR = 0;
+                outG = 0;
+                outB = 0;
+            } else {
+                // Dimmed (scale down to nightDimPct)
+                outR = scaleDimmed(outR, nightDimPct);
+                outG = scaleDimmed(outG, nightDimPct);
+                outB = scaleDimmed(outB, nightDimPct);
+            }
+        } else if (isProxyStealthActive()) {
+            if (stealthType == 1) {
+                // Completely Off
+                outR = 0;
+                outG = 0;
+                outB = 0;
+            } else {
+                // Dimmed (scale down to stealthDimPct)
+                outR = scaleDimmed(outR, stealthDimPct);
+                outG = scaleDimmed(outG, stealthDimPct);
+                outB = scaleDimmed(outB, stealthDimPct);
+            }
+        }
+
+        if (outR != lastRenderedR || outG != lastRenderedG || outB != lastRenderedB) {
+            lastRenderedR = outR;
+            lastRenderedG = outG;
+            lastRenderedB = outB;
+            setBridgeLed(outR, outG, outB);
         }
     }
 };

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.2] - 2026-10-28
+
+### Added
+- **Hardware LED Illumination Policy & Controls:** Added support for autonomous Night Mode scheduling (e.g. 22:00 to 07:00, customizable 5%–30% dimming or completely off) alongside in-use Desktop Proxy Stealth Mode (dimming or extinguishing the bridge LED on your desk while actively monitoring in the UPSED desktop app).
+- **Critical Alert Wakeup:** Critical UPS alarms (mains outage / on-battery mode and inverter faults) automatically override night mode and proxy stealth at full alert brightness unless explicitly disabled.
+- **Tauri Illumination Commands & Gates:** Added `configure_bridge_illumination` (Stage T3 permission barrier) and `toggle_bridge_night_mode_now` (Stage T2 non-destructive manual override) with audit logging to the SQLite event trail.
+
+---
+
 ## [0.1.1] - 2026-10-27
 
 ### Added
