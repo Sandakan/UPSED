@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] - 2026-10-27
+
+### Fixed
+- **Standalone Mode NTP Daemon Churn & TuyaLink Connect Failure:** Resolved an issue where TuyaLink failed to connect while the hardware bridge was in standalone mode. `ensureNetworkServicesStarted()` in `main.cpp` was repeatedly calling `configTime()` on every main loop iteration, continuously aborting lwIP SNTP client UDP queries and preventing clock synchronization (`time(nullptr) < 1700000000`). Guarded `configTime()` with an `ntpStarted` flag that initializes once per Wi-Fi connection.
+- **TuyaLink NTP Configuration Conflict:** Removed redundant `configTime(0, 0, ...)` re-trigger loop in `tuya_mqtt.h` that was churning SNTP every 30 seconds with conflicting UTC timezone parameters; TuyaLink now passively waits for centralized system clock synchronization before initiating TLS handshakes.
+
+---
+
 ## [1.4.1] - 2026-10-25
 
 ### Added

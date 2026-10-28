@@ -949,7 +949,77 @@ impl BridgeTransport {
             }
         }
     }
+}
 
+struct BridgeLogPlaybackTracker {
+    count: usize,
+    last_seq: u64,
+    last_ts: String,
+}
+
+impl BridgeLogPlaybackTracker {
+    fn new() -> Self {
+        Self {
+            count: 0,
+            last_seq: 0,
+            last_ts: String::new(),
+        }
+    }
+
+    fn record_log(&mut self, doc: &Value) {
+        if self.count == 0 {
+            push_bridge_log(BridgeLogEntry {
+                seq: 0,
+                ms: 0,
+                level: "INFO".into(),
+                msg: "--- Starting bridge log playback ---".into(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                source: "BRIDGE-RPC".into(),
+            });
+        }
+        self.count += 1;
+        if let Some(params) = doc.get("params") {
+            if let Some(seq) = params.get("seq").and_then(|v| v.as_u64()) {
+                self.last_seq = seq;
+            }
+            if let Some(iso) = params.get("iso_ts").and_then(|v| v.as_str()) {
+                if !iso.is_empty() {
+                    self.last_ts = iso.to_string();
+                }
+            }
+        }
+        process_bridge_notification(doc);
+    }
+
+    fn finish(&mut self) {
+        if self.count > 0 {
+            let up_to_desc = if !self.last_ts.is_empty() && self.last_seq > 0 {
+                format!("{} (seq #{})", self.last_ts, self.last_seq)
+            } else if !self.last_ts.is_empty() {
+                self.last_ts.clone()
+            } else if self.last_seq > 0 {
+                format!("seq #{}", self.last_seq)
+            } else {
+                "latest".to_string()
+            };
+
+            push_bridge_log(BridgeLogEntry {
+                seq: 0,
+                ms: 0,
+                level: "INFO".into(),
+                msg: format!(
+                    "--- Completed bridge log playback ({} entries, up to {}) ---",
+                    self.count, up_to_desc
+                ),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                source: "BRIDGE-RPC".into(),
+            });
+            self.count = 0;
+        }
+    }
+}
+
+impl BridgeTransport {
     fn try_serial_rpc(
         &mut self,
         expected_id: u64,
@@ -983,6 +1053,7 @@ impl BridgeTransport {
 
         let mut reader = BufReader::new(port);
         let start = Instant::now();
+        let mut playback_tracker = BridgeLogPlaybackTracker::new();
 
         // Read loop: demultiplex real-time notifications until matching RPC ID response arrives
         while start.elapsed() < timeout {
@@ -1000,7 +1071,7 @@ impl BridgeTransport {
                         if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
                             if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
                                 if method == "bridge.log" {
-                                    process_bridge_notification(&doc);
+                                    playback_tracker.record_log(&doc);
                                 } else if method == "bridge.cmdExecuted" {
                                     process_bridge_cmd_executed(&doc);
                                 } else if method == "bridge.stateChanged" {
@@ -1015,15 +1086,20 @@ impl BridgeTransport {
                         // Response frame: check if it matches our expected RPC ID
                         let resp_id = doc.get("id").and_then(|v| v.as_u64());
                         if resp_id == Some(expected_id) {
+                            playback_tracker.finish();
                             return parse_jsonrpc_doc(&doc);
                         }
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-                Err(e) => return Err(ProtocolError::IoError(e.to_string())),
+                Err(e) => {
+                    playback_tracker.finish();
+                    return Err(ProtocolError::IoError(e.to_string()));
+                }
             }
         }
 
+        playback_tracker.finish();
         Err(ProtocolError::Timeout)
     }
 
@@ -1079,6 +1155,7 @@ impl BridgeTransport {
                 }
 
                 let start = Instant::now();
+                let mut playback_tracker = BridgeLogPlaybackTracker::new();
                 while start.elapsed() < timeout {
                     match ws.read() {
                         Ok(Message::Text(txt)) => {
@@ -1087,7 +1164,7 @@ impl BridgeTransport {
                                 if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
                                     if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
                                         if method == "bridge.log" {
-                                            process_bridge_notification(&doc);
+                                            playback_tracker.record_log(&doc);
                                         } else if method == "bridge.cmdExecuted" {
                                             process_bridge_cmd_executed(&doc);
                                         } else if method == "bridge.stateChanged" {
@@ -1101,18 +1178,21 @@ impl BridgeTransport {
 
                                 let resp_id = doc.get("id").and_then(|v| v.as_u64());
                                 if resp_id == Some(expected_id) {
+                                    playback_tracker.finish();
                                     return parse_jsonrpc_doc(&doc);
                                 }
                             }
                         }
                         Ok(_) => {}
                         Err(e) => {
+                            playback_tracker.finish();
                             self.ws_socket = None;
                             attempt_errors.push(format!("ws://{}:{} read error: {}", host, self.ws_port, e));
                             break;
                         }
                     }
                 }
+                playback_tracker.finish();
             }
         }
 
@@ -1826,5 +1906,48 @@ mod tests {
         assert_eq!(status.time_source, "Host");
         assert_eq!(status.rtc_ts, 1729752000);
         assert_eq!(status.rtc_iso, "2026-10-24T06:40:00Z");
+    }
+
+    #[test]
+    fn test_bridge_log_playback_tracker() {
+        let mut tracker = BridgeLogPlaybackTracker::new();
+        assert_eq!(tracker.count, 0);
+
+        let notif1 = json!({
+            "jsonrpc": "2.0",
+            "method": "bridge.log",
+            "params": {
+                "seq": 101,
+                "ms": 1000,
+                "level": "INFO",
+                "msg": "Boot log entry 1",
+                "iso_ts": "2026-10-27T11:39:45Z"
+            }
+        });
+
+        let notif2 = json!({
+            "jsonrpc": "2.0",
+            "method": "bridge.log",
+            "params": {
+                "seq": 102,
+                "ms": 2000,
+                "level": "INFO",
+                "msg": "Boot log entry 2",
+                "iso_ts": "2026-10-27T11:39:46Z"
+            }
+        });
+
+        tracker.record_log(&notif1);
+        tracker.record_log(&notif2);
+        assert_eq!(tracker.count, 2);
+        assert_eq!(tracker.last_seq, 102);
+        assert_eq!(tracker.last_ts, "2026-10-27T11:39:46Z");
+
+        tracker.finish();
+        assert_eq!(tracker.count, 0);
+
+        let logs = get_all_bridge_logs();
+        assert!(logs.iter().any(|l| l.msg == "--- Starting bridge log playback ---"));
+        assert!(logs.iter().any(|l| l.msg.contains("--- Completed bridge log playback (2 entries, up to 2026-10-27T11:39:46Z (seq #102)) ---")));
     }
 }

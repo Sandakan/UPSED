@@ -1,6 +1,6 @@
 [package]
 name = "upsed"
-version = "0.1.0"
+version = "0.1.1"
 description = "A modern, secure, cross-platform Voltronic UPS manager"
 authors = ["UPSED Contributors"]
 edition = "2021"

@@ -63,6 +63,7 @@ static unsigned long lastWifiRetryMs = 0;
 static bool wsServerStarted = false;
 static bool mdnsStarted = false;
 static bool arduinoOtaStarted = false;
+static bool ntpStarted = false;
 static bool otaServerActive = false;
 static bool otaUpdating = false;
 static unsigned long otaLeaseExpiryMs = 0;
@@ -373,7 +374,12 @@ void ensureNetworkServicesStarted() {
             arduinoOtaStarted = true;
             diagLog.info("[OTA] ArduinoOTA listener started on port 3232");
         }
-        configTime(bridgeClock.tzOffsetMin() * 60, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+        if (!ntpStarted) {
+            configTime(bridgeClock.tzOffsetMin() * 60, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+            ntpStarted = true;
+            diagLog.info("[NTP] SNTP client initialized (offset: %d min, pool.ntp.org, time.nist.gov, time.google.com)",
+                         bridgeClock.tzOffsetMin());
+        }
     }
 }
 
@@ -1050,6 +1056,7 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
             broadcastBridgeStatusChanged("wifi_got_ip");
             break;
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+            ntpStarted = false;
             uint8_t reason = info.wifi_sta_disconnected.reason;
             lastWifiError = String(DiagLogger::wifiReasonToString(reason));
             if (reason == WIFI_REASON_AUTH_EXPIRE || reason == WIFI_REASON_AUTH_FAIL ||

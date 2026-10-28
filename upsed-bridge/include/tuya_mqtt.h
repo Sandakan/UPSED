@@ -229,14 +229,9 @@ public:
             if (now < 1700000000) {
                 if (connState != TUYA_STATE_WAITING_NTP) {
                     transitionState(TUYA_STATE_WAITING_NTP, "waiting_for_clock");
+                    if (log) log->info("[TUYA] Waiting for system clock synchronization (NTP)...");
                 }
                 lastError = "Waiting for NTP clock sync...";
-                // Re-trigger NTP config only once every 30s to avoid churning SNTP daemon
-                if (nowMs - lastNtpConfigMs >= 30000UL || lastNtpConfigMs == 0) {
-                    lastNtpConfigMs = nowMs;
-                    configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");
-                    if (log) log->info("[TUYA] SNTP sync requested (pool.ntp.org, time.cloudflare.com, time.google.com)");
-                }
                 return;
             }
 
@@ -357,7 +352,6 @@ private:
 
     uint32_t retryCount = 0;
     unsigned long nextRetryMs = 0;
-    unsigned long lastNtpConfigMs = 0;
     unsigned long lastReportMs = 0;
 
     bool prevUtilityFail = false;

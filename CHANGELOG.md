@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] - 2026-10-27
+
+### Added
+- **Bridge Log Playback Demarcation Banners:** Added streaming batch boundaries (`--- Starting bridge log playback ---` and `--- Completed bridge log playback (N entries, up to <timestamp>) ---`) in `BridgeTransport` RPC execution (`try_ws_rpc` and `try_serial_rpc`). Demarcates buffered ESP32 unacknowledged log bursts on connection/reconnection to clearly distinguish buffered playback replay from live events in terminal and local logs.
+
+---
+
 ## [0.1.0] - 2026-10-24
 
 ### Fixed
