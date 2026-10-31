@@ -71,9 +71,10 @@ const args = userArgs.length > 0 ? userArgs : ['run'];
 
 console.log(`[PIO] Executing in upsed-bridge: ${pioBin} ${args.join(' ')}`);
 
-// Inject secret macro definition into PlatformIO build flags
+// Inject secret macro definition into PlatformIO build flags (escape '$' as '$$' for SCons)
+const sconsEscapedSecret = otaSecret.replace(/\$/g, '$$$$');
 const existingBuildFlags = process.env.PLATFORMIO_BUILD_FLAGS || '';
-const otaBuildFlag = `-DBRIDGE_OTA_SECRET=\\"${otaSecret}\\"`;
+const otaBuildFlag = `-DBRIDGE_OTA_SECRET=\\"${sconsEscapedSecret}\\"`;
 const combinedBuildFlags = existingBuildFlags ? `${existingBuildFlags} ${otaBuildFlag}` : otaBuildFlag;
 
 const env = {

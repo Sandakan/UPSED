@@ -22,44 +22,46 @@ if not secret:
     secret = "upsed-ota-default-secret"
 
 # 1. Inject into C++ compiler preprocessor definitions for all builds
-env.Append(CPPDEFINES=[("BRIDGE_OTA_SECRET", f'\\"{secret}\\"')])
+# SCons uses '$' for variable substitution; escape '$' as '$$' to prevent variable expansion
+scons_escaped_secret = secret.replace("$", "$$")
+env.Append(CPPDEFINES=[("BRIDGE_OTA_SECRET", f'\\"{scons_escaped_secret}\\"')])
 
-# 2. Inject into UPLOAD_FLAGS for espota
-current_flags = env.get("UPLOAD_FLAGS", [])
-if isinstance(current_flags, str):
-    current_flags = current_flags.split()
-elif isinstance(current_flags, tuple):
-    current_flags = list(current_flags)
+# 2. Inject into UPLOAD_FLAGS and register custom uploader ONLY for espota protocol
+if env.get("UPLOAD_PROTOCOL") == "espota":
+    current_flags = env.get("UPLOAD_FLAGS", [])
+    if isinstance(current_flags, str):
+        current_flags = current_flags.split()
+    elif isinstance(current_flags, tuple):
+        current_flags = list(current_flags)
 
-new_flags = [f for f in current_flags if not f.startswith("--auth")]
-new_flags.append(f"--auth={secret}")
-env.Replace(UPLOAD_FLAGS=new_flags)
+    new_flags = [f for f in current_flags if not f.startswith("--auth")]
+    new_flags.append(f"--auth={scons_escaped_secret}")
+    env.Replace(UPLOAD_FLAGS=new_flags)
 
-# 3. Smart OTA Upload Wrapper with Factory Fallback
-def custom_ota_upload(target, source, env):
-    import subprocess
-    uploader = env.subst("$UPLOADER")
-    python_exe = sys.executable or env.subst("$PYTHONEXE")
-    source_file = str(source[0])
-    upload_port = env.subst("$UPLOAD_PORT") or "upsed-bridge.local"
+    # 3. Smart OTA Upload Wrapper with Factory Fallback
+    def custom_ota_upload(target, source, env):
+        import subprocess
+        uploader = env.subst("$UPLOADER")
+        python_exe = sys.executable or env.subst("$PYTHONEXE")
+        source_file = str(source[0])
+        upload_port = env.subst("$UPLOAD_PORT") or "upsed-bridge.local"
 
-    cmd_base = [python_exe, uploader, "-i", upload_port, "-p", "3232", "-f", source_file]
+        cmd_base = [python_exe, uploader, "-i", upload_port, "-p", "3232", "-f", source_file]
 
-    # Attempt 1: Configured secret from .env
-    print(f"\n[OTA] Attempting upload to {upload_port} with configured secret ({secret[:4]}***)...")
-    res = subprocess.run(cmd_base + ["-a", secret])
-    if res.returncode == 0:
-        return 0
-
-    # Attempt 2: Fallback to default factory secret if configured secret failed and differs
-    if secret != "upsed-ota-default-secret":
-        print("\n[OTA] Configured secret authentication failed. Retrying with default factory secret...")
-        res2 = subprocess.run(cmd_base + ["-a", "upsed-ota-default-secret"])
-        if res2.returncode == 0:
-            print("[OTA] Successfully flashed firmware using factory fallback! Device will now boot with your configured secret.")
+        # Attempt 1: Configured secret from .env
+        print(f"\n[OTA] Attempting upload to {upload_port} with configured secret ({secret[:4]}***)...")
+        res = subprocess.run(cmd_base + ["-a", secret])
+        if res.returncode == 0:
             return 0
 
-    return res.returncode
+        # Attempt 2: Fallback to default factory secret if configured secret failed and differs
+        if secret != "upsed-ota-default-secret":
+            print("\n[OTA] Configured secret authentication failed. Retrying with default factory secret...")
+            res2 = subprocess.run(cmd_base + ["-a", "upsed-ota-default-secret"])
+            if res2.returncode == 0:
+                print("[OTA] Successfully flashed firmware using factory fallback! Device will now boot with your configured secret.")
+                return 0
 
-if env.get("UPLOAD_PROTOCOL") == "espota":
+        return res.returncode
+
     env.Replace(UPLOADCMD=custom_ota_upload)
