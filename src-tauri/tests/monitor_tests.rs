@@ -355,4 +355,71 @@ fn uuid_or_timestamp() -> u128 {
         .as_nanos()
 }
 
+#[test]
+fn monitor_009_get_latest_telemetry_timestamp() {
+    let temp_db = std::env::temp_dir().join(format!("upsed_test_{}.db", uuid_or_timestamp()));
+    let db = Database::init(&temp_db).expect("Failed to init temp db");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "UPS-SYNC-01".into(),
+        name: "Sync Test Unit".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
+    // Empty DB returns None
+    assert_eq!(db.get_latest_telemetry_timestamp("UPS-SYNC-01").unwrap(), None);
+
+    let t1 = chrono::Utc::now() - chrono::Duration::seconds(50);
+    let t2 = chrono::Utc::now();
+
+    db.insert_telemetry(&TelemetryRecord {
+        id: None,
+        timestamp: t1.to_rfc3339(),
+        ups_id: "UPS-SYNC-01".into(),
+        grid_voltage: 230.0,
+        output_voltage: 230.0,
+        grid_frequency: 50.0,
+        output_frequency: 50.0,
+        load_pct: 20,
+        output_watts: 200,
+        battery_voltage: 27.2,
+        temperature_c: 30,
+    }).unwrap();
+
+    db.insert_telemetry(&TelemetryRecord {
+        id: None,
+        timestamp: t2.to_rfc3339(),
+        ups_id: "UPS-SYNC-01".into(),
+        grid_voltage: 230.0,
+        output_voltage: 230.0,
+        grid_frequency: 50.0,
+        output_frequency: 50.0,
+        load_pct: 20,
+        output_watts: 200,
+        battery_voltage: 27.2,
+        temperature_c: 30,
+    }).unwrap();
+
+    let latest = db.get_latest_telemetry_timestamp("UPS-SYNC-01").unwrap();
+    assert_eq!(latest, Some(t2.timestamp()));
+
+    // Different UPS ID still returns None
+    assert_eq!(db.get_latest_telemetry_timestamp("UPS-OTHER").unwrap(), None);
+
+    let _ = std::fs::remove_file(&temp_db);
+}

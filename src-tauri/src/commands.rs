@@ -328,7 +328,8 @@ pub fn connect_device_internal(
             let _ = state.manager.with_bridge_transport(Some(&effective_port), move |bridge, _key| {
                 if let Ok(st) = bridge.ping() {
                     if st.backlog_records > 0 {
-                        if let Ok(backlog) = bridge.drain_backlog() {
+                        let latest_db_ts = db_clone.get_latest_telemetry_timestamp(&uid_clone).ok().flatten().map(|t| t as u64);
+                        if let Ok(backlog) = bridge.sync_backlog(latest_db_ts) {
                             let count = commit_bridge_backlog_to_db(&db_clone, &uid_clone, &backlog, st.uptime_sec);
                             if count > 0 {
                                 let _ = db_clone.insert_event(&EventLogRecord {
@@ -1949,12 +1950,11 @@ pub async fn sync_bridge_backlog(
 ) -> Result<usize, String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
-        let (key, status, records) = state_clone
+        let (key, status) = state_clone
             .manager
             .with_bridge_transport(port_name.as_deref(), |bridge, key| {
                 let st = bridge.ping()?;
-                let recs = bridge.drain_backlog()?;
-                Ok((key, st, recs))
+                Ok((key, st))
             })
             .map_err(|e| e.to_string())?;
 
@@ -1963,6 +1963,19 @@ pub async fn sync_bridge_backlog(
             return Err("Cannot sync bridge backlog: UPS profile not approved or found".into());
         };
 
+        let latest_db_ts = state_clone
+            .db
+            .get_latest_telemetry_timestamp(&uid)
+            .ok()
+            .flatten()
+            .map(|t| t as u64);
+
+        let records = state_clone
+            .manager
+            .with_bridge_transport(port_name.as_deref(), |bridge, _key| {
+                bridge.sync_backlog(latest_db_ts)
+            })
+            .map_err(|e| e.to_string())?;
         let count = commit_bridge_backlog_to_db(&state_clone.db, &uid, &records, status.uptime_sec);
         if count > 0 {
             let _ = state_clone.db.insert_event(&EventLogRecord {

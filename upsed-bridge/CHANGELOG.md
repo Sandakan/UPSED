@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-10-31
+
+### Added
+- **Continuous Flight-Recorder Telemetry Buffer in RAM:** Extended `BacklogStore` to record all successful `Q1` autonomous telemetry samples continuously in both Proxy Mode (desktop connected) and Standalone Mode (desktop offline).
+- **Bounded Proportional Auto-Sizing:** Dynamically detects `psramFound()` and scales RAM allocation safely according to available heap:
+  - **8MB PSRAM (ESP32-S3):** Auto-sizes up to **32,768 records** (~3.14 MB, ~45.5 hours at 5s idle / ~91 hours at 10s standalone interval), leaving ~4.8 MB of safe headroom for Wi-Fi OTA firmware flashing, mbedTLS, and WebSockets.
+  - **2MB–4MB PSRAM:** Scales proportionally between 8,192 and 16,384 records.
+  - **Non-PSRAM Chips (ESP32-WROOM-32 / ESP32-C3):** Safely falls back to internal SRAM with dynamic capacity between 256 and 512 records (~24.5 KB to ~49.1 KB), preserving \ge 120 KB of unfragmented heap.
+- **Non-Destructive Filtered Queries (`since_ts` & `since_seq`):** Enhanced `bridge.getBacklog` and added `bridge.getTelemetryHistory` alias supporting `since_ts` (UNIX epoch seconds) and `since_seq` (monotonic sequence number) filtering with \(O(\log N)\) binary search traversal. Queries never delete or pop records from the ring buffer.
+- **Monotonic Telemetry Sequencing:** Added monotonic `seq` field to every stored MessagePack telemetry slot.
+- **Extended Bridge Status Snapshot:** Added `backlog_oldest_ts`, `backlog_newest_ts`, and `backlog_latest_seq` to `bridge.getStatus` and `bridge.ping`.
+
+---
+
 ## [1.5.0] - 2026-10-28
 
 ### Added

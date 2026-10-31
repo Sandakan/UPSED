@@ -76,6 +76,12 @@ pub struct BridgeStatus {
     #[serde(default)]
     pub backlog_capacity: usize,
     #[serde(default)]
+    pub backlog_oldest_ts: u64,
+    #[serde(default)]
+    pub backlog_newest_ts: u64,
+    #[serde(default)]
+    pub backlog_latest_seq: u64,
+    #[serde(default)]
     pub psram_active: bool,
     #[serde(default)]
     pub psram_free: usize,
@@ -282,6 +288,8 @@ pub struct BridgeIlluminationConfig {
 /// Offline telemetry record deserialized from the ESP32's MessagePack PSRAM ring buffer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeBacklogRecord {
+    #[serde(default)]
+    pub seq: Option<u64>,
     pub ts: u64,
     pub raw: String,
 }
@@ -645,11 +653,23 @@ impl BridgeTransport {
         Ok(networks)
     }
 
-    pub fn drain_backlog(&mut self) -> Result<Vec<BridgeBacklogRecord>, ProtocolError> {
+    pub fn sync_backlog(
+        &mut self,
+        since_ts: Option<u64>,
+    ) -> Result<Vec<BridgeBacklogRecord>, ProtocolError> {
         let mut all_records = Vec::new();
         let mut offset = 0;
-        for _ in 0..200 {
-            let (val, _) = self.call_rpc("bridge.getBacklog", json!({ "offset": offset, "limit": 50 }))?;
+        for _ in 0..500 {
+            let mut params = json!({ "offset": offset, "limit": 50 });
+            if let Some(ts) = since_ts {
+                if ts > 0 {
+                    params["since_ts"] = json!(ts);
+                }
+            }
+            let (val, _) = self
+                .call_rpc("bridge.getTelemetryHistory", params.clone())
+                .or_else(|_| self.call_rpc("bridge.getBacklog", params))?;
+
             let batch: Vec<BridgeBacklogRecord> = val
                 .get("records")
                 .cloned()
@@ -681,6 +701,10 @@ impl BridgeTransport {
             }
         }
         Ok(all_records)
+    }
+
+    pub fn drain_backlog(&mut self) -> Result<Vec<BridgeBacklogRecord>, ProtocolError> {
+        self.sync_backlog(None)
     }
 
     pub fn clear_backlog(&mut self) -> Result<usize, ProtocolError> {

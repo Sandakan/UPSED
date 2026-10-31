@@ -309,6 +309,21 @@ impl Database {
         Ok(true)
     }
 
+    pub fn get_latest_telemetry_timestamp(&self, ups_id: &str) -> Result<Option<i64>> {
+        let conn = self.reader.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT timestamp FROM telemetry WHERE ups_id = ?1 ORDER BY timestamp DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![ups_id])?;
+        if let Some(row) = rows.next()? {
+            let ts_str: String = row.get(0)?;
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&ts_str) {
+                return Ok(Some(dt.timestamp()));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn query_recent_telemetry(
         &self,
         ups_id: &str,

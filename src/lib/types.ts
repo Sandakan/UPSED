@@ -223,6 +223,9 @@ export interface BridgeStatus {
   log_seq?: number;
   backlog_records: number;
   backlog_capacity: number;
+  backlog_oldest_ts?: number;
+  backlog_newest_ts?: number;
+  backlog_latest_seq?: number;
   psram_active: boolean;
   psram_free: number;
   uptime_sec: number;

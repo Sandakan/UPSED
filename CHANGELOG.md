@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.3] - 2026-10-31
+
+### Added
+- **Incremental Bridge Backlog Synchronization (`since_ts`):** Upgraded `sync_bridge_backlog` and device connection initialization in `commands.rs` to query the latest recorded telemetry timestamp from the local SQLite database (`get_latest_telemetry_timestamp`) and request only missing historical records from the hardware bridge.
+- **Non-Destructive Backlog Sync:** Implemented `sync_backlog(since_ts)` in `BridgeTransport` using `bridge.getTelemetryHistory` (with fallback to `bridge.getBacklog`), preserving the bridge's rotating RAM buffer so multiple connecting apps can complete their databases independently without racing or wiping records.
+- **Monotonic Telemetry Sequencing:** Added support for the `seq` property in `BridgeBacklogRecord`.
+- **Extended Bridge Status Snapshot:** Added `backlog_oldest_ts`, `backlog_newest_ts`, and `backlog_latest_seq` to `BridgeStatus`.
+
+---
+
 ## [0.1.2] - 2026-10-28
 
 ### Added

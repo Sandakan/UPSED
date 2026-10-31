@@ -626,6 +626,9 @@ void populateStatusObject(JsonObject& res) {
     res["log_seq"] = diagLog.latestSeq();
     res["backlog_records"] = backlogStore.count();
     res["backlog_capacity"] = backlogStore.capacity();
+    res["backlog_oldest_ts"] = backlogStore.oldestTs(bridgeClock.bootEpochSec());
+    res["backlog_newest_ts"] = backlogStore.newestTs(bridgeClock.bootEpochSec());
+    res["backlog_latest_seq"] = backlogStore.latestSeq();
     res["psram_active"] = backlogStore.isUsingPsram();
     res["psram_free"] = ESP.getFreePsram();
     res["uptime_sec"] = millis() / 1000UL;
@@ -923,7 +926,9 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
             pendingWifiSwitchMs = millis() + 250;
         }
     }
-    else if (strcmp(method, "bridge.getBacklog") == 0) {
+    else if (strcmp(method, "bridge.getBacklog") == 0 || strcmp(method, "bridge.getTelemetryHistory") == 0) {
+        uint32_t sinceTs = reqDoc["params"]["since_ts"] | 0;
+        uint32_t sinceSeq = reqDoc["params"]["since_seq"] | 0;
         size_t offset = reqDoc["params"]["offset"] | 0;
         size_t limit = reqDoc["params"]["limit"] | 50;
         if (limit > 100) limit = 100;
@@ -931,11 +936,18 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         JsonObject result = resDoc["result"].to<JsonObject>();
         JsonArray recordsArr = result["records"].to<JsonArray>();
         uint32_t bootSec = bridgeClock.bootEpochSec();
-        size_t fetched = backlogStore.peekRecordsToJson(recordsArr, offset, limit, bootSec);
+        size_t totalMatching = 0;
+        bool hasMore = false;
+        size_t fetched = backlogStore.queryRecordsToJson(recordsArr, sinceTs, sinceSeq, offset, limit, totalMatching, hasMore, bootSec);
         result["fetched"] = fetched;
         result["offset"] = offset;
-        result["total_remaining"] = backlogStore.count();
-        result["has_more"] = ((offset + fetched) < backlogStore.count());
+        result["total_matching"] = totalMatching;
+        result["total_remaining"] = totalMatching;
+        result["has_more"] = hasMore;
+        result["buffer_count"] = backlogStore.count();
+        result["buffer_capacity"] = backlogStore.capacity();
+        result["oldest_ts"] = backlogStore.oldestTs(bootSec);
+        result["newest_ts"] = backlogStore.newestTs(bootSec);
     }
     else if (strcmp(method, "bridge.clearBacklog") == 0) {
         size_t countToPop = reqDoc["params"]["count"] | 0;
@@ -1335,6 +1347,7 @@ void loop() {
                 UpsTelemetrySnapshot prev = upsTelemetry;
                 String q1Raw = executeUpsCommand("Q1", false);
                 if (q1Raw.startsWith("(") && !q1Raw.startsWith("(NAK")) {
+                    backlogStore.pushRecord(getCurrentTimestampSec(), q1Raw);
                     if (upsTelemetry.hasDiscreteEdgeChange(prev) || inUrgent) {
                         broadcastStateChanged(q1Raw, inUrgent ? "urgent_poll" : "edge_change");
                     }

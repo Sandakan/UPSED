@@ -1798,11 +1798,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       await refreshStatus();
       toast.custom(
         JSON.stringify({
-          title: 'ESP32 Offline Backlog Synced',
+          title: 'ESP32 Telemetry Buffer Synced',
           description:
             imported > 0
-              ? `Imported ${imported} MessagePack telemetry samples from ESP32 PSRAM into UPSED History.`
-              : 'ESP32 ring buffer is already up to date (0 pending offline samples).',
+              ? `Imported ${imported} MessagePack telemetry samples from ESP32 RAM into UPSED History.`
+              : 'Local database is already up to date with ESP32 telemetry buffer.',
           event: {
             severity: 'info',
             event_type: 'BRIDGE_SYNC',
@@ -1814,7 +1814,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       const msg = e instanceof Error ? e.message : String(e);
       toast.custom(
         JSON.stringify({
-          title: 'Backlog Sync Failed',
+          title: 'Buffer Sync Failed',
           description: msg,
           event: {
             severity: 'critical',
@@ -1842,8 +1842,8 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
         await refreshStatus();
         toast.custom(
           JSON.stringify({
-            title: 'ESP32 Backlog Cleared',
-            description: 'PSRAM ring buffer has been reset to 0 records.',
+            title: 'ESP32 Telemetry Buffer Cleared',
+            description: 'Telemetry ring buffer has been reset to 0 records.',
             event: {
               severity: 'info',
               event_type: 'BRIDGE_CLEARED',
@@ -1855,7 +1855,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
         const msg = e instanceof Error ? e.message : String(e);
         toast.custom(
           JSON.stringify({
-            title: 'Failed to Clear Backlog',
+            title: 'Failed to Clear Buffer',
             description: msg,
             event: {
               severity: 'critical',
@@ -1867,7 +1867,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
       } finally {
         setIsClearingBacklog(false);
       }
-    }, 'Authorize Clearing Bridge Telemetry Backlog');
+    }, 'Authorize Clearing Bridge Telemetry Buffer');
   };
 
   // Copy Logs
@@ -1916,7 +1916,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
             </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">
-            Real-time JSON-RPC 2.0 telemetry bridge, Wi-Fi provisioning, WebSocket failover & PSRAM MessagePack backlog.
+            Real-time JSON-RPC 2.0 telemetry bridge, Wi-Fi provisioning, WebSocket failover & PSRAM telemetry buffer.
           </p>
         </div>
 
@@ -2045,26 +2045,26 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
           </div>
         </div>
 
-        {/* Card 3: PSRAM Offline Backlog */}
+        {/* Card 3: PSRAM Telemetry Buffer */}
         <div className="rounded-2xl p-4 border border-white/[0.08] bg-[#1e232d]/80 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">PSRAM Backlog</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{status?.psram_active ? 'PSRAM Buffer' : 'SRAM Buffer'}</span>
             <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${
               (status?.backlog_records ?? 0) > 0
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
             }`}>
-              {(status?.backlog_records ?? 0) > 0 ? `${status?.backlog_records} Pending` : 'In Sync'}
+              {(status?.backlog_records ?? 0) > 0 ? `${status?.backlog_records} Buffered` : 'Standby'}
             </span>
           </div>
           <div className="mt-3">
             <div className="text-lg font-bold text-white font-mono">
-              {(status?.backlog_records ?? 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">/ {(status?.backlog_capacity ?? 50000).toLocaleString()}</span>
+              {(status?.backlog_records ?? 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">/ {(status?.backlog_capacity || 32768).toLocaleString()}</span>
             </div>
             <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
               <HardDrive className="w-3.5 h-3.5 text-slate-500" />
               <span>
-                PSRAM: {status?.psram_active ? `${Math.round((status.psram_free ?? 0) / 1024)} KB free` : 'Disabled'}
+                PSRAM: {status?.psram_active ? `${Math.round((status.psram_free ?? 0) / 1024)} KB free` : 'Internal SRAM'}
               </span>
             </div>
           </div>
@@ -2207,9 +2207,9 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
           }`}
         >
           <Database className="w-3.5 h-3.5" />
-          <span>MessagePack Backlog</span>
+          <span>Telemetry Buffer</span>
           {(status?.backlog_records ?? 0) > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-black font-bold">
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
               {status?.backlog_records}
             </span>
           )}
@@ -2901,111 +2901,116 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
         </div>
       )}
 
-      {/* 4. MessagePack Offline Backlog Tab */}
-      {activeTab === 'backlog' && (
-        <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2.5">
-                <Database className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-semibold text-white">ESP32 PSRAM Offline Ring Buffer</h3>
+      {/* 4. MessagePack Telemetry Buffer Tab */}
+      {activeTab === 'backlog' && (() => {
+        const capacity = status?.backlog_capacity || 32768;
+        const records = status?.backlog_records ?? 0;
+        const pct = Math.min(100, Math.round((records / capacity) * 100));
+        const hours10s = (capacity * 10 / 3600).toFixed(1);
+        const hours5s = (capacity * 5 / 3600).toFixed(1);
+
+        return (
+          <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#1e232d]/80 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center space-x-2.5">
+                  <Database className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <h3 className="text-base font-semibold text-white">ESP32 {status?.psram_active ? 'PSRAM' : 'SRAM'} Telemetry Ring Buffer</h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Continuously records high-resolution telemetry in RAM across active desktop monitoring and standalone sleep modes, enabling connecting apps to backfill historical gaps.
+                </p>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                When the host PC is powered down or asleep, the ESP32 autonomously polls the UPS every 10 seconds and buffers telemetry in 8MB PSRAM using binary MessagePack formatting.
-              </p>
+
+              <div className="flex items-center space-x-2.5 shrink-0">
+                <PrimaryButton
+                  variant="secondary"
+                  onClick={handleClearBacklog}
+                  disabled={isClearingBacklog || records === 0}
+                  isLoading={isClearingBacklog}
+                  icon={
+                    !isAuthenticated ? (
+                      <Lock className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-400 transition-colors" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-400 transition-colors" />
+                    )
+                  }
+                  size="md"
+                  className="group whitespace-nowrap hover:border-rose-500/40 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                >
+                  <span>Clear Buffer</span>
+                </PrimaryButton>
+
+                <PrimaryButton
+                  onClick={handleSyncBacklog}
+                  disabled={isSyncingBacklog || records === 0}
+                  isLoading={isSyncingBacklog}
+                  icon={<Database className="w-3.5 h-3.5" />}
+                  variant="primary"
+                  size="md"
+                  className="whitespace-nowrap"
+                >
+                  <span>Sync into UPSED History</span>
+                </PrimaryButton>
+              </div>
             </div>
 
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={handleClearBacklog}
-                disabled={isClearingBacklog || (status?.backlog_records ?? 0) === 0}
-                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition cursor-pointer disabled:opacity-40"
-              >
-                {!isAuthenticated ? (
-                  <Lock className="w-3.5 h-3.5" />
-                ) : (
-                  <Trash2 className="w-3.5 h-3.5" />
-                )}
-                <span>Clear Buffer</span>
-              </button>
+            {/* Buffer Capacity Visualizer */}
+            <div className="p-5 rounded-xl bg-black/30 border border-white/[0.06] space-y-3">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-slate-400">Buffer Utilization</span>
+                <span className="text-white font-bold">
+                  {records.toLocaleString()} / {capacity.toLocaleString()} records ({pct}%)
+                </span>
+              </div>
+              <div className="w-full h-3 rounded-full bg-white/[0.05] overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ${
+                    pct > 80
+                      ? 'bg-rose-500'
+                      : pct > 50
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{
+                    width: `${Math.min(100, Math.max(2, pct))}%`,
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <span>0 Records</span>
+                <span>{capacity.toLocaleString()} Capacity (~{hours10s}h @ 10s / ~{hours5s}h @ 5s cadence)</span>
+              </div>
+            </div>
 
-              <PrimaryButton
-                onClick={handleSyncBacklog}
-                disabled={isSyncingBacklog || (status?.backlog_records ?? 0) === 0}
-                variant="primary"
-                className="text-xs"
-              >
-                {isSyncingBacklog ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    Syncing Records...
-                  </>
-                ) : (
-                  <>
-                    <Database className="w-3.5 h-3.5 mr-1.5" />
-                    Sync into UPSED History
-                  </>
-                )}
-              </PrimaryButton>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <span className="text-slate-400 block mb-1">Encoding Format</span>
+                <strong className="text-white font-mono">MessagePack (Binary)</strong>
+                <p className="text-slate-500 text-[11px] mt-1">
+                  4× more compact than JSON; stores up to {capacity.toLocaleString()} telemetry snapshots in {status?.psram_active ? 'PSRAM' : 'SRAM'}.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <span className="text-slate-400 block mb-1">Catch-Up Ingestion</span>
+                <strong className="text-white font-mono">Fast Batch Insertion</strong>
+                <p className="text-slate-500 text-[11px] mt-1">
+                  Transfers in chunks of 50 records and inserts in single SQLite transactions.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <span className="text-slate-400 block mb-1">Overflow Protection</span>
+                <strong className="text-white font-mono">FIFO Overwrite</strong>
+                <p className="text-slate-500 text-[11px] mt-1">
+                  Circular ring buffer automatically evicts the oldest sample when full.
+                </p>
+              </div>
             </div>
           </div>
-
-          {/* Buffer Capacity Visualizer */}
-          <div className="p-5 rounded-xl bg-black/30 border border-white/[0.06] space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-400">Buffer Utilization</span>
-              <span className="text-white font-bold">
-                {status?.backlog_records ?? 0} / {status?.backlog_capacity ?? 50000} records (
-                {Math.round(((status?.backlog_records ?? 0) / (status?.backlog_capacity ?? 50000)) * 100)}%)
-              </span>
-            </div>
-            <div className="w-full h-3 rounded-full bg-white/[0.05] overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  ((status?.backlog_records ?? 0) / (status?.backlog_capacity ?? 50000)) > 0.8
-                    ? 'bg-rose-500'
-                    : ((status?.backlog_records ?? 0) / (status?.backlog_capacity ?? 50000)) > 0.5
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500'
-                }`}
-                style={{
-                  width: `${Math.min(100, Math.max(2, (((status?.backlog_records ?? 0) / (status?.backlog_capacity ?? 50000)) * 100)))}%`,
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500">
-              <span>0 Records</span>
-              <span>50,000 Capacity (~138 Hours @ 10s cadence)</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-              <span className="text-slate-400 block mb-1">Encoding Format</span>
-              <strong className="text-white font-mono">MessagePack (Binary)</strong>
-              <p className="text-slate-500 text-[11px] mt-1">
-                4× more compact than JSON; fits over 50,000 full telemetry snapshots in 8MB PSRAM.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-              <span className="text-slate-400 block mb-1">Catch-Up Ingestion</span>
-              <strong className="text-white font-mono">Fast Batch Insertion</strong>
-              <p className="text-slate-500 text-[11px] mt-1">
-                Transfers in chunks of 50 records and inserts in single SQLite transactions.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-              <span className="text-slate-400 block mb-1">Overflow Protection</span>
-              <strong className="text-white font-mono">FIFO Overwrite</strong>
-              <p className="text-slate-500 text-[11px] mt-1">
-                Circular ring buffer automatically evicts the oldest sample when full.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 4. Live Debug Console Tab */}
       {activeTab === 'logs' && (
@@ -4187,8 +4192,8 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   <Trash2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-white">Purge ESP32 Backlog</h3>
-                  <p className="text-xs text-slate-400">Reset buffered offline telemetry</p>
+                  <h3 className="text-base font-semibold text-white">Purge ESP32 Telemetry Buffer</h3>
+                  <p className="text-xs text-slate-400">Reset in-memory rotating telemetry</p>
                 </div>
               </div>
               <button
@@ -4199,7 +4204,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
               </button>
             </div>
             <div className="p-6 text-xs text-slate-300 leading-relaxed">
-              Are you sure you want to purge all offline telemetry records buffered in the ESP32 PSRAM ring buffer? This cannot be undone.
+              Are you sure you want to purge all telemetry records buffered in the ESP32 PSRAM ring buffer? This cannot be undone.
             </div>
             <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-end space-x-3">
               <button

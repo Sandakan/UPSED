@@ -7,7 +7,7 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.5.0"
+#define BRIDGE_FIRMWARE_VER    "1.6.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
@@ -46,8 +46,12 @@
 
 // MessagePack PSRAM Ring Buffer Sizing
 // 8192 slots * 96 bytes = 768 KB in 8MB PSRAM (~22.7 hours at 10s interval)
-#define BACKLOG_PSRAM_CAPACITY 8192
-#define BACKLOG_FALLBACK_CAP   256       // Fallback capacity if PSRAM is unavailable
+// MessagePack PSRAM & SRAM Auto-Sizing Bounds
+#define BACKLOG_PSRAM_MAX_CAPACITY 32768   // Upper ceiling for >=4MB PSRAM (~3.14 MB, ~45.5h @ 5s)
+#define BACKLOG_SRAM_MAX_CAPACITY  512     // Upper ceiling for high-headroom SRAM (~49.1 KB, ~42m @ 5s)
+#define BACKLOG_SRAM_MIN_CAPACITY  256     // Safe floor for low-end SRAM (~24.5 KB, ~21m @ 5s)
+#define BACKLOG_PSRAM_CAPACITY     BACKLOG_PSRAM_MAX_CAPACITY
+#define BACKLOG_FALLBACK_CAP       BACKLOG_SRAM_MIN_CAPACITY
 #define BACKLOG_SLOT_BYTES     96        // Max bytes per MessagePack-encoded slot
 
 // Addressable WS2812 RGB LED Pins (ESP32-S3 DevKitC-1 clones use GPIO 48 or 38)
@@ -56,9 +60,9 @@
 
 inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
 #ifdef RGB_BUILTIN
-    rgbLedWrite(RGB_BUILTIN, r, g, b);
+    neopixelWrite(RGB_BUILTIN, r, g, b);
 #else
-    rgbLedWrite(RGB_PIN_PRIMARY, r, g, b);
+    neopixelWrite(RGB_PIN_PRIMARY, r, g, b);
 #endif
 
     uint8_t primaryPin = 48;
@@ -67,6 +71,6 @@ inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
 #endif
     if (RGB_PIN_ALT != primaryPin) {
         delayMicroseconds(60); // Allow WS2812 latch reset (>50us) to avoid RMT channel collision
-        rgbLedWrite(RGB_PIN_ALT, r, g, b);
+        neopixelWrite(RGB_PIN_ALT, r, g, b);
     }
 }
