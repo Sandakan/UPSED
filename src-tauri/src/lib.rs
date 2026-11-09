@@ -327,7 +327,8 @@ pub fn run() {
             commands::reconnect_bridge_tuya,
             commands::configure_bridge_illumination,
             commands::toggle_bridge_night_mode_now,
-            commands::save_file_with_dialog
+            commands::save_file_with_dialog,
+            commands::notify_system_resume
         ])
         .build(tauri::generate_context!())
         .expect("error while building UPSED application")

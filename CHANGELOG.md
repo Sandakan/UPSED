@@ -7,9 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.5] - 2026-11-09
+
+### Added
+- **Top-Bar Master UPS Scanning Badge:** Added an animated pulsing cyan `Scanning...` badge directly inside the top-bar master UPS picker button next to the device status pill when interface scanning is in progress, eliminating the need to click open the dropdown popover to inspect scanning state.
+
+### Fixed
+- **WebSocket Socket Preservation on UPS Command Timeouts:** Upgraded `execute_ws_exchange` to differentiate valid JSON-RPC frames (such as code `-32000` serial hardware busy/timeout) from true TCP transport disconnects. The active WebSocket connection is kept alive on command timeouts, preventing socket churn, host failover loops, and connection flooding against the ESP32 bridge.
+- **Redundant Port Scanner Probe Suppression:** Updated `scan_available_ports_with_context` to skip duplicate WebSocket probes and LAN sweeps when an ESP32 bridge is already active in `MultiPortManager`, removing connection contention on the bridge's single UART interface.
+
+---
+
+## [0.1.4] - 2026-11-09
+
+### Added
+
+- **Multi-Layered System Sleep & Wake Recovery:** Added monotonic/wall-clock time-jump detection in the Rust background monitor loop alongside frontend `visibilitychange`, `focus`, and `online` event triggers (`notify_system_resume`), automatically resetting stale WebSocket and serial handles and initiating a 2-second fast retry burst upon PC wake.
+- **Automatic LAN Subnet Rediscovery Fallback:** Enhanced `BridgeTransport::try_ws_rpc` to automatically sweep the local `/24` subnet via `scan_lan_for_bridge()` when cached IPs and mDNS fail after wake or DHCP lease changes, seamlessly re-binding to the ESP32 bridge's new IP address.
+- **Stale Telemetry UI Watchdog (`Reconnecting...`):** Added staleness evaluation to `getUpsOperatingState` and `DeviceStatePill` so the top bar status pill transitions from green `Online` to an amber pulsing `Reconnecting...` indicator whenever telemetry is older than 2 poll intervals (20s).
+
+### Fixed
+
+- **Stale WebSocket Reconnection Skip Bug:** Fixed a bug in `BridgeTransport::try_ws_rpc` where a broken pre-sleep WebSocket handle caused the primary candidate host to fail without attempting a fresh TCP/WebSocket handshake on that same host before falling back to mDNS.
+- **Dead Socket Cleanup on Notification Drain:** Updated `BridgeTransport::drain_notifications` to immediately drop closed or reset WebSocket handles rather than retaining zombie sockets across poll cycles.
+
+---
+
 ## [0.1.3] - 2026-10-31
 
 ### Added
+
 - **Incremental Bridge Backlog Synchronization (`since_ts`):** Upgraded `sync_bridge_backlog` and device connection initialization in `commands.rs` to query the latest recorded telemetry timestamp from the local SQLite database (`get_latest_telemetry_timestamp`) and request only missing historical records from the hardware bridge.
 - **Non-Destructive Backlog Sync:** Implemented `sync_backlog(since_ts)` in `BridgeTransport` using `bridge.getTelemetryHistory` (with fallback to `bridge.getBacklog`), preserving the bridge's rotating RAM buffer so multiple connecting apps can complete their databases independently without racing or wiping records.
 - **Monotonic Telemetry Sequencing:** Added support for the `seq` property in `BridgeBacklogRecord`.
@@ -20,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.2] - 2026-10-28
 
 ### Added
+
 - **Hardware LED Illumination Policy & Controls:** Added support for autonomous Night Mode scheduling (e.g. 22:00 to 07:00, customizable 5%–30% dimming or completely off) alongside in-use Desktop Proxy Stealth Mode (dimming or extinguishing the bridge LED on your desk while actively monitoring in the UPSED desktop app).
 - **Critical Alert Wakeup:** Critical UPS alarms (mains outage / on-battery mode and inverter faults) automatically override night mode and proxy stealth at full alert brightness unless explicitly disabled.
 - **Tauri Illumination Commands & Gates:** Added `configure_bridge_illumination` (Stage T3 permission barrier) and `toggle_bridge_night_mode_now` (Stage T2 non-destructive manual override) with audit logging to the SQLite event trail.
@@ -29,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.1] - 2026-10-27
 
 ### Added
+
 - **Bridge Log Playback Demarcation Banners:** Added streaming batch boundaries (`--- Starting bridge log playback ---` and `--- Completed bridge log playback (N entries, up to <timestamp>) ---`) in `BridgeTransport` RPC execution (`try_ws_rpc` and `try_serial_rpc`). Demarcates buffered ESP32 unacknowledged log bursts on connection/reconnection to clearly distinguish buffered playback replay from live events in terminal and local logs.
 
 ---
@@ -36,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-10-24
 
 ### Fixed
+
 - **Clean Application Termination & Instant Shutdown:** Resolved an issue where quitting the application hung or failed to immediately exit on macOS due to the dedicated `upsed-hid-actor` OS thread blocking indefinitely on an open channel receiver. Implemented `HidActorCommand::Shutdown` and `shutdown_actor()` to close open device handles and terminate the actor loop on `RunEvent::ExitRequested`, followed by an immediate process exit on `RunEvent::Exit`.
 - **macOS Ad-Hoc Bundle Code Signing:** Configured `"signingIdentity": "-"` and `"hardenedRuntime": false` in `tauri.conf.json` so `npm run tauri build` signs the bundle with ad-hoc certificates, correctly binding `Info.plist` entries and preventing macOS Sequoia TCC from silently denying Local Network permissions to GUI binaries. Added quarantine clearing and re-signing instructions to the project README.
 - **Startup Bridge Connection Race Condition & Granular Socket Diagnostics:** Fixed a race condition in `connect_device_internal` where multiple concurrent startup threads simultaneously dispatched WebSocket handshakes to the ESP32 bridge on port 81 by wrapping connection attempts in a serialization mutex (`CONNECT_LOCK`). Added detailed diagnostic reporting to `connect_ws` exposing DNS resolution, TCP connect, and WebSocket handshake errors directly in app logs.
@@ -43,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Apple Silicon PAC Signature Crash on Device Detection:** Resolved production `EXC_BREAKPOINT (SIGTRAP)` breakpoint traps in `__CFCheckCFInfoPACSignature` during USB HID device enumeration. On Apple Silicon (ARM64e), `IOHIDManager` was corrupted when `hidapi::HidApi::new()` and device handles were created and accessed across concurrent Tokio runtime worker threads. Re-architected all USB HID device discovery, UUID resolution, report I/O, and handle lifetimes into a dedicated OS actor thread (`upsed-hid-actor`), completely isolating `IOKit` / `CFRunLoop` interactions to a single OS thread and eliminating `unsafe impl Send for HidTransport`. Added regression test `hid_006` verifying multithreaded concurrent HID scanning stability.
 
 ### Added
+
 - **Hardware Bridge Permission Gate & Audit Logging:** Extended the security barrier to protect persistent ESP32 Hardware Bridge operations. Modifying Wi-Fi provisioning credentials, TuyaLink cloud settings, dual-mode failover endpoints, or wiping flash backlogs now requires active authenticated authorization (Stage T3 equivalent), while wireless OTA firmware flashing requires fresh OS native verification (Stage T4 equivalent). All persistent bridge modifications record the verified user into the SQLite audit trail and broadcast to the in-app event stream.
 - **Direct OS Auth-on-Commit in IoT View:** Integrated `useAuth` into the IoT Bridge panel with an actionable security banner, lock icons on protected action buttons, and automatic direct OS verification prompts when saving configurations or confirming OTA flashing.
 - **OS Native User Verification (Touch ID & Windows Hello):** Introduced platform-native biometric and PIN authentication for hardware safety gates (`LocalAuthentication` on macOS, `UserConsentVerifier` on Windows, and `pkexec` Polkit on Linux), eliminating manual username/password setup when OS-level user locks are present.

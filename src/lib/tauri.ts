@@ -282,6 +282,8 @@ export const api = {
       extensions,
       bytes: Array.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)),
     }),
+
+  notifySystemResume: () => invoke<void>('notify_system_resume'),
 };
 
 

@@ -99,7 +99,7 @@ export interface UpsTelemetryPayload {
 }
 
 export type TransportMedium = 'wifi' | 'usb' | 'bridge' | 'serial' | 'unknown';
-export type UpsOperatingState = 'Online' | 'Battery' | 'Bypass' | 'Testing' | 'Fault' | 'Offline';
+export type UpsOperatingState = 'Online' | 'Battery' | 'Bypass' | 'Testing' | 'Fault' | 'Offline' | 'Reconnecting';
 
 export interface TelemetryRecord {
   id?: number;

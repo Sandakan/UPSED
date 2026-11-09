@@ -4,11 +4,11 @@ use crate::gate::CommandGate;
 use crate::multi_port::MultiPortManager;
 use crate::protocol::{self, Q1Status, UnlockStage, VoltronicCommand};
 use crate::serial::{
-    get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge,
-    push_bridge_log, scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection,
-    BridgeBacklogRecord, BridgeIlluminationConfig, BridgeLogEntry, BridgeStatus, BridgeTransport, DiscoveredDevice,
-    HidTransport, PhysicalSerialPort, SerialTransport, TuyaBridgeConfig, WifiScanNetwork,
-    WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
+    get_all_bridge_logs, probe_port, probe_serial_bridge, probe_ws_bridge, push_bridge_log,
+    scan_available_ports_with_context, scan_lan_for_bridge, test_ws_connection,
+    BridgeBacklogRecord, BridgeIlluminationConfig, BridgeLogEntry, BridgeStatus, BridgeTransport,
+    DiscoveredDevice, HidTransport, PhysicalSerialPort, SerialTransport, TuyaBridgeConfig,
+    WifiScanNetwork, WsTestResult, BRIDGE_DEFAULT_MDNS_HOST,
 };
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -164,12 +164,20 @@ pub fn connect_device_internal(
 
     // Idempotency: If this port is already registered and active in MultiPortManager, reuse it!
     let alt_bridge_name = if port_name.starts_with("BRIDGE:") {
-        port_name.strip_prefix("BRIDGE:").unwrap_or(port_name).to_string()
+        port_name
+            .strip_prefix("BRIDGE:")
+            .unwrap_or(port_name)
+            .to_string()
     } else {
         format!("BRIDGE:{}", port_name)
     };
 
-    if let Some(existing) = state.manager.list_devices().into_iter().find(|d| d.port_name == port_name || d.port_name == alt_bridge_name) {
+    if let Some(existing) = state
+        .manager
+        .list_devices()
+        .into_iter()
+        .find(|d| d.port_name == port_name || d.port_name == alt_bridge_name)
+    {
         tracing::info!("connect_device_internal: Port {} is already connected (as {}), reusing active connection", port_name, existing.port_name);
         return Ok(existing);
     }
@@ -183,13 +191,9 @@ pub fn connect_device_internal(
     };
 
     let (info, transport): (DiscoveredDevice, Box<dyn SerialTransport>) = if is_bridge {
-        let fallback_host = state
-            .db
-            .get_setting("bridge_fallback_host")
-            .ok()
-            .flatten();
-        let mut bridge_transport =
-            BridgeTransport::open(&normalized_bridge_port, fallback_host).map_err(|e| e.to_string())?;
+        let fallback_host = state.db.get_setting("bridge_fallback_host").ok().flatten();
+        let mut bridge_transport = BridgeTransport::open(&normalized_bridge_port, fallback_host)
+            .map_err(|e| e.to_string())?;
 
         if let Ok(st) = bridge_transport.ping() {
             if st.wifi_connected && !st.ip.is_empty() {
@@ -201,7 +205,11 @@ pub fn connect_device_internal(
             Ok(resp) => protocol::parse_protocol_id(&resp).unwrap_or_else(|_| "00".to_string()),
             Err(_) => {
                 if let Ok(q1) = bridge_transport.send_command("Q1") {
-                    if q1.starts_with('(') { "00".to_string() } else { "UNKNOWN".to_string() }
+                    if q1.starts_with('(') {
+                        "00".to_string()
+                    } else {
+                        "UNKNOWN".to_string()
+                    }
                 } else {
                     "00".to_string()
                 }
@@ -218,9 +226,15 @@ pub fn connect_device_internal(
             .and_then(|r| protocol::parse_firmware_version(&r).ok());
         let bridge_mac = bridge_transport.bridge_mac();
         let unique_id = if let Some(sn) = serial_number.as_deref() {
-            crate::serial::generate_unique_id(Some(sn), &normalized_bridge_port, firmware_version.as_deref())
+            crate::serial::generate_unique_id(
+                Some(sn),
+                &normalized_bridge_port,
+                firmware_version.as_deref(),
+            )
         } else if let Some(mac) = bridge_mac.as_deref() {
-            let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
+            let clean_mac = mac
+                .replace(|c: char| !c.is_alphanumeric(), "")
+                .to_uppercase();
             format!("BRIDGE-MAC-{}", clean_mac)
         } else {
             crate::serial::generate_unique_id(
@@ -230,7 +244,9 @@ pub fn connect_device_internal(
             )
         };
         let capabilities = protocol::DeviceCapabilities::for_protocol(&proto);
-        let raw_com = normalized_bridge_port.strip_prefix("BRIDGE:").unwrap_or(&normalized_bridge_port);
+        let raw_com = normalized_bridge_port
+            .strip_prefix("BRIDGE:")
+            .unwrap_or(&normalized_bridge_port);
         let usb_uuid = crate::serial::get_port_usb_uuid(raw_com);
 
         let battery_v = bridge_transport
@@ -239,9 +255,7 @@ pub fn connect_device_internal(
             .and_then(|r| protocol::Q1Status::parse(&r).ok())
             .map(|s| s.battery_voltage_v);
         let hardware_signature = Some(crate::serial::scanner::compute_hardware_signature(
-            &proto,
-            battery_v,
-            None,
+            &proto, battery_v, None,
         ));
 
         let dev_info = DiscoveredDevice {
@@ -284,22 +298,31 @@ pub fn connect_device_internal(
     let effective_port = info.port_name.clone();
 
     // Check if this physical device matches an approved UPS profile in SQLite
-    let resolved_metadata = state.db.resolve_ups_metadata(
-        &info.unique_id,
-        info.bridge_mac.as_deref(),
-        info.usb_uuid.as_deref(),
-        info.hardware_signature.as_deref(),
-    ).ok().flatten();
+    let resolved_metadata = state
+        .db
+        .resolve_ups_metadata(
+            &info.unique_id,
+            info.bridge_mac.as_deref(),
+            info.usb_uuid.as_deref(),
+            info.hardware_signature.as_deref(),
+        )
+        .ok()
+        .flatten();
 
     let resolved_ups_id = resolved_metadata.as_ref().map(|m| m.unique_id.clone());
 
-    state.manager.register_device_with_ups_id(info.clone(), transport, resolved_ups_id.clone());
+    state
+        .manager
+        .register_device_with_ups_id(info.clone(), transport, resolved_ups_id.clone());
     let _ = state.db.set_setting("last_connected_port", &effective_port);
 
     // Sync real-time transport status if registered device is an ESP32 Bridge
-    if let Ok((medium, host, key)) = state.manager.with_bridge_transport(Some(&effective_port), |b, k| {
-        Ok((b.active_medium().to_string(), b.ws_host(), k))
-    }) {
+    if let Ok((medium, host, key)) = state
+        .manager
+        .with_bridge_transport(Some(&effective_port), |b, k| {
+            Ok((b.active_medium().to_string(), b.ws_host(), k))
+        })
+    {
         crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
     }
 
@@ -360,7 +383,6 @@ pub fn connect_device_internal(
 
     Ok(info)
 }
-
 
 #[tauri::command]
 pub async fn connect_device(
@@ -480,11 +502,14 @@ pub async fn get_device_status(
             .or(ups_id.clone());
 
         let prev_status = state_clone.manager.get_last_status(lookup_key);
-        match state_clone.manager.poll_device_force_refresh(lookup_key, is_force) {
+        match state_clone
+            .manager
+            .poll_device_force_refresh(lookup_key, is_force)
+        {
             Ok(status) => {
-                let smoothed_opt = resolved_ups_id.as_deref().map(|uid| {
-                    state_clone.manager.ingest_bucket_sample(uid, &status)
-                });
+                let smoothed_opt = resolved_ups_id
+                    .as_deref()
+                    .map(|uid| state_clone.manager.ingest_bucket_sample(uid, &status));
 
                 // If profile is approved, record telemetry and persistent events
                 if let Some(ref uid) = resolved_ups_id {
@@ -518,10 +543,17 @@ pub async fn get_device_status(
                 crate::tray::update_tray_state(&app_clone, true, Some(&status));
 
                 // Sync real-time transport status if target is an ESP32 Bridge
-                if let Ok((medium, host, key)) = state_clone.manager.with_bridge_transport(Some(&port_name), |b, k| {
-                    Ok((b.active_medium().to_string(), b.ws_host(), k))
-                }) {
-                    crate::serial::bridge_adapter::emit_transport_status(&key, &medium, host.as_deref());
+                if let Ok((medium, host, key)) = state_clone
+                    .manager
+                    .with_bridge_transport(Some(&port_name), |b, k| {
+                        Ok((b.active_medium().to_string(), b.ws_host(), k))
+                    })
+                {
+                    crate::serial::bridge_adapter::emit_transport_status(
+                        &key,
+                        &medium,
+                        host.as_deref(),
+                    );
                 }
 
                 // If manual force refresh or explicit query, emit ups-telemetry to push instant update to frontend
@@ -609,35 +641,77 @@ fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> Strin
         VoltronicCommand::BuzzerToggle => "User toggled hardware alarm buzzer".to_string(),
         VoltronicCommand::BuzzerOn => "User enabled hardware alarm buzzer (BZON)".to_string(),
         VoltronicCommand::BuzzerOff => "User muted hardware alarm buzzer (BZOFF)".to_string(),
-        VoltronicCommand::TenSecondTest => "User initiated 10-second battery self-test (T)".to_string(),
-        VoltronicCommand::TestForMinutes(m) => format!("User initiated {}-minute battery self-test (T{:02})", m, m),
+        VoltronicCommand::TenSecondTest => {
+            "User initiated 10-second battery self-test (T)".to_string()
+        }
+        VoltronicCommand::TestForMinutes(m) => {
+            format!("User initiated {}-minute battery self-test (T{:02})", m, m)
+        }
         VoltronicCommand::CancelTest => "User canceled active battery self-test (CT)".to_string(),
-        VoltronicCommand::TestUntilLow => "User initiated battery self-test until low battery (TL)".to_string(),
-        VoltronicCommand::SetBypassHighVoltage(v) => format!("User set bypass high voltage to {}V (PHV)", v),
-        VoltronicCommand::SetBypassLowVoltage(v) => format!("User set bypass low voltage to {}V (PLV)", v),
-        VoltronicCommand::SetBypassHighFrequency(f) => format!("User set bypass high frequency to {:.1}Hz (PGF)", f),
-        VoltronicCommand::SetBypassLowFrequency(f) => format!("User set bypass low frequency to {:.1}Hz (PSF)", f),
+        VoltronicCommand::TestUntilLow => {
+            "User initiated battery self-test until low battery (TL)".to_string()
+        }
+        VoltronicCommand::SetBypassHighVoltage(v) => {
+            format!("User set bypass high voltage to {}V (PHV)", v)
+        }
+        VoltronicCommand::SetBypassLowVoltage(v) => {
+            format!("User set bypass low voltage to {}V (PLV)", v)
+        }
+        VoltronicCommand::SetBypassHighFrequency(f) => {
+            format!("User set bypass high frequency to {:.1}Hz (PGF)", f)
+        }
+        VoltronicCommand::SetBypassLowFrequency(f) => {
+            format!("User set bypass low frequency to {:.1}Hz (PSF)", f)
+        }
         VoltronicCommand::SetEcoHigh(v) => format!("User set ECO high threshold to {}V (HEH)", v),
         VoltronicCommand::SetEcoLow(v) => format!("User set ECO low threshold to {}V (HEL)", v),
-        VoltronicCommand::SetMaxBackupMinutes(m) => format!("User set maximum backup time to {} min (MD)", m),
-        VoltronicCommand::SetAlarmEnabled(on) => if *on { "User enabled the audible alarm setting (PEA)".to_string() } else { "User disabled the audible alarm setting (PDA)".to_string() },
-        VoltronicCommand::ShutdownWithDelay { minutes } => format!("User initiated delayed shutdown ({:.1} min)", minutes),
-        VoltronicCommand::ShutdownAndRestore { minutes, restore_minutes } => format!("User initiated delayed shutdown ({:.1} min) with restore after {} min", minutes, restore_minutes),
+        VoltronicCommand::SetMaxBackupMinutes(m) => {
+            format!("User set maximum backup time to {} min (MD)", m)
+        }
+        VoltronicCommand::SetAlarmEnabled(on) => {
+            if *on {
+                "User enabled the audible alarm setting (PEA)".to_string()
+            } else {
+                "User disabled the audible alarm setting (PDA)".to_string()
+            }
+        }
+        VoltronicCommand::ShutdownWithDelay { minutes } => {
+            format!("User initiated delayed shutdown ({:.1} min)", minutes)
+        }
+        VoltronicCommand::ShutdownAndRestore {
+            minutes,
+            restore_minutes,
+        } => format!(
+            "User initiated delayed shutdown ({:.1} min) with restore after {} min",
+            minutes, restore_minutes
+        ),
         VoltronicCommand::CancelShutdown => "User canceled delayed shutdown".to_string(),
         VoltronicCommand::OutputOn => "User turned UPS output ON (SON)".to_string(),
         VoltronicCommand::OutputOff => "User turned UPS output OFF (SOFF)".to_string(),
-        VoltronicCommand::OutletOn { group } => format!("User turned outlet group {} ON (SKON)", group),
-        VoltronicCommand::OutletOff { group } => format!("User turned outlet group {} OFF (SKOFF)", group),
+        VoltronicCommand::OutletOn { group } => {
+            format!("User turned outlet group {} ON (SKON)", group)
+        }
+        VoltronicCommand::OutletOff { group } => {
+            format!("User turned outlet group {} OFF (SKOFF)", group)
+        }
         VoltronicCommand::QueryPStatus => "User queried P-series status (QGS)".to_string(),
         VoltronicCommand::QueryPWarning => "User queried P-series warnings (QWS)".to_string(),
         VoltronicCommand::QueryPRating => "User queried P-series rating (QRI)".to_string(),
         VoltronicCommand::QueryModel => "User queried model (QMD)".to_string(),
         VoltronicCommand::QueryFaultStatus => "User queried fault status (QFS)".to_string(),
         VoltronicCommand::QueryEcoWindow => "User queried ECO window (QHE)".to_string(),
-        VoltronicCommand::QueryBypassVoltage => "User queried bypass voltage limits (QBYV)".to_string(),
-        VoltronicCommand::QueryBypassFrequency => "User queried bypass frequency limits (QBYF)".to_string(),
-        VoltronicCommand::QueryBatteryCapacity => "User queried battery capacity (QBTAH)".to_string(),
-        VoltronicCommand::QueryOutletState { group } => format!("User queried outlet group {} state (QSK{})", group, group),
+        VoltronicCommand::QueryBypassVoltage => {
+            "User queried bypass voltage limits (QBYV)".to_string()
+        }
+        VoltronicCommand::QueryBypassFrequency => {
+            "User queried bypass frequency limits (QBYF)".to_string()
+        }
+        VoltronicCommand::QueryBatteryCapacity => {
+            "User queried battery capacity (QBTAH)".to_string()
+        }
+        VoltronicCommand::QueryOutletState { group } => {
+            format!("User queried outlet group {} state (QSK{})", group, group)
+        }
         VoltronicCommand::QueryProtocolId => "User queried Protocol ID (QPI)".to_string(),
         VoltronicCommand::QuickStatus => "User queried Quick Status (Q1)".to_string(),
         VoltronicCommand::QueryStatusQs => "User queried Status (QS)".to_string(),
@@ -647,7 +721,9 @@ fn format_command_audit_msg(cmd: &VoltronicCommand, resp: Option<&str>) -> Strin
         VoltronicCommand::QueryWorkingMode => "User queried Working Mode (QMOD)".to_string(),
         VoltronicCommand::QueryFlags => "User queried Flags (QFLAG)".to_string(),
         VoltronicCommand::QueryDeviceId => "User queried Device ID (QID)".to_string(),
-        VoltronicCommand::QueryFirmwareVersion => "User queried Firmware Version (QVFW)".to_string(),
+        VoltronicCommand::QueryFirmwareVersion => {
+            "User queried Firmware Version (QVFW)".to_string()
+        }
         VoltronicCommand::QueryBatteryVoltage => "User queried Battery Voltage (QBV)".to_string(),
     };
 
@@ -695,7 +771,11 @@ pub async fn send_command(
         let (action_desc, is_success) = match &result {
             Ok(resp) => (format_command_audit_msg(&cmd_clone, Some(resp)), true),
             Err(err) => (
-                format!("{} (Blocked/Failed: {})", format_command_audit_msg(&cmd_clone, None), err),
+                format!(
+                    "{} (Blocked/Failed: {})",
+                    format_command_audit_msg(&cmd_clone, None),
+                    err
+                ),
                 false,
             ),
         };
@@ -709,7 +789,11 @@ pub async fn send_command(
             timestamp: now,
             ups_id: resolved_ups_id.clone(),
             event_type: "USER_ACTION".into(),
-            severity: if is_success { "info".into() } else { "warning".into() },
+            severity: if is_success {
+                "info".into()
+            } else {
+                "warning".into()
+            },
             message: action_desc,
             acknowledged: true,
         };
@@ -722,27 +806,49 @@ pub async fn send_command(
             let now_inst = std::time::Instant::now();
             match &cmd_clone {
                 VoltronicCommand::TenSecondTest => {
-                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_millis(10500));
-                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                    state_clone.manager.arm_target_completion_probe(
+                        lookup_key,
+                        now_inst + std::time::Duration::from_millis(10500),
+                    );
+                    state_clone
+                        .manager
+                        .arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
                 }
                 VoltronicCommand::TestForMinutes(m) => {
-                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_secs((*m as u64) * 60 + 1));
-                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs((*m as u64) * 60 + 5));
+                    state_clone.manager.arm_target_completion_probe(
+                        lookup_key,
+                        now_inst + std::time::Duration::from_secs((*m as u64) * 60 + 1),
+                    );
+                    state_clone.manager.arm_fast_watch(
+                        lookup_key,
+                        std::time::Duration::from_secs((*m as u64) * 60 + 5),
+                    );
                 }
-                VoltronicCommand::ShutdownWithDelay { minutes } | VoltronicCommand::ShutdownAndRestore { minutes, .. } => {
-                    state_clone.manager.arm_target_completion_probe(lookup_key, now_inst + std::time::Duration::from_secs((*minutes as u64) * 60 + 1));
-                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                VoltronicCommand::ShutdownWithDelay { minutes }
+                | VoltronicCommand::ShutdownAndRestore { minutes, .. } => {
+                    state_clone.manager.arm_target_completion_probe(
+                        lookup_key,
+                        now_inst + std::time::Duration::from_secs((*minutes as u64) * 60 + 1),
+                    );
+                    state_clone
+                        .manager
+                        .arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
                 }
                 _ => {
-                    state_clone.manager.arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
+                    state_clone
+                        .manager
+                        .arm_fast_watch(lookup_key, std::time::Duration::from_secs(15));
                 }
             }
 
             // Immediate 1-shot live status query with force_refresh = true
-            if let Ok(status) = state_clone.manager.poll_device_force_refresh(lookup_key, true) {
-                let smoothed = resolved_ups_id.as_deref().map(|uid| {
-                    state_clone.manager.ingest_bucket_sample(uid, &status)
-                });
+            if let Ok(status) = state_clone
+                .manager
+                .poll_device_force_refresh(lookup_key, true)
+            {
+                let smoothed = resolved_ups_id
+                    .as_deref()
+                    .map(|uid| state_clone.manager.ingest_bucket_sample(uid, &status));
                 let _ = app_clone.emit(
                     "ups-telemetry",
                     &UpsTelemetryPayload {
@@ -844,10 +950,7 @@ pub async fn auth_verify_os(
                 ups_id: None,
                 event_type: "USER_ACTION".into(),
                 severity: "warning".into(),
-                message: format!(
-                    "Security verification failed via {}: {}",
-                    provider, err
-                ),
+                message: format!("Security verification failed via {}: {}", provider, err),
                 acknowledged: false,
             };
             let _ = state.db.insert_event(&event);
@@ -933,7 +1036,10 @@ pub fn auth_login(
 
 #[tauri::command]
 pub fn auth_logout(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
-    let user = state.auth.current_user().unwrap_or_else(|| "unknown".into());
+    let user = state
+        .auth
+        .current_user()
+        .unwrap_or_else(|| "unknown".into());
     state.auth.logout();
     let event = EventLogRecord {
         id: None,
@@ -1032,7 +1138,9 @@ pub async fn get_recent_telemetry(
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         let target_id = ups_id.or_else(|| {
-            port_name.as_deref().and_then(|p| state_clone.manager.get_device_ups_id(p))
+            port_name
+                .as_deref()
+                .and_then(|p| state_clone.manager.get_device_ups_id(p))
         });
 
         match target_id {
@@ -1059,7 +1167,9 @@ pub async fn get_telemetry_range(
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         let target_id = ups_id.or_else(|| {
-            port_name.as_deref().and_then(|p| state_clone.manager.get_device_ups_id(p))
+            port_name
+                .as_deref()
+                .and_then(|p| state_clone.manager.get_device_ups_id(p))
         });
 
         match target_id {
@@ -1195,7 +1305,9 @@ pub async fn save_ups_metadata(
                 || (metadata.usb_uuid.is_some() && metadata.usb_uuid == info.usb_uuid)
                 || (metadata.last_port.as_deref() == Some(&info.port_name))
             {
-                state_clone.manager.set_device_ups_id(&info.port_name, metadata.unique_id.clone());
+                state_clone
+                    .manager
+                    .set_device_ups_id(&info.port_name, metadata.unique_id.clone());
             }
         }
         Ok(())
@@ -1327,7 +1439,13 @@ pub fn get_poll_interval(state: State<AppState>) -> u64 {
 pub fn set_poll_interval(state: State<AppState>, secs: u64) -> Result<(), String> {
     let secs = secs.clamp(1, 3600);
     let _ = state.poll_interval_tx.send(secs);
-    let urg_fast = state.db.get_setting("urgent_fast_poll").ok().flatten().map(|v| v != "false").unwrap_or(true);
+    let urg_fast = state
+        .db
+        .get_setting("urgent_fast_poll")
+        .ok()
+        .flatten()
+        .map(|v| v != "false")
+        .unwrap_or(true);
     crate::serial::bridge_adapter::set_bridge_runtime_settings(urg_fast, secs);
     state
         .db
@@ -1392,10 +1510,7 @@ pub fn set_start_minimized(state: State<AppState>, enabled: bool) -> Result<(), 
 
 #[tauri::command]
 pub fn get_theme(state: State<AppState>) -> Result<String, String> {
-    let val = state
-        .db
-        .get_setting("theme")
-        .map_err(|e| e.to_string())?;
+    let val = state.db.get_setting("theme").map_err(|e| e.to_string())?;
     Ok(val.unwrap_or_else(|| "system".to_string()))
 }
 
@@ -1415,11 +1530,9 @@ pub fn is_dev_mode() -> bool {
 #[tauri::command]
 pub async fn get_db_stats(state: State<'_, AppState>) -> Result<DbStats, String> {
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        state_clone.db.get_db_stats().map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || state_clone.db.get_db_stats().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1475,10 +1588,7 @@ pub async fn delete_ups_profile(
 }
 
 #[tauri::command]
-pub async fn set_primary_ups(
-    state: State<'_, AppState>,
-    unique_id: String,
-) -> Result<(), String> {
+pub async fn set_primary_ups(state: State<'_, AppState>, unique_id: String) -> Result<(), String> {
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
@@ -1493,14 +1603,9 @@ pub async fn set_primary_ups(
 #[tauri::command]
 pub async fn vacuum_database(state: State<'_, AppState>) -> Result<(), String> {
     let state_clone = state.inner().clone();
-    tokio::task::spawn_blocking(move || {
-        state_clone
-            .db
-            .vacuum_database()
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || state_clone.db.vacuum_database().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Detects hardware state transitions and alarms by diffing status between consecutive poll cycles.
@@ -1624,7 +1729,9 @@ pub fn detect_status_events(
             ups_id: target_ups_id.clone(),
             event_type: "BATTERY_TEST_COMPLETED".into(),
             severity: "info".into(),
-            message: "Battery Self-Test Completed: Self-test completed; normal AC line mode restored.".into(),
+            message:
+                "Battery Self-Test Completed: Self-test completed; normal AC line mode restored."
+                    .into(),
             acknowledged: false,
         });
     }
@@ -1719,16 +1826,23 @@ pub async fn get_bridge_status(
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         // 1. If a BridgeTransport is currently active in MultiPortManager, query it directly
-        if let Ok(status) = state_clone
-            .manager
-            .with_bridge_transport(port_name.as_deref(), |bridge, key| {
-                let st = bridge.ping()?;
-                crate::serial::bridge_adapter::emit_transport_status(&key, &st.active_transport, bridge.ws_host().as_deref());
-                Ok(st)
-            })
+        if let Ok(status) =
+            state_clone
+                .manager
+                .with_bridge_transport(port_name.as_deref(), |bridge, key| {
+                    let st = bridge.ping()?;
+                    crate::serial::bridge_adapter::emit_transport_status(
+                        &key,
+                        &st.active_transport,
+                        bridge.ws_host().as_deref(),
+                    );
+                    Ok(st)
+                })
         {
             if status.wifi_connected && !status.ip.is_empty() {
-                let _ = state_clone.db.set_setting("bridge_fallback_host", &status.ip);
+                let _ = state_clone
+                    .db
+                    .set_setting("bridge_fallback_host", &status.ip);
             }
             return Ok(Some(status));
         }
@@ -1771,8 +1885,7 @@ pub async fn configure_bridge_wifi(
 ) -> Result<BridgeStatus, String> {
     if !state.auth.is_authenticated() {
         return Err(
-            "Authentication required: unlock the security barrier to configure bridge Wi-Fi"
-                .into(),
+            "Authentication required: unlock the security barrier to configure bridge Wi-Fi".into(),
         );
     }
 
@@ -1794,10 +1907,12 @@ pub async fn configure_bridge_wifi(
     // Perform the immediate provisioning push in a blocking task (returns in <100ms)
     let status = tokio::task::spawn_blocking(move || -> Result<BridgeStatus, String> {
         // 1. Try active BridgeTransport in MultiPortManager first
-        if let Ok(status) = state_clone.manager.with_bridge_transport(
-            port_clone.as_deref(),
-            |bridge, _key| bridge.set_wifi(&ssid_clone, &pass_clone),
-        ) {
+        if let Ok(status) = state_clone
+            .manager
+            .with_bridge_transport(port_clone.as_deref(), |bridge, _key| {
+                bridge.set_wifi(&ssid_clone, &pass_clone)
+            })
+        {
             return Ok(status);
         }
 
@@ -1842,7 +1957,11 @@ pub async fn configure_bridge_wifi(
         WifiProvisionStatusEvent {
             phase: "reconnecting".into(),
             ssid: ssid.clone(),
-            ip: if status.ip.is_empty() { None } else { Some(status.ip.clone()) },
+            ip: if status.ip.is_empty() {
+                None
+            } else {
+                Some(status.ip.clone())
+            },
             error: None,
         },
     );
@@ -1862,10 +1981,9 @@ pub async fn configure_bridge_wifi(
 
         while start_time.elapsed() < max_wait {
             // Check 1: Query active bridge via MultiPortManager
-            let query_res = state_bg.manager.with_bridge_transport(
-                port_bg.as_deref(),
-                |bridge, _key| bridge.ping(),
-            );
+            let query_res = state_bg
+                .manager
+                .with_bridge_transport(port_bg.as_deref(), |bridge, _key| bridge.ping());
 
             let status_opt = match query_res {
                 Ok(st) => Some(st),
@@ -1873,16 +1991,23 @@ pub async fn configure_bridge_wifi(
                     // Check 2: Try probing mDNS
                     let mdns_probe = tokio::task::spawn_blocking(|| {
                         crate::serial::bridge_adapter::probe_ws_bridge("upsed-bridge.local")
-                    }).await.ok().flatten();
+                    })
+                    .await
+                    .ok()
+                    .flatten();
 
                     if let Some((_, st)) = mdns_probe {
                         Some(st)
                     } else {
                         // Check fallback IP if stored
-                        if let Ok(Some(saved_ip)) = state_bg.db.get_setting("bridge_fallback_host") {
+                        if let Ok(Some(saved_ip)) = state_bg.db.get_setting("bridge_fallback_host")
+                        {
                             let ip_probe = tokio::task::spawn_blocking(move || {
                                 crate::serial::bridge_adapter::probe_ws_bridge(&saved_ip)
-                            }).await.ok().flatten();
+                            })
+                            .await
+                            .ok()
+                            .flatten();
                             ip_probe.map(|(_, st)| st)
                         } else {
                             None
@@ -2084,8 +2209,7 @@ pub async fn clear_bridge_backlog(
 ) -> Result<usize, String> {
     if !state.auth.is_authenticated() {
         return Err(
-            "Authentication required: unlock the security barrier to clear bridge backlog"
-                .into(),
+            "Authentication required: unlock the security barrier to clear bridge backlog".into(),
         );
     }
     let state_clone = state.inner().clone();
@@ -2151,20 +2275,16 @@ pub async fn bridge_clear_cache(
 
 #[tauri::command]
 pub async fn test_bridge_websocket(host: String) -> Result<WsTestResult, String> {
-    tokio::task::spawn_blocking(move || {
-        Ok(test_ws_connection(&host, 81))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || Ok(test_ws_connection(&host, 81)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn discover_bridge_on_lan() -> Result<Vec<(String, BridgeStatus)>, String> {
-    tokio::task::spawn_blocking(move || {
-        Ok(scan_lan_for_bridge())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || Ok(scan_lan_for_bridge()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2236,7 +2356,10 @@ fn find_local_bridge_firmware() -> Option<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             for env_name in &["esp32-s3-devkitc-1", "esp32-s3-ota"] {
-                let p = dir.join("upsed-bridge/.pio/build").join(env_name).join("firmware.bin");
+                let p = dir
+                    .join("upsed-bridge/.pio/build")
+                    .join(env_name)
+                    .join("firmware.bin");
                 if p.exists() {
                     return Some(p);
                 }
@@ -2305,17 +2428,25 @@ pub async fn check_bridge_firmware_update(
     current_version: String,
 ) -> Result<BridgeFirmwareCheckResult, String> {
     // 1. Check local build binary
-    let (local_path, local_size, local_mod, local_ver) = if let Some(path) = find_local_bridge_firmware() {
-        let meta = std::fs::metadata(&path).ok();
-        let size = meta.as_ref().map(|m| m.len());
-        let modified = meta
-            .and_then(|m| m.modified().ok())
-            .map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d %H:%M:%S").to_string());
-        let ver = find_local_bridge_version(&path);
-        (Some(path.to_string_lossy().to_string()), size, modified, ver)
-    } else {
-        (None, None, None, None)
-    };
+    let (local_path, local_size, local_mod, local_ver) =
+        if let Some(path) = find_local_bridge_firmware() {
+            let meta = std::fs::metadata(&path).ok();
+            let size = meta.as_ref().map(|m| m.len());
+            let modified = meta.and_then(|m| m.modified().ok()).map(|t| {
+                chrono::DateTime::<chrono::Local>::from(t)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+            let ver = find_local_bridge_version(&path);
+            (
+                Some(path.to_string_lossy().to_string()),
+                size,
+                modified,
+                ver,
+            )
+        } else {
+            (None, None, None, None)
+        };
 
     // 2. Query GitHub Releases for Sandakan/UPSED
     let mut latest_version: Option<String> = None;
@@ -2337,14 +2468,23 @@ pub async fn check_bridge_firmware_update(
                 if let Ok(release) = resp.json::<serde_json::Value>().await {
                     if let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) {
                         latest_version = Some(tag.to_string());
-                        release_notes = release.get("body").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        published_at = release.get("published_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        release_notes = release
+                            .get("body")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        published_at = release
+                            .get("published_at")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
 
                         if let Some(assets) = release.get("assets").and_then(|v| v.as_array()) {
                             for asset in assets {
                                 let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
                                 if name.ends_with(".bin") {
-                                    download_url = asset.get("browser_download_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                    download_url = asset
+                                        .get("browser_download_url")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string());
                                     binary_size = asset.get("size").and_then(|v| v.as_u64());
                                     break;
                                 }
@@ -2352,7 +2492,8 @@ pub async fn check_bridge_firmware_update(
                         }
 
                         let clean_latest = tag.trim_start_matches(|c: char| !c.is_ascii_digit());
-                        let clean_current = current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
+                        let clean_current =
+                            current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
                         update_available = is_version_newer(clean_latest, clean_current);
                     }
                 }
@@ -2386,8 +2527,7 @@ pub async fn flash_bridge_firmware(
 ) -> Result<String, String> {
     if !state.auth.is_authenticated() {
         return Err(
-            "Authentication required: unlock the security barrier to flash bridge firmware"
-                .into(),
+            "Authentication required: unlock the security barrier to flash bridge firmware".into(),
         );
     }
 
@@ -2401,45 +2541,64 @@ pub async fn flash_bridge_firmware(
     }
 
     // 2. Binary retrieval
-    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-        phase: "downloading".into(),
-        percentage: 5,
-        bytes_transferred: 0,
-        total_bytes: 0,
-        message: "Resolving firmware binary...".into(),
-    });
+    let _ = app.emit(
+        "ups-ota-progress",
+        OtaProgressEvent {
+            phase: "downloading".into(),
+            percentage: 5,
+            bytes_transferred: 0,
+            total_bytes: 0,
+            message: "Resolving firmware binary...".into(),
+        },
+    );
 
     let binary_bytes: Vec<u8> = match source.as_str() {
         "github" => {
-            let url = download_url.ok_or_else(|| "No download_url provided for GitHub update".to_string())?;
-            let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-                phase: "downloading".into(),
-                percentage: 10,
-                bytes_transferred: 0,
-                total_bytes: 0,
-                message: "Downloading release binary from GitHub...".into(),
-            });
+            let url = download_url
+                .ok_or_else(|| "No download_url provided for GitHub update".to_string())?;
+            let _ = app.emit(
+                "ups-ota-progress",
+                OtaProgressEvent {
+                    phase: "downloading".into(),
+                    percentage: 10,
+                    bytes_transferred: 0,
+                    total_bytes: 0,
+                    message: "Downloading release binary from GitHub...".into(),
+                },
+            );
             let client = reqwest::Client::builder()
                 .user_agent("UPSED-Desktop")
                 .timeout(Duration::from_secs(60))
                 .build()
                 .map_err(|e| e.to_string())?;
-            let resp = client.get(&url).send().await.map_err(|e| format!("Failed to download firmware: {}", e))?;
-            let bytes = resp.bytes().await.map_err(|e| format!("Failed to read firmware stream: {}", e))?;
+            let resp = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to download firmware: {}", e))?;
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| format!("Failed to read firmware stream: {}", e))?;
             bytes.to_vec()
         }
         "local" => {
             if !cfg!(debug_assertions) {
-                return Err("Local PlatformIO build source is only available in development mode".into());
+                return Err(
+                    "Local PlatformIO build source is only available in development mode".into(),
+                );
             }
             let path = find_local_bridge_firmware().ok_or_else(|| {
                 "Local firmware binary not found at upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin".to_string()
             })?;
-            std::fs::read(&path).map_err(|e| format!("Failed to read local firmware at {}: {}", path.display(), e))?
+            std::fs::read(&path).map_err(|e| {
+                format!("Failed to read local firmware at {}: {}", path.display(), e)
+            })?
         }
         "file" => {
             let p_str = custom_path.ok_or_else(|| "No custom file path provided".to_string())?;
-            std::fs::read(&p_str).map_err(|e| format!("Failed to read custom firmware at {}: {}", p_str, e))?
+            std::fs::read(&p_str)
+                .map_err(|e| format!("Failed to read custom firmware at {}: {}", p_str, e))?
         }
         _ => return Err(format!("Unknown firmware source: {}", source)),
     };
@@ -2475,19 +2634,25 @@ pub async fn flash_bridge_firmware(
         seq: 0,
         ms: 0,
         level: "INFO".into(),
-        msg: format!("Starting wireless OTA flash (source: {}, size: {} bytes)", source, total_len),
+        msg: format!(
+            "Starting wireless OTA flash (source: {}, size: {} bytes)",
+            source, total_len
+        ),
         timestamp: chrono::Utc::now().to_rfc3339(),
         source: "DESKTOP-OTA".into(),
     });
 
     // 3. Request on-demand OTA Lease
-    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-        phase: "leasing".into(),
-        percentage: 20,
-        bytes_transferred: 0,
-        total_bytes: total_len,
-        message: "Activating on-demand OTA server on ESP32 Bridge...".into(),
-    });
+    let _ = app.emit(
+        "ups-ota-progress",
+        OtaProgressEvent {
+            phase: "leasing".into(),
+            percentage: 20,
+            bytes_transferred: 0,
+            total_bytes: total_len,
+            message: "Activating on-demand OTA server on ESP32 Bridge...".into(),
+        },
+    );
 
     let state_clone = state.inner().clone();
     let port_opt = port_name.clone();
@@ -2508,13 +2673,19 @@ pub async fn flash_bridge_firmware(
     tracing::info!("[OTA] Lease acquired: posting firmware to {}", target_url);
 
     // 4. Stream Upload via HTTP POST Multipart
-    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-        phase: "uploading".into(),
-        percentage: 40,
-        bytes_transferred: total_len / 4,
-        total_bytes: total_len,
-        message: format!("Writing firmware to ESP32 ({:.1} KB)...", total_len as f64 / 1024.0),
-    });
+    let _ = app.emit(
+        "ups-ota-progress",
+        OtaProgressEvent {
+            phase: "uploading".into(),
+            percentage: 40,
+            bytes_transferred: total_len / 4,
+            total_bytes: total_len,
+            message: format!(
+                "Writing firmware to ESP32 ({:.1} KB)...",
+                total_len as f64 / 1024.0
+            ),
+        },
+    );
 
     let part = reqwest::multipart::Part::bytes(binary_bytes)
         .file_name("firmware.bin")
@@ -2538,47 +2709,62 @@ pub async fn flash_bridge_firmware(
     match res {
         Ok(response) => {
             if !response.status().is_success() {
-                let err_text = response.text().await.unwrap_or_else(|_| "HTTP error".into());
-                let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-                    phase: "error".into(),
-                    percentage: 0,
-                    bytes_transferred: 0,
-                    total_bytes: total_len,
-                    message: format!("ESP32 OTA error: {}", err_text),
-                });
+                let err_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "HTTP error".into());
+                let _ = app.emit(
+                    "ups-ota-progress",
+                    OtaProgressEvent {
+                        phase: "error".into(),
+                        percentage: 0,
+                        bytes_transferred: 0,
+                        total_bytes: total_len,
+                        message: format!("ESP32 OTA error: {}", err_text),
+                    },
+                );
                 return Err(format!("ESP32 OTA failed: {}", err_text));
             }
         }
         Err(e) => {
-            let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-                phase: "error".into(),
-                percentage: 0,
-                bytes_transferred: 0,
-                total_bytes: total_len,
-                message: format!("Failed to stream firmware to bridge: {}", e),
-            });
+            let _ = app.emit(
+                "ups-ota-progress",
+                OtaProgressEvent {
+                    phase: "error".into(),
+                    percentage: 0,
+                    bytes_transferred: 0,
+                    total_bytes: total_len,
+                    message: format!("Failed to stream firmware to bridge: {}", e),
+                },
+            );
             return Err(format!("HTTP upload failed: {}", e));
         }
     }
 
     // 5. Post-flash reboot
-    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-        phase: "rebooting".into(),
-        percentage: 95,
-        bytes_transferred: total_len,
-        total_bytes: total_len,
-        message: "Firmware flashing complete! ESP32 is rebooting...".into(),
-    });
+    let _ = app.emit(
+        "ups-ota-progress",
+        OtaProgressEvent {
+            phase: "rebooting".into(),
+            percentage: 95,
+            bytes_transferred: total_len,
+            total_bytes: total_len,
+            message: "Firmware flashing complete! ESP32 is rebooting...".into(),
+        },
+    );
 
     tokio::time::sleep(Duration::from_secs(4)).await;
 
-    let _ = app.emit("ups-ota-progress", OtaProgressEvent {
-        phase: "success".into(),
-        percentage: 100,
-        bytes_transferred: total_len,
-        total_bytes: total_len,
-        message: "Bridge successfully updated and rebooted!".into(),
-    });
+    let _ = app.emit(
+        "ups-ota-progress",
+        OtaProgressEvent {
+            phase: "success".into(),
+            percentage: 100,
+            bytes_transferred: total_len,
+            total_bytes: total_len,
+            message: "Bridge successfully updated and rebooted!".into(),
+        },
+    );
 
     push_bridge_log(BridgeLogEntry {
         seq: 0,
@@ -2812,7 +2998,8 @@ pub async fn save_file_with_dialog(
         }
 
         if let Some(dest) = dialog.save_file() {
-            std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write file to {}: {}", dest.display(), e))?;
+            std::fs::write(&dest, bytes)
+                .map_err(|e| format!("Failed to write file to {}: {}", dest.display(), e))?;
             Ok(Some(dest.to_string_lossy().to_string()))
         } else {
             Ok(None)
@@ -2822,6 +3009,17 @@ pub async fn save_file_with_dialog(
     .map_err(|e| e.to_string())?
 }
 
-
-
-
+#[tauri::command]
+pub async fn notify_system_resume(state: State<'_, AppState>) -> Result<(), String> {
+    tracing::info!(
+        "Frontend notified system resume / network restoration; resetting stale transports"
+    );
+    let state_clone = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        state_clone.manager.reset_stale_transports();
+        crate::monitor::request_wake_recovery();
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -34,11 +34,13 @@ interface HeaderProps {
   onRefresh: (forceRefresh?: boolean) => void;
   isRefreshing: boolean;
   lastUpdatedAt?: number;
+  pollInterval?: number;
   safetyStage: UnlockStage;
   onTabChange: (tab: string) => void;
   onOpenAddDeviceModal: () => void;
   profiles?: UpsMetadata[];
   deviceStatuses?: Record<string, Q1Status>;
+  deviceUpdatedTimes?: Record<string, number>;
   onSelectUps?: (upsId: string) => void;
   onScan?: () => void;
   isScanning?: boolean;
@@ -68,11 +70,13 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   onRefresh,
   isRefreshing,
   lastUpdatedAt,
+  pollInterval = 10,
   safetyStage: _safetyStage,
   onTabChange,
   onOpenAddDeviceModal,
   profiles,
   deviceStatuses,
+  deviceUpdatedTimes,
   onSelectUps,
   onScan,
   isScanning,
@@ -83,6 +87,15 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   const overflowRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const [, setStaleCheckTick] = useState(0);
+
+  useEffect(() => {
+    if (!lastUpdatedAt) return;
+    const timer = setInterval(() => {
+      setStaleCheckTick((n) => n + 1);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [lastUpdatedAt]);
 
   // Close menus on outside click
   useEffect(() => {
@@ -106,7 +119,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
     activeDevice?.port_name || activeProfile?.last_port || selectedDevice,
     activeTransport
   );
-  const operatingState = getUpsOperatingState(activeStatus);
+  const operatingState = getUpsOperatingState(activeStatus, lastUpdatedAt, pollInterval);
 
   return (
     <header
@@ -140,6 +153,16 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
             <TransportPill transport={transport} ip={transportIp} size="sm" />
             <DeviceStatePill state={operatingState} size="sm" />
+
+            {isScanning && (
+              <span
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-700/50 text-[10px] font-medium tracking-wide animate-pulse shrink-0"
+                title="Scanning hardware interfaces for connected UPS devices..."
+              >
+                <RefreshCw className="w-2.5 h-2.5 animate-spin shrink-0" />
+                <span>Scanning...</span>
+              </span>
+            )}
 
             <ChevronDown
               className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${
@@ -200,8 +223,9 @@ export const Header: React.FC<HeaderProps> = React.memo(({
                   profiles.map((p) => {
                     const isSelected = selectedUpsId === p.unique_id;
                     const profileStatus = (deviceStatuses && deviceStatuses[p.unique_id]) || (isSelected ? activeStatus : null);
+                    const profileUpdatedTime = (deviceUpdatedTimes && deviceUpdatedTimes[p.unique_id]) || (isSelected ? lastUpdatedAt : undefined);
                     const pMedium = getTransportMedium(p.last_port);
-                    const pState = getUpsOperatingState(profileStatus);
+                    const pState = getUpsOperatingState(profileStatus, profileUpdatedTime, p.poll_interval_secs ?? pollInterval);
 
                     return (
                       <button

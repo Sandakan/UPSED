@@ -2,8 +2,16 @@ use crate::commands::{connect_device_internal, detect_status_events, AppState, U
 use crate::db::TelemetryRecord;
 use crate::protocol::Q1Status;
 use crate::serial::scan_available_ports_with_context;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+
+static WAKE_RECOVERY_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Signals the background monitor that the host system resumed from sleep or network restored.
+pub fn request_wake_recovery() {
+    WAKE_RECOVERY_REQUESTED.store(true, Ordering::Relaxed);
+}
 
 pub async fn run_background_monitor(
     app: AppHandle,
@@ -19,6 +27,8 @@ pub async fn run_background_monitor(
     fast_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let mut last_slow_tick = tokio::time::Instant::now();
+    let mut last_wall_clock = chrono::Utc::now();
+    let mut wake_burst_remaining: u8 = 0;
     let mut is_initial = true;
 
     loop {
@@ -27,16 +37,46 @@ pub async fn run_background_monitor(
         tokio::select! {
             _ = fast_interval.tick() => {
                 let now = tokio::time::Instant::now();
-                let elapsed_slow = now.duration_since(last_slow_tick).as_secs();
+                let wall_now = chrono::Utc::now();
+                let elapsed_wall_secs = wall_now.signed_duration_since(last_wall_clock).num_seconds();
+                last_wall_clock = wall_now;
 
-                if is_initial || elapsed_slow >= current_interval_secs {
+                let manual_wake = WAKE_RECOVERY_REQUESTED.swap(false, Ordering::Relaxed);
+                let clock_jump_detected = elapsed_wall_secs > (current_interval_secs as i64 + 4);
+
+                if manual_wake || clock_jump_detected {
+                    tracing::info!(
+                        "System resume / wake recovery triggered (manual={}, wall_jump={}s). Resetting stale transports and starting 2s fast retry burst",
+                        manual_wake,
+                        elapsed_wall_secs
+                    );
+                    state.manager.reset_stale_transports();
+                    wake_burst_remaining = 3;
+                }
+
+                let elapsed_slow = now.duration_since(last_slow_tick).as_secs();
+                let effective_interval = if wake_burst_remaining > 0 {
+                    2
+                } else {
+                    current_interval_secs
+                };
+
+                if is_initial || manual_wake || clock_jump_detected || elapsed_slow >= effective_interval {
                     is_initial = false;
                     last_slow_tick = now;
                     let app_c = app.clone();
                     let state_c = state.clone();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        slow_poll_cycle_step(&app_c, &state_c);
-                    }).await;
+                    let any_failed = tokio::task::spawn_blocking(move || {
+                        slow_poll_cycle_step(&app_c, &state_c)
+                    }).await.unwrap_or(false);
+
+                    if wake_burst_remaining > 0 {
+                        if !any_failed {
+                            wake_burst_remaining = 0;
+                        } else {
+                            wake_burst_remaining = wake_burst_remaining.saturating_sub(1);
+                        }
+                    }
                 } else {
                     let app_c = app.clone();
                     let state_c = state.clone();
@@ -51,6 +91,7 @@ pub async fn run_background_monitor(
                     tracing::info!("Background monitor: interval updated to {}s, triggering cycle", new_sec);
                     // Re-arm so slow cycle fires promptly
                     last_slow_tick = tokio::time::Instant::now() - Duration::from_secs(new_sec);
+                    last_wall_clock = chrono::Utc::now();
                 }
             }
         }
@@ -181,12 +222,12 @@ fn fast_drain_cycle_step(app: &AppHandle, state: &AppState) {
     }
 }
 
-fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
+fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) -> bool {
     let approved_profiles = state.db.list_all_ups_metadata().unwrap_or_default();
 
     if approved_profiles.is_empty() && state.manager.list_devices().is_empty() {
         crate::tray::update_tray_state(app, false, None);
-        return;
+        return false;
     }
 
     // Auto-reconnect approved profiles that are not yet active in manager
@@ -203,7 +244,13 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
             // 2. Try configured bridge host if port failed
             if !connected {
                 if let Some(ref host) = profile.bridge_ws_host {
-                    let ws_port = format!("BRIDGE:{}", host);
+                    let ws_port = if host.starts_with("BRIDGE:") {
+                        host.clone()
+                    } else if host.starts_with("WS:") {
+                        format!("BRIDGE:{}", host)
+                    } else {
+                        format!("BRIDGE:WS:{}", host)
+                    };
                     if connect_device_internal(state, &ws_port, None).is_ok() {
                         connected = true;
                     }
@@ -236,11 +283,12 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
     let connected_list = state.manager.list_connected_details();
     if connected_list.is_empty() {
         crate::tray::update_tray_state(app, false, None);
-        return;
+        return true;
     }
 
     let mut primary_status: Option<Q1Status> = None;
     let mut device_summaries: Vec<(String, Option<Q1Status>)> = Vec::new();
+    let mut any_poll_failed = false;
 
     // Determine primary profile ID
     let primary_id = approved_profiles
@@ -353,7 +401,22 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
                 }
             }
             Err(err) => {
-                tracing::warn!("Background poll failed for UPS on {}: {}", info.port_name, err);
+                any_poll_failed = true;
+                let fail_count = state.manager.get_consecutive_poll_failures(&info.port_name);
+                tracing::warn!(
+                    "Background poll failed for UPS on {} (consecutive failures: {}): {}",
+                    info.port_name,
+                    fail_count,
+                    err
+                );
+                if fail_count >= 4 && !state.manager.is_bridge_device(&info.port_name) {
+                    tracing::warn!(
+                        "Unregistering unresponsive direct device {} after {} failures to allow clean auto-reconnect",
+                        info.port_name,
+                        fail_count
+                    );
+                    let _ = state.manager.unregister_device(&info.port_name);
+                }
                 device_summaries.push((device_label, None));
             }
         }
@@ -379,4 +442,6 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) {
     if primary_status.is_none() && is_bridge_enabled {
         crate::tray::update_tray_state(app, false, None);
     }
+
+    any_poll_failed
 }

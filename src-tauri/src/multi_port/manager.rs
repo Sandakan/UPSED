@@ -114,6 +114,7 @@ pub struct MultiPortManager {
     buckets: Arc<Mutex<HashMap<String, TelemetryBucket>>>,
     fast_watch_until: Arc<Mutex<HashMap<String, Instant>>>,
     completion_probes: Arc<Mutex<HashMap<String, Instant>>>,
+    consecutive_poll_failures: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl Default for MultiPortManager {
@@ -124,6 +125,7 @@ impl Default for MultiPortManager {
             buckets: Arc::new(Mutex::new(HashMap::new())),
             fast_watch_until: Arc::new(Mutex::new(HashMap::new())),
             completion_probes: Arc::new(Mutex::new(HashMap::new())),
+            consecutive_poll_failures: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -140,7 +142,41 @@ impl MultiPortManager {
             buckets: Arc::new(Mutex::new(HashMap::new())),
             fast_watch_until: Arc::new(Mutex::new(HashMap::new())),
             completion_probes: Arc::new(Mutex::new(HashMap::new())),
+            consecutive_poll_failures: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Force-resets stale sockets on all active bridge transports (used upon system resume/wake).
+    pub fn reset_stale_transports(&self) {
+        let bridge_transports: Vec<(String, Arc<Mutex<Box<dyn SerialTransport>>>)> = {
+            let devs = self.devices.lock().unwrap();
+            devs.iter()
+                .filter(|(_, d)| {
+                    d.info.bridge_mac.is_some() || d.info.port_name.starts_with("BRIDGE:")
+                })
+                .map(|(k, d)| (k.clone(), Arc::clone(&d.transport)))
+                .collect()
+        };
+
+        for (port_name, transport_arc) in bridge_transports {
+            if let Ok(mut transport) = transport_arc.lock() {
+                if let Some(bridge) = transport
+                    .as_any_mut()
+                    .and_then(|a| a.downcast_mut::<crate::serial::BridgeTransport>())
+                {
+                    tracing::info!("Resetting stale bridge transport socket for {}", port_name);
+                    bridge.reset_socket();
+                }
+            }
+        }
+    }
+
+    pub fn get_consecutive_poll_failures(&self, port_name: &str) -> u32 {
+        self.consecutive_poll_failures
+            .lock()
+            .ok()
+            .and_then(|m| m.get(port_name).copied())
+            .unwrap_or(0)
     }
 
     pub fn register_device(&self, info: DiscoveredDevice, transport: Box<dyn SerialTransport>) {
@@ -503,6 +539,9 @@ impl MultiPortManager {
                                     device.last_polled_at = Some(Instant::now());
                                 }
                             }
+                            if let Ok(mut fails) = self.consecutive_poll_failures.lock() {
+                                fails.insert(port_name.clone(), 0);
+                            }
                             return Ok(status);
                         }
                         Err(parse_err) => {
@@ -526,9 +565,32 @@ impl MultiPortManager {
             }
         }
 
+        let fail_count = if let Ok(mut fails) = self.consecutive_poll_failures.lock() {
+            let count = fails.entry(port_name.clone()).or_insert(0);
+            *count = count.saturating_add(1);
+            *count
+        } else {
+            1
+        };
+
+        if fail_count >= 2 {
+            if let Some(bridge) = transport
+                .as_any_mut()
+                .and_then(|a| a.downcast_mut::<crate::serial::BridgeTransport>())
+            {
+                tracing::warn!(
+                    "Consecutive poll failures ({}) reached on {}; force-resetting bridge transport socket",
+                    fail_count,
+                    port_name
+                );
+                bridge.reset_socket();
+            }
+        }
+
         tracing::error!(
-            "All telemetry queries (QS, Q1, QPIGS) failed on {}",
-            port_name
+            "All telemetry queries (QS, Q1, QPIGS) failed on {} (consecutive failures: {})",
+            port_name,
+            fail_count
         );
         Err(ProtocolError::CommandNak)
     }

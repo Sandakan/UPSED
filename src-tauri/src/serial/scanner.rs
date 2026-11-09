@@ -561,8 +561,12 @@ pub fn scan_available_ports_with_context(
         }
     }
 
-    // 4. If no USB-tethered ESP32 Bridge was found, probe WebSocket bridges (fallback IP then mDNS)
-    if !found_usb_bridge {
+    // 4. If no ESP32 Bridge is already active or discovered, probe WebSocket bridges (fallback IP then mDNS)
+    let already_has_bridge = found_usb_bridge
+        || discovered.iter().any(|d| d.port_name.starts_with("BRIDGE:") || d.bridge_mac.is_some())
+        || active_devices.iter().any(|d| d.port_name.starts_with("BRIDGE:") || d.bridge_mac.is_some());
+
+    if !already_has_bridge {
         let mut candidate_hosts = Vec::new();
         if let Some(fb) = fallback_ws_host {
             let clean = fb.trim();

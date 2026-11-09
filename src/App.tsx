@@ -654,6 +654,33 @@ export function App() {
     queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
   }, [effectivePort, selectedUpsId, refetchStatus, refetchHistory, refetchEvents, queryClient]);
 
+  // System sleep/wake, network restore, and stale telemetry recovery watchdog
+  useEffect(() => {
+    const handleWakeOrFocus = () => {
+      const isStale =
+        !lastUpdatedAt || Date.now() - lastUpdatedAt > Math.max(pollInterval * 1500, 15000);
+      if (isStale && document.visibilityState === 'visible') {
+        api.notifySystemResume().catch(console.error);
+        pollTelemetry(true);
+      }
+    };
+
+    const handleNetworkOnline = () => {
+      api.notifySystemResume().catch(console.error);
+      pollTelemetry(true);
+    };
+
+    window.addEventListener('online', handleNetworkOnline);
+    window.addEventListener('focus', handleWakeOrFocus);
+    document.addEventListener('visibilitychange', handleWakeOrFocus);
+
+    return () => {
+      window.removeEventListener('online', handleNetworkOnline);
+      window.removeEventListener('focus', handleWakeOrFocus);
+      document.removeEventListener('visibilitychange', handleWakeOrFocus);
+    };
+  }, [lastUpdatedAt, pollInterval, pollTelemetry]);
+
   // Metadata refresh handler
   const refreshMetadata = useCallback(() => {
     refetchSafetyStage();
@@ -763,11 +790,13 @@ export function App() {
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
           lastUpdatedAt={lastUpdatedAt}
+          pollInterval={pollInterval}
           safetyStage={safetyStage}
           onTabChange={handleTabChange}
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
           profiles={profiles}
           deviceStatuses={deviceStatuses}
+          deviceUpdatedTimes={deviceUpdatedTimes}
           onSelectUps={handleSelectUps}
           onScan={handleScan}
           isScanning={isScanning}

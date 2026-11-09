@@ -2,8 +2,18 @@ import React from 'react';
 import { Wifi, Usb, Cpu, Plug, HelpCircle } from 'lucide-react';
 import { Q1Status, TransportMedium, UpsOperatingState } from '../lib/types';
 
-export function getUpsOperatingState(status?: Q1Status | null): UpsOperatingState {
+export function getUpsOperatingState(
+  status?: Q1Status | null,
+  lastUpdatedAt?: number,
+  pollIntervalSecs?: number
+): UpsOperatingState {
   if (!status) return 'Offline';
+  if (lastUpdatedAt && pollIntervalSecs) {
+    const staleThresholdMs = Math.max(pollIntervalSecs * 2000, 20000);
+    if (Date.now() - lastUpdatedAt > staleThresholdMs) {
+      return 'Reconnecting';
+    }
+  }
   if (status.ups_failed) return 'Fault';
   if (status.test_in_progress) return 'Testing';
   if (status.bypass_active) return 'Bypass';
@@ -169,6 +179,16 @@ export const DeviceStatePill: React.FC<DeviceStatePillProps> = ({
         >
           <span className={`${dotSizes} rounded-full bg-rose-400 animate-pulse shrink-0`} />
           <span>Fault</span>
+        </span>
+      );
+    case 'Reconnecting':
+      return (
+        <span
+          className={`inline-flex items-center font-medium rounded-full bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0 ${sizeClasses} ${className}`}
+          title="Telemetry stale — attempting to reconnect to hardware"
+        >
+          <span className={`${dotSizes} rounded-full bg-amber-400 animate-ping shrink-0`} />
+          <span>Reconnecting...</span>
         </span>
       );
     case 'Offline':

@@ -430,7 +430,9 @@ pub fn push_bridge_log(entry: BridgeLogEntry) {
         // Deduplicate incoming ESP32-FW notifications: if this sequence number is already recorded with identical text, skip
         if entry.source == "ESP32-FW"
             && entry.seq > 0
-            && buf.iter().any(|existing| existing.seq == entry.seq && existing.msg == entry.msg)
+            && buf
+                .iter()
+                .any(|existing| existing.seq == entry.seq && existing.msg == entry.msg)
         {
             return;
         }
@@ -473,6 +475,7 @@ pub struct BridgeTransport {
     active_medium: String,
     next_rpc_id: u64,
     last_status: Arc<Mutex<Option<BridgeStatus>>>,
+    last_lan_sweep: Option<Instant>,
 }
 
 impl BridgeTransport {
@@ -485,7 +488,10 @@ impl BridgeTransport {
             seq: 0,
             ms: 0,
             level: "INFO".into(),
-            msg: format!("Opening BridgeTransport for '{}' (fallback host: {:?})", port_identifier, clean_fallback),
+            msg: format!(
+                "Opening BridgeTransport for '{}' (fallback host: {:?})",
+                port_identifier, clean_fallback
+            ),
             timestamp: chrono::Utc::now().to_rfc3339(),
             source: "BRIDGE-RPC".into(),
         });
@@ -498,8 +504,15 @@ impl BridgeTransport {
             let (host, port) = parse_host_port(ws_target, BRIDGE_DEFAULT_WS_PORT);
             ws_host = Some(host);
             ws_port = port;
-        } else if let Some(com_port) = port_identifier.strip_prefix("BRIDGE:") {
-            serial_port_name = Some(com_port.to_string());
+        } else if let Some(target) = port_identifier.strip_prefix("BRIDGE:") {
+            let upper = target.to_ascii_uppercase();
+            if upper.starts_with("COM") || target.starts_with("/dev/") || upper.starts_with("TTY") {
+                serial_port_name = Some(target.to_string());
+            } else {
+                let (host, port) = parse_host_port(target, BRIDGE_DEFAULT_WS_PORT);
+                ws_host = Some(host);
+                ws_port = port;
+            }
         } else {
             serial_port_name = Some(port_identifier.to_string());
         }
@@ -521,15 +534,23 @@ impl BridgeTransport {
             active_medium: initial_medium,
             next_rpc_id: 1,
             last_status: Arc::new(Mutex::new(None)),
+            last_lan_sweep: None,
         };
 
         let status = transport.ping()?;
-        emit_transport_status(&transport.port_identifier, &status.active_transport, transport.ws_host.as_deref());
+        emit_transport_status(
+            &transport.port_identifier,
+            &status.active_transport,
+            transport.ws_host.as_deref(),
+        );
         push_bridge_log(BridgeLogEntry {
             seq: 0,
             ms: 0,
             level: "INFO".into(),
-            msg: format!("BridgeTransport connected via {}! (ESP32 MAC: {}, IP: {}, Mode: {})", status.active_transport, status.mac, status.ip, status.mode),
+            msg: format!(
+                "BridgeTransport connected via {}! (ESP32 MAC: {}, IP: {}, Mode: {})",
+                status.active_transport, status.mac, status.ip, status.mode
+            ),
             timestamp: chrono::Utc::now().to_rfc3339(),
             source: "BRIDGE-RPC".into(),
         });
@@ -537,12 +558,36 @@ impl BridgeTransport {
         Ok(transport)
     }
 
+    /// Force-closes any active WebSocket or serial handles and clears LAN sweep throttling
+    /// so the next RPC immediately establishes a fresh transport connection.
+    pub fn reset_socket(&mut self) {
+        if self.ws_socket.is_some() {
+            tracing::info!(
+                "[BRIDGE-RPC] Force-closing stale WebSocket connection for '{}'",
+                self.port_identifier
+            );
+            self.ws_socket = None;
+        }
+        if self.serial_port.is_some() {
+            tracing::info!(
+                "[BRIDGE-RPC] Force-resetting serial port handle for '{}'",
+                self.port_identifier
+            );
+            self.serial_port = None;
+        }
+        self.last_lan_sweep = None;
+    }
+
     pub fn last_status_handle(&self) -> Arc<Mutex<Option<BridgeStatus>>> {
         self.last_status.clone()
     }
 
     pub fn bridge_mac(&self) -> Option<String> {
-        self.last_status.lock().ok()?.as_ref().map(|s| s.mac.clone())
+        self.last_status
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|s| s.mac.clone())
     }
 
     pub fn active_medium(&self) -> &str {
@@ -555,14 +600,19 @@ impl BridgeTransport {
 
     pub fn ping(&mut self) -> Result<BridgeStatus, ProtocolError> {
         let (val, medium) = self.call_rpc("bridge.ping", json!({}))?;
-        let mut status: BridgeStatus = serde_json::from_value(val)
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.ping payload: {}", e)))?;
+        let mut status: BridgeStatus = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.ping payload: {}", e))
+        })?;
         status.active_transport = medium;
         status.enrich_compatibility();
 
         if status.wifi_connected && !status.ip.is_empty() {
             self.ws_host = Some(status.ip.clone());
-            self.ws_port = if status.ws_port > 0 { status.ws_port } else { BRIDGE_DEFAULT_WS_PORT };
+            self.ws_port = if status.ws_port > 0 {
+                status.ws_port
+            } else {
+                BRIDGE_DEFAULT_WS_PORT
+            };
         }
 
         if let Ok(mut guard) = self.last_status.lock() {
@@ -587,8 +637,9 @@ impl BridgeTransport {
             Duration::from_secs(14),
         )?;
 
-        let mut status: BridgeStatus = serde_json::from_value(val)
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.setWifi payload: {}", e)))?;
+        let mut status: BridgeStatus = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.setWifi payload: {}", e))
+        })?;
         status.active_transport = medium;
         status.enrich_compatibility();
 
@@ -598,7 +649,10 @@ impl BridgeTransport {
                 seq: 0,
                 ms: 0,
                 level: "INFO".into(),
-                msg: format!("Wi-Fi connected! ESP32 IP is {}, WebSocket ready on port {}", status.ip, status.ws_port),
+                msg: format!(
+                    "Wi-Fi connected! ESP32 IP is {}, WebSocket ready on port {}",
+                    status.ip, status.ws_port
+                ),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 source: "BRIDGE-RPC".into(),
             });
@@ -607,7 +661,10 @@ impl BridgeTransport {
                 seq: 0,
                 ms: 0,
                 level: "WARN".into(),
-                msg: format!("Wi-Fi did not connect immediately: {}", status.wifi_last_error),
+                msg: format!(
+                    "Wi-Fi did not connect immediately: {}",
+                    status.wifi_last_error
+                ),
                 timestamp: chrono::Utc::now().to_rfc3339(),
                 source: "BRIDGE-RPC".into(),
             });
@@ -629,11 +686,8 @@ impl BridgeTransport {
             source: "BRIDGE-RPC".into(),
         });
 
-        let (val, _) = self.call_rpc_with_timeout(
-            "bridge.scanWifi",
-            json!({}),
-            Duration::from_secs(10),
-        )?;
+        let (val, _) =
+            self.call_rpc_with_timeout("bridge.scanWifi", json!({}), Duration::from_secs(10))?;
 
         let networks: Vec<WifiScanNetwork> = val
             .get("networks")
@@ -709,10 +763,7 @@ impl BridgeTransport {
 
     pub fn clear_backlog(&mut self) -> Result<usize, ProtocolError> {
         let (val, _) = self.call_rpc("bridge.clearBacklog", json!({ "count": 0 }))?;
-        let remaining = val
-            .get("remaining")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize;
+        let remaining = val.get("remaining").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         Ok(remaining)
     }
 
@@ -728,13 +779,18 @@ impl BridgeTransport {
             }),
         )?;
 
-        let mut status: BridgeStatus = serde_json::from_value(val)
-            .map_err(|e| ProtocolError::ParseError(format!("Invalid bridge.syncTime payload: {}", e)))?;
+        let mut status: BridgeStatus = serde_json::from_value(val).map_err(|e| {
+            ProtocolError::ParseError(format!("Invalid bridge.syncTime payload: {}", e))
+        })?;
 
         // If the payload did not include full bridge metadata (e.g. lightweight sync response from bridge firmware),
         // enrich with current or cached status so the UI retains all hardware connection info.
         if status.bridge.is_empty() {
-            let rtc_ts = if status.rtc_ts > 0 { status.rtc_ts } else { now.timestamp() as u64 };
+            let rtc_ts = if status.rtc_ts > 0 {
+                status.rtc_ts
+            } else {
+                now.timestamp() as u64
+            };
             let rtc_iso = if !status.rtc_iso.is_empty() {
                 status.rtc_iso.clone()
             } else {
@@ -803,7 +859,11 @@ impl BridgeTransport {
         )?;
 
         let port = val.get("port").and_then(|p| p.as_u64()).unwrap_or(8080) as u16;
-        let mut ip = val.get("ip").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        let mut ip = val
+            .get("ip")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
         if ip.is_empty() {
             if let Some(ref host) = self.ws_host {
                 ip = host.clone();
@@ -819,7 +879,10 @@ impl BridgeTransport {
             ip = BRIDGE_DEFAULT_MDNS_HOST.to_string();
         }
 
-        let lease_ms = val.get("lease_ms").and_then(|m| m.as_u64()).unwrap_or(90000);
+        let lease_ms = val
+            .get("lease_ms")
+            .and_then(|m| m.as_u64())
+            .unwrap_or(90000);
 
         Ok(OtaLeaseInfo { port, ip, lease_ms })
     }
@@ -955,7 +1018,10 @@ impl BridgeTransport {
             seq: 0,
             ms: 0,
             level: "INFO".into(),
-            msg: format!("Toggling manual night mode override (override={:?})...", override_val),
+            msg: format!(
+                "Toggling manual night mode override (override={:?})...",
+                override_val
+            ),
             timestamp: chrono::Utc::now().to_rfc3339(),
             source: "BRIDGE-RPC".into(),
         });
@@ -1000,7 +1066,10 @@ impl BridgeTransport {
         // Attach ack_seq and host RTC piggyback so the ESP32 flushes unacknowledged real-time logs
         // and synchronizes real-world time without requiring NTP.
         if let Some(obj) = params.as_object_mut() {
-            obj.insert("ack_seq".to_string(), json!(GLOBAL_LAST_ACK_SEQ.load(Ordering::Relaxed)));
+            obj.insert(
+                "ack_seq".to_string(),
+                json!(GLOBAL_LAST_ACK_SEQ.load(Ordering::Relaxed)),
+            );
             let (urg_fast, host_poll) = get_bridge_runtime_settings();
             obj.insert("urgent_fast_poll".to_string(), json!(urg_fast));
             obj.insert("host_poll_sec".to_string(), json!(host_poll));
@@ -1052,7 +1121,11 @@ impl BridgeTransport {
                     Ok(res_val) => {
                         self.active_medium = "usb".to_string();
                         if prev_medium != self.active_medium {
-                            emit_transport_status(&self.port_identifier, "usb", self.ws_host.as_deref());
+                            emit_transport_status(
+                                &self.port_identifier,
+                                "usb",
+                                self.ws_host.as_deref(),
+                            );
                         }
                         self.update_cached_transport("usb", &res_val);
                         self.ws_socket = None;
@@ -1064,7 +1137,10 @@ impl BridgeTransport {
                             seq: 0,
                             ms: 0,
                             level: "WARN".into(),
-                            msg: format!("USB Serial RPC failed ({:?}); failing over to Wi-Fi WebSocket...", err),
+                            msg: format!(
+                                "USB Serial RPC failed ({:?}); failing over to Wi-Fi WebSocket...",
+                                err
+                            ),
                             timestamp: chrono::Utc::now().to_rfc3339(),
                             source: "BRIDGE-RPC".into(),
                         });
@@ -1080,7 +1156,11 @@ impl BridgeTransport {
             Ok(res_val) => {
                 self.active_medium = "websocket".to_string();
                 if prev_medium != self.active_medium {
-                    emit_transport_status(&self.port_identifier, "websocket", self.ws_host.as_deref());
+                    emit_transport_status(
+                        &self.port_identifier,
+                        "websocket",
+                        self.ws_host.as_deref(),
+                    );
                 }
                 self.update_cached_transport("websocket", &res_val);
                 Ok((res_val, "websocket".to_string()))
@@ -1187,6 +1267,12 @@ impl BridgeLogPlaybackTracker {
     }
 }
 
+enum WsExchangeResult {
+    Success(Value),
+    RpcError(ProtocolError),
+    TransportDropped(String),
+}
+
 impl BridgeTransport {
     fn try_serial_rpc(
         &mut self,
@@ -1236,7 +1322,9 @@ impl BridgeTransport {
 
                     if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
                         // Check if this is an unprompted real-time notification
-                        if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                        if doc.get("id").is_none()
+                            || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                        {
                             if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
                                 if method == "bridge.log" {
                                     playback_tracker.record_log(&doc);
@@ -1271,12 +1359,122 @@ impl BridgeTransport {
         Err(ProtocolError::Timeout)
     }
 
+    fn execute_ws_exchange(
+        &mut self,
+        expected_id: u64,
+        serialized_req: &str,
+        timeout: Duration,
+        host_label: &str,
+    ) -> WsExchangeResult {
+        let ws = match self.ws_socket.as_mut() {
+            Some(w) => w,
+            None => return WsExchangeResult::TransportDropped("No active WebSocket".to_string()),
+        };
+
+        let _ = ws.get_ref().set_read_timeout(Some(timeout));
+        let _ = ws.get_ref().set_write_timeout(Some(timeout));
+
+        if let Err(e) = ws.send(Message::Text(serialized_req.to_string())) {
+            self.ws_socket = None;
+            return WsExchangeResult::TransportDropped(format!(
+                "ws://{}:{} send error: {}",
+                host_label, self.ws_port, e
+            ));
+        }
+
+        let start = Instant::now();
+        let mut playback_tracker = BridgeLogPlaybackTracker::new();
+        while start.elapsed() < timeout {
+            let read_res = if let Some(ref mut sock) = self.ws_socket {
+                sock.read()
+            } else {
+                break;
+            };
+
+            match read_res {
+                Ok(Message::Text(txt)) => {
+                    let trimmed = txt.trim();
+                    if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
+                        if doc.get("id").is_none()
+                            || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                        {
+                            if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
+                                if method == "bridge.log" {
+                                    playback_tracker.record_log(&doc);
+                                } else if method == "bridge.cmdExecuted" {
+                                    process_bridge_cmd_executed(&doc);
+                                } else if method == "bridge.stateChanged" {
+                                    process_bridge_state_changed(&doc);
+                                } else if method == "bridge.statusChanged" {
+                                    process_bridge_status_changed(&doc, &self.last_status);
+                                }
+                            }
+                            continue;
+                        }
+
+                        let resp_id = doc.get("id").and_then(|v| v.as_u64());
+                        if resp_id == Some(expected_id) {
+                            playback_tracker.finish();
+                            match parse_jsonrpc_doc(&doc) {
+                                Ok(val) => return WsExchangeResult::Success(val),
+                                Err(proto_err) => {
+                                    // Valid JSON-RPC frame received from bridge (e.g. UPS hardware busy/timeout or NAK).
+                                    // The WebSocket connection itself is healthy!
+                                    return WsExchangeResult::RpcError(proto_err);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    playback_tracker.finish();
+                    self.ws_socket = None;
+                    return WsExchangeResult::TransportDropped(format!(
+                        "ws://{}:{} read error: {}",
+                        host_label, self.ws_port, e
+                    ));
+                }
+            }
+        }
+        playback_tracker.finish();
+        self.ws_socket = None;
+        WsExchangeResult::TransportDropped(format!(
+            "ws://{}:{} timed out waiting for response",
+            host_label, self.ws_port
+        ))
+    }
+
     fn try_ws_rpc(
         &mut self,
         expected_id: u64,
         serialized_req: &str,
         timeout: Duration,
     ) -> Result<Value, ProtocolError> {
+        let mut attempt_errors = Vec::new();
+
+        // 1. If we already have an open WebSocket, try it first; if it fails due to network disconnect,
+        // drop it and proceed to fresh connection attempts. If the bridge responds with an RPC error,
+        // keep the WebSocket alive and return the error without churning.
+        if self.ws_socket.is_some() {
+            let current_host = self
+                .ws_host
+                .clone()
+                .unwrap_or_else(|| BRIDGE_DEFAULT_MDNS_HOST.to_string());
+            match self.execute_ws_exchange(expected_id, serialized_req, timeout, &current_host) {
+                WsExchangeResult::Success(val) => return Ok(val),
+                WsExchangeResult::RpcError(err) => return Err(err),
+                WsExchangeResult::TransportDropped(err) => {
+                    tracing::warn!(
+                        "[BRIDGE-RPC] Existing WebSocket connection on {} dropped ({}), reconnecting...",
+                        current_host,
+                        err
+                    );
+                    self.ws_socket = None;
+                }
+            }
+        }
+
         let mut candidate_hosts: Vec<String> = Vec::new();
         if let Some(ref host) = self.ws_host {
             let clean = host.trim();
@@ -1295,72 +1493,87 @@ impl BridgeTransport {
             candidate_hosts.push(mdns);
         }
 
-        let mut attempt_errors = Vec::new();
-
+        // 2. Attempt fresh connections across candidate hosts
         for host in candidate_hosts {
-            if self.ws_socket.is_none() {
-                match connect_ws(&host, self.ws_port, timeout) {
-                    Ok(ws) => {
-                        self.ws_socket = Some(ws);
-                        self.ws_host = Some(host.clone());
-                    }
-                    Err(err) => {
-                        tracing::warn!("[BRIDGE-RPC] Failed to connect to ws://{}:{}: {:?}", host, self.ws_port, err);
-                        attempt_errors.push(format!("ws://{}:{} ({:?})", host, self.ws_port, err));
-                        continue;
-                    }
+            match connect_ws(&host, self.ws_port, timeout) {
+                Ok(ws) => {
+                    self.ws_socket = Some(ws);
+                    self.ws_host = Some(host.clone());
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "[BRIDGE-RPC] Failed to connect to ws://{}:{}: {:?}",
+                        host,
+                        self.ws_port,
+                        err
+                    );
+                    attempt_errors.push(format!("ws://{}:{} ({:?})", host, self.ws_port, err));
+                    continue;
                 }
             }
 
-            if let Some(ref mut ws) = self.ws_socket {
-                let _ = ws.get_ref().set_read_timeout(Some(timeout));
-                let _ = ws.get_ref().set_write_timeout(Some(timeout));
-
-                if let Err(e) = ws.send(Message::Text(serialized_req.to_string())) {
-                    self.ws_socket = None;
-                    attempt_errors.push(format!("ws://{}:{} send error: {}", host, self.ws_port, e));
-                    continue;
+            match self.execute_ws_exchange(expected_id, serialized_req, timeout, &host) {
+                WsExchangeResult::Success(val) => return Ok(val),
+                WsExchangeResult::RpcError(err) => return Err(err),
+                WsExchangeResult::TransportDropped(err) => {
+                    attempt_errors.push(err);
                 }
+            }
+        }
 
-                let start = Instant::now();
-                let mut playback_tracker = BridgeLogPlaybackTracker::new();
-                while start.elapsed() < timeout {
-                    match ws.read() {
-                        Ok(Message::Text(txt)) => {
-                            let trimmed = txt.trim();
-                            if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
-                                if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
-                                    if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
-                                        if method == "bridge.log" {
-                                            playback_tracker.record_log(&doc);
-                                        } else if method == "bridge.cmdExecuted" {
-                                            process_bridge_cmd_executed(&doc);
-                                        } else if method == "bridge.stateChanged" {
-                                            process_bridge_state_changed(&doc);
-                                        } else if method == "bridge.statusChanged" {
-                                            process_bridge_status_changed(&doc, &self.last_status);
-                                        }
-                                    }
-                                    continue;
-                                }
+        // 3. Dynamic LAN Subnet Sweep Fallback (throttled to once every 15s unless reset on wake)
+        let should_sweep = self
+            .last_lan_sweep
+            .map(|t| t.elapsed() >= Duration::from_secs(15))
+            .unwrap_or(true);
 
-                                let resp_id = doc.get("id").and_then(|v| v.as_u64());
-                                if resp_id == Some(expected_id) {
-                                    playback_tracker.finish();
-                                    return parse_jsonrpc_doc(&doc);
-                                }
+        if should_sweep {
+            self.last_lan_sweep = Some(Instant::now());
+            tracing::info!("[BRIDGE-RPC] Candidate WebSocket hosts unreachable; running LAN subnet sweep to rediscover ESP32 bridge...");
+            let expected_mac = self.bridge_mac();
+            let discovered = scan_lan_for_bridge();
+            let matched = discovered
+                .iter()
+                .find(|(_, st)| {
+                    expected_mac
+                        .as_deref()
+                        .map(|mac| !mac.is_empty() && st.mac.eq_ignore_ascii_case(mac))
+                        .unwrap_or(false)
+                })
+                .or_else(|| discovered.first());
+
+            if let Some((_port_id, st)) = matched {
+                let new_ip = st.ip.trim().to_string();
+                if !new_ip.is_empty() {
+                    tracing::info!(
+                        "[BRIDGE-RPC] Rediscovered ESP32 bridge via LAN sweep at {} (MAC: {})",
+                        new_ip,
+                        st.mac
+                    );
+                    push_bridge_log(BridgeLogEntry {
+                        seq: 0,
+                        ms: 0,
+                        level: "INFO".into(),
+                        msg: format!(
+                            "Rediscovered ESP32 bridge on LAN at {} (MAC: {})",
+                            new_ip, st.mac
+                        ),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        source: "BRIDGE-RPC".into(),
+                    });
+                    self.ws_host = Some(new_ip.clone());
+                    self.fallback_ws_host = Some(new_ip.clone());
+                    if let Ok(ws) = connect_ws(&new_ip, self.ws_port, timeout) {
+                        self.ws_socket = Some(ws);
+                        match self.execute_ws_exchange(expected_id, serialized_req, timeout, &new_ip) {
+                            WsExchangeResult::Success(val) => return Ok(val),
+                            WsExchangeResult::RpcError(err) => return Err(err),
+                            WsExchangeResult::TransportDropped(err) => {
+                                attempt_errors.push(err);
                             }
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            playback_tracker.finish();
-                            self.ws_socket = None;
-                            attempt_errors.push(format!("ws://{}:{} read error: {}", host, self.ws_port, e));
-                            break;
                         }
                     }
                 }
-                playback_tracker.finish();
             }
         }
 
@@ -1379,8 +1592,16 @@ fn process_bridge_notification(doc: &Value) {
     if let Some(params) = doc.get("params") {
         let seq = params.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
         let ms = params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
-        let level = params.get("level").and_then(|v| v.as_str()).unwrap_or("INFO").to_string();
-        let msg = params.get("msg").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let level = params
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("INFO")
+            .to_string();
+        let msg = params
+            .get("msg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let timestamp = params
             .get("iso_ts")
             .and_then(|v| v.as_str())
@@ -1407,7 +1628,10 @@ fn process_bridge_notification(doc: &Value) {
 fn process_bridge_cmd_executed(doc: &Value) {
     if let Some(params) = doc.get("params") {
         let cmd = params.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
-        let source = params.get("source").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let source = params
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let ts = params.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
 
         push_bridge_log(BridgeLogEntry {
@@ -1425,9 +1649,20 @@ fn process_bridge_cmd_executed(doc: &Value) {
 
 fn process_bridge_state_changed(doc: &Value) -> Option<BridgeStateChangedEvent> {
     let params = doc.get("params")?;
-    let raw = params.get("raw").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let reason = params.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let is_urgent = params.get("is_urgent").and_then(|v| v.as_bool()).unwrap_or(false);
+    let raw = params
+        .get("raw")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let reason = params
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let is_urgent = params
+        .get("is_urgent")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let ts = params.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
 
     let event = BridgeStateChangedEvent {
@@ -1475,7 +1710,9 @@ impl BridgeTransport {
                             continue;
                         }
                         if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
-                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                            if doc.get("id").is_none()
+                                || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                            {
                                 if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
                                     match method {
                                         "bridge.log" => process_bridge_notification(&doc),
@@ -1485,7 +1722,9 @@ impl BridgeTransport {
                                                 events.push(ev);
                                             }
                                         }
-                                        "bridge.statusChanged" => process_bridge_status_changed(&doc, &self.last_status),
+                                        "bridge.statusChanged" => {
+                                            process_bridge_status_changed(&doc, &self.last_status)
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -1498,15 +1737,20 @@ impl BridgeTransport {
         }
 
         // 2. Drain websocket if active
+        let mut drop_ws = false;
         if let Some(ref mut ws) = self.ws_socket {
-            let _ = ws.get_ref().set_read_timeout(Some(Duration::from_millis(15)));
+            let _ = ws
+                .get_ref()
+                .set_read_timeout(Some(Duration::from_millis(15)));
             let start = Instant::now();
             while start.elapsed() < Duration::from_millis(30) {
                 match ws.read() {
                     Ok(Message::Text(txt)) => {
                         let trimmed = txt.trim();
                         if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
-                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                            if doc.get("id").is_none()
+                                || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                            {
                                 if let Some(method) = doc.get("method").and_then(|m| m.as_str()) {
                                     match method {
                                         "bridge.log" => process_bridge_notification(&doc),
@@ -1516,7 +1760,9 @@ impl BridgeTransport {
                                                 events.push(ev);
                                             }
                                         }
-                                        "bridge.statusChanged" => process_bridge_status_changed(&doc, &self.last_status),
+                                        "bridge.statusChanged" => {
+                                            process_bridge_status_changed(&doc, &self.last_status)
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -1524,9 +1770,25 @@ impl BridgeTransport {
                         }
                     }
                     Ok(_) => {}
-                    Err(_) => break,
+                    Err(tungstenite::Error::Io(ref e))
+                        if e.kind() == std::io::ErrorKind::WouldBlock
+                            || e.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            "[BRIDGE-RPC] WebSocket closed or errored during notification drain ({:?}), dropping stale socket",
+                            e
+                        );
+                        drop_ws = true;
+                        break;
+                    }
                 }
             }
+        }
+        if drop_ws {
+            self.ws_socket = None;
         }
 
         events
@@ -1538,7 +1800,11 @@ impl SerialTransport for BridgeTransport {
         self.send_command_force_refresh(cmd_str, false)
     }
 
-    fn send_command_force_refresh(&mut self, cmd_str: &str, force_refresh: bool) -> Result<String, ProtocolError> {
+    fn send_command_force_refresh(
+        &mut self,
+        cmd_str: &str,
+        force_refresh: bool,
+    ) -> Result<String, ProtocolError> {
         // Enforce minimum supported bridge firmware hard-block
         if let Ok(guard) = self.last_status.lock() {
             if let Some(ref st) = *guard {
@@ -1552,7 +1818,10 @@ impl SerialTransport for BridgeTransport {
         }
 
         let clean_cmd = cmd_str.trim_end_matches(['\r', '\n']);
-        let (result, _) = match self.call_rpc("ups.cmd", json!({ "cmd": clean_cmd, "force_refresh": force_refresh })) {
+        let (result, _) = match self.call_rpc(
+            "ups.cmd",
+            json!({ "cmd": clean_cmd, "force_refresh": force_refresh }),
+        ) {
             Ok(res) => res,
             Err(ProtocolError::Timeout)
                 if clean_cmd == "Q"
@@ -1638,22 +1907,24 @@ fn connect_ws(
     timeout: Duration,
 ) -> Result<WebSocket<TcpStream>, ProtocolError> {
     let addr_str = format!("{}:{}", host, port);
-    let mut addrs = addr_str
-        .to_socket_addrs()
-        .map_err(|e| ProtocolError::IoError(format!("DNS resolution failed for {}: {}", addr_str, e)))?;
+    let mut addrs = addr_str.to_socket_addrs().map_err(|e| {
+        ProtocolError::IoError(format!("DNS resolution failed for {}: {}", addr_str, e))
+    })?;
     let sock_addr = addrs
         .next()
         .ok_or_else(|| ProtocolError::IoError(format!("Could not resolve {}", addr_str)))?;
 
-    let stream = TcpStream::connect_timeout(&sock_addr, timeout)
-        .map_err(|e| ProtocolError::IoError(format!("TCP connect to {} failed: {}", sock_addr, e)))?;
+    let stream = TcpStream::connect_timeout(&sock_addr, timeout).map_err(|e| {
+        ProtocolError::IoError(format!("TCP connect to {} failed: {}", sock_addr, e))
+    })?;
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
     let _ = stream.set_nodelay(true);
 
     let ws_url = format!("ws://{}:{}/", host, port);
-    let (ws, _resp) = tungstenite::client(ws_url.as_str(), stream)
-        .map_err(|e| ProtocolError::IoError(format!("WebSocket handshake with {} failed: {}", ws_url, e)))?;
+    let (ws, _resp) = tungstenite::client(ws_url.as_str(), stream).map_err(|e| {
+        ProtocolError::IoError(format!("WebSocket handshake with {} failed: {}", ws_url, e))
+    })?;
     Ok(ws)
 }
 
@@ -1699,17 +1970,21 @@ pub fn probe_ws_bridge(host_or_addr: &str) -> Option<(String, BridgeStatus)> {
             Ok(Message::Text(txt)) => {
                 let trimmed = txt.trim();
                 if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
-                    if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                    if doc.get("id").is_none()
+                        || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                    {
                         // Skip asynchronous bridge.log notifications emitted on connect
                         continue;
                     }
                     if doc.get("id").and_then(|v| v.as_u64()) == Some(1) {
                         if let Ok(res_val) = parse_jsonrpc_doc(&doc) {
-                            if let Ok(mut status) = serde_json::from_value::<BridgeStatus>(res_val) {
+                            if let Ok(mut status) = serde_json::from_value::<BridgeStatus>(res_val)
+                            {
                                 if status.bridge == "UPSED_BRIDGE_V1" {
                                     status.active_transport = "websocket".to_string();
                                     status.enrich_compatibility();
-                                    let canonical_port_name = format!("BRIDGE:WS:{}:{}", host, port);
+                                    let canonical_port_name =
+                                        format!("BRIDGE:WS:{}:{}", host, port);
                                     return Some((canonical_port_name, status));
                                 }
                             }
@@ -1735,7 +2010,8 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
 
     match connect_ws(&clean_host, clean_port, Duration::from_millis(1500)) {
         Ok(mut ws) => {
-            let ping_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"bridge.ping\",\"params\":{}}";
+            let ping_req =
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"bridge.ping\",\"params\":{}}";
             if let Err(e) = ws.send(Message::Text(ping_req.into())) {
                 return WsTestResult {
                     reachable: false,
@@ -1755,33 +2031,41 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
                         let latency_ms = start.elapsed().as_millis() as u64;
                         let trimmed = txt.trim();
                         if let Ok(doc) = serde_json::from_str::<Value>(trimmed) {
-                            if doc.get("id").is_none() || doc.get("id").map(|v| v.is_null()).unwrap_or(false) {
+                            if doc.get("id").is_none()
+                                || doc.get("id").map(|v| v.is_null()).unwrap_or(false)
+                            {
                                 // Skip asynchronous bridge.log notifications emitted on connect
                                 continue;
                             }
                             let resp_id = doc.get("id").and_then(|v| v.as_u64());
                             if resp_id == Some(1) {
                                 match parse_jsonrpc_doc(&doc) {
-                                    Ok(res_val) => match serde_json::from_value::<BridgeStatus>(res_val) {
-                                        Ok(mut status) => {
-                                            status.active_transport = "websocket".to_string();
-                                            status.enrich_compatibility();
-                                            return WsTestResult {
-                                                reachable: true,
-                                                host: clean_host,
-                                                port: clean_port,
-                                                latency_ms,
-                                                status: Some(status),
-                                                error: None,
-                                            };
+                                    Ok(res_val) => {
+                                        match serde_json::from_value::<BridgeStatus>(res_val) {
+                                            Ok(mut status) => {
+                                                status.active_transport = "websocket".to_string();
+                                                status.enrich_compatibility();
+                                                return WsTestResult {
+                                                    reachable: true,
+                                                    host: clean_host,
+                                                    port: clean_port,
+                                                    latency_ms,
+                                                    status: Some(status),
+                                                    error: None,
+                                                };
+                                            }
+                                            Err(e) => {
+                                                last_error = Some(format!(
+                                                    "Invalid bridge status format: {}",
+                                                    e
+                                                ));
+                                                break;
+                                            }
                                         }
-                                        Err(e) => {
-                                            last_error = Some(format!("Invalid bridge status format: {}", e));
-                                            break;
-                                        }
-                                    },
+                                    }
                                     Err(e) => {
-                                        last_error = Some(format!("JSON-RPC error from bridge: {}", e));
+                                        last_error =
+                                            Some(format!("JSON-RPC error from bridge: {}", e));
                                         break;
                                     }
                                 }
@@ -1823,7 +2107,12 @@ pub fn test_ws_connection(host: &str, port: u16) -> WsTestResult {
 /// Detects candidate local network subnets (e.g. "192.168.0", "192.168.1").
 fn detect_local_subnets() -> Vec<String> {
     let mut subnets = Vec::new();
-    for target in &["1.1.1.1:80", "8.8.8.8:80", "192.168.0.1:80", "192.168.1.1:80"] {
+    for target in &[
+        "1.1.1.1:80",
+        "8.8.8.8:80",
+        "192.168.0.1:80",
+        "192.168.1.1:80",
+    ] {
         if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
             if socket.connect(target).is_ok() {
                 if let Ok(local_addr) = socket.local_addr() {
@@ -1866,14 +2155,16 @@ pub fn scan_lan_for_bridge() -> Vec<(String, BridgeStatus)> {
         let all_ips: Vec<u8> = (2..=254u8).collect();
         for subnet in &subnets_to_scan {
             for chunk in all_ips.chunks(16) {
-                let chunk_ips: Vec<String> = chunk.iter().map(|i| format!("{}.{}", subnet, i)).collect();
+                let chunk_ips: Vec<String> =
+                    chunk.iter().map(|i| format!("{}.{}", subnet, i)).collect();
                 let found_ref = Arc::clone(&found_ips);
                 s.spawn(move || {
                     for ip in chunk_ips {
                         let addr = format!("{}:{}", ip, BRIDGE_DEFAULT_WS_PORT);
                         if let Ok(mut addrs) = addr.to_socket_addrs() {
                             if let Some(sock_addr) = addrs.next() {
-                                if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, timeout) {
+                                if let Ok(stream) = TcpStream::connect_timeout(&sock_addr, timeout)
+                                {
                                     drop(stream);
                                     if let Ok(mut guard) = found_ref.lock() {
                                         if !guard.contains(&ip) {
@@ -2046,7 +2337,8 @@ mod tests {
             "cache_ttl_ms": 1500
         }"#;
 
-        let status: BridgeStatus = serde_json::from_str(json_str).expect("Should deserialize v1.2.0 status");
+        let status: BridgeStatus =
+            serde_json::from_str(json_str).expect("Should deserialize v1.2.0 status");
         assert_eq!(status.fw, "1.2.0");
         assert!(status.time_synced);
         assert_eq!(status.time_source, "NTP");
@@ -2115,7 +2407,9 @@ mod tests {
         assert_eq!(tracker.count, 0);
 
         let logs = get_all_bridge_logs();
-        assert!(logs.iter().any(|l| l.msg == "--- Starting bridge log playback ---"));
+        assert!(logs
+            .iter()
+            .any(|l| l.msg == "--- Starting bridge log playback ---"));
         assert!(logs.iter().any(|l| l.msg.contains("--- Completed bridge log playback (2 entries, up to 2026-10-27T11:39:46Z (seq #102)) ---")));
     }
 
