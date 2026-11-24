@@ -27,9 +27,9 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 
 - Enforces a ViewPower-style user permission barrier atop a 4-tier risk classification:
   - **Stage T1 (Read-Only):** Non-modifying telemetry queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`) remain open without authentication for auto-discovery and telemetry monitoring.
-  - **Stages T2–T4 (Protected):** Diagnostic self-tests (`T`, `CT`), persistent EEPROM writes (`MCHGC`, `PBVH`, `PBVL`), and power control require an active authenticated administrator session.
-  - **Stage T4 (Power Control):** Live load-drop operations (`ShutdownWithDelay`, `ShutdownAndRestore`, `OutputOff`, `OutletOff`) require typed confirmation ("type UPS name or SHUTDOWN") before transmission.
-- Credential protection using **Argon2id** password hashing stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) with secure SQLite fallback.
+  - **Stages T2–T4 (Protected):** Diagnostic self-tests (`T`, `CT`), persistent EEPROM writes (`MCHGC`, `PBVH`, `PBVL`), ESP32 bridge provisioning/cloud config, and power control require an active authenticated administrator session.
+  - **Stage T4 (Power Control & Wireless OTA):** Live load-drop operations (`ShutdownWithDelay`, `ShutdownAndRestore`, `OutputOff`, `OutletOff`) and wireless bridge OTA flashing (`flash_bridge_firmware`) require fresh OS verification and/or typed confirmation ("type UPS name or SHUTDOWN") before execution.
+- Primary authentication via **OS Native User Verification** (Windows Hello PIN / Biometrics, macOS Touch ID / Apple Watch, Linux Polkit), with **Argon2id** password hashing stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) and SQLite fallback.
 - In-memory sliding session expires after 15 minutes of inactivity; brute-force protection locks out login after 5 failed attempts.
 - Completely eliminates raw string command injection vulnerabilities (such as ViewPower's `controlNew` flaw). Every interaction is a strongly typed variant of the `VoltronicCommand` enum.
 - Strict physical parameter bounds validation in Rust before any byte payload reaches the transport layer.
@@ -79,11 +79,13 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Multi-chemistry battery modeling: Standard Sealed Lead-Acid (VRLA / AGM), Gel Cell, and Lithium Iron Phosphate (LiFePO4) with calibrated cell cutoff, nominal, and float voltages.
 - Peukert load-derated discharge runtime estimation modeling non-linear capacity drop under high C-rate discharge (accounting for ~90–93% inverter conversion efficiency).
 
-### 🖥️ Background Tray Lifecycle & Autostart
+### 🖥️ Headless System Tray Lifecycle, Focus Throttling & Autostart
 
 - System tray icon with live battery capacity rendering, operational tooltips, and desktop menu ("Open UPSED", "Quit UPSED").
-- Seamless minimize-to-tray on window close (`close_to_minimize` preference prevents application exit).
-- Start minimized in tray capability (`start_minimized` preference and `--minimized` launch argument).
+- **Headless System Tray Mode:** Closing the window with `close_to_minimize` enabled unloads the WebView2 UI completely (`0%` WebView2 CPU/GPU and `0 MB` WebView2 RAM in the tray) while the Rust background monitor, tray icon, and OS notifications remain active. Clicking the tray icon or **Open UPSED** recreates the UI on demand.
+- **Deferred `--minimized` Startup:** Booting with `start_minimized` and `--minimized` skips spawning WebView2 processes until the user opens the window.
+- **Focus & Visibility Animation Pausing:** Automatically pauses CSS/SVG UI animations whenever the window is minimized, hidden, or unfocused behind another window.
+- **Rust-Owned OS Action Center Notifications:** Dispatches native OS notifications directly from Rust (`tauri-plugin-notification`) when the UI is unloaded, minimized, or unfocused.
 - System startup integration via `tauri-plugin-autostart` (Windows Registry Run key, macOS LaunchAgent, Linux XDG autostart).
 - Native cold-boot dark background initialization (`#22262f`) eliminating white or black screen flash before initial paint.
 
@@ -105,8 +107,10 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 
 ### 📡 ESP32-S3 IoT Hardware Bridge & Wireless OTA Flashing
 
-- **Wireless Hardware Gateway:** Connects UPS units to UPSED over 2.4GHz Wi-Fi WebSocket (`ws://upsed-bridge.local:81`) or high-speed USB CDC Serial (115,200 baud).
-- **8MB PSRAM MessagePack Ring Buffer:** Buffers up to 8,192 offline telemetry samples (~22.7 hours at 10s cadence) while PC is asleep or off, synchronizing into SQLite history on reconnect.
+- **Wireless Hardware Gateway:** Connects UPS units to UPSED over 2.4GHz Wi-Fi WebSocket (`ws://upsed-bridge.local:81`) or high-speed USB CDC Serial (115,200 baud), with automatic sleep/wake recovery and `/24` LAN subnet rediscovery fallback.
+- **Continuous Flight-Recorder PSRAM Ring Buffer:** Auto-sizes up to **32,768 telemetry records** on 8MB PSRAM (~45.5 hours at 5s idle / ~91 hours at 10s standalone cadence) across both Proxy and Standalone modes, syncing missing intervals (`since_ts` / `since_seq`) into SQLite history on reconnect.
+- **Autonomous Master Polling & Turbo Mode:** Polls at 5s idle (`BRIDGE_IDLE_POLL_MS`) with automatic 2s turbo acceleration (`BRIDGE_TURBO_POLL_MS`) during utility fail, low battery, self-tests, or faults.
+- **TuyaLink Cloud MQTT & Illumination Policy:** Supports 19-DP TuyaLink cloud telemetry with exponential backoff, autonomous Night Mode LED scheduling, Desktop Proxy Stealth Mode, and Critical Alert Wakeup.
 - **On-Demand Leased Wireless OTA Flashing:**
   - **In-App Desktop OTA:** One-click wireless flashing from GitHub releases or local builds directly from the UPSED UI.
   - **PlatformIO CLI:** `npm run bridge:ota` for terminal flashing over Wi-Fi.
@@ -160,15 +164,15 @@ flowchart TD
     
     F -->|"State Transition Detected?"| G{"Alarm / Event?"}
     G -->|"Yes (Blackout, Overload, Low Bat)"| H["Record in SQLite<br/>(events table)"]
-    H -->|"Broadcast IPC Event"| I["app.emit('ups-event')"]
+    H -->|"Rust Notification Dispatcher"| M{"UI Focused?"}
+    M -->|"Unloaded / Minimized / Unfocused"| O["OS Desktop Notification<br/>(Rust tauri-plugin-notification)"]
+    M -->|"Open & Active"| I["app.emit('ups-event')"]
     G -->|"Steady State"| J["Skip Event Recording"]
     
     D -->|"Broadcast Telemetry"| K["app.emit('ups-telemetry')"]
     
     I --> L["Frontend Event Hub<br/>(Real-Time Badge & Sound)"]
-    I --> M{"Window Focused?"}
-    M -->|"Focused"| N["In-App Glassmorphic Toast<br/>(UpsedToaster / react-hot-toast)"]
-    M -->|"Unfocused / Minimized"| O["OS Desktop Notification<br/>(tauri-plugin-notification)"]
+    I --> N["In-App Glassmorphic Toast<br/>(UpsedToaster / react-hot-toast)"]
     
     K --> P["Live Dashboard & Charts<br/>(Recharts + MetricGraphsHub)"]
     P --> Q["Hybrid Outage Highlighting<br/>(detectOutageDetails)"]
@@ -186,8 +190,8 @@ To safeguard connected equipment and prevent persistent EEPROM corruption or uni
 | --- | --- | --- | --- |
 | **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.), `QSK1`/`QSK2` (Outlet states) | **Open unconditionally.** Automated hardware scans, discovery probes, and telemetry polling strictly use Stage T1 commands. |
 | **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | **Requires Authenticated Session.** Observable diagnostics that do not alter flash/EEPROM or drop live load. |
-| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | **Requires Authenticated Session.** Persistent EEPROM writes; parameters must pass pre-validation against physical equipment safety limits in Rust before transmission. |
-| **Stage T4 (Power Control)** | High | `S.<M>` / `S<M>` (Delayed shutdown), `S..R..` (Shutdown & restore), `SON`/`SOFF` (Inverter toggle), `SKON`/`SKOFF` (Outlet control), `CS` (Cancel shutdown) | **Requires Authenticated Session + Typed Confirmation.** High-risk commands that cut output power require typing the target UPS name or `SHUTDOWN` to prevent accidental load drops. |
+| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage), Bridge Wi-Fi / TuyaLink / Failover / Clear Backlog | **Requires Authenticated Session.** Persistent EEPROM/NVS writes; parameters must pass pre-validation against physical equipment safety limits in Rust before transmission. |
+| **Stage T4 (Power Control)** | High | `S.<M>` / `S<M>` (Delayed shutdown), `S..R..` (Shutdown & restore), `SON`/`SOFF` (Inverter toggle), `SKON`/`SKOFF` (Outlet control), `CS` (Cancel shutdown), `flash_bridge_firmware` (Wireless OTA) | **Requires Authenticated Session + Fresh OS Verification / Typed Confirmation.** High-risk commands that cut output power require typing the target UPS name or `SHUTDOWN` to prevent accidental load drops. |
 
 ---
 
@@ -260,7 +264,7 @@ Ensure the following are installed:
    cd ..
    ```
 
-   *All 61 mock-hardware tests across 9 test suites must pass with 0 failures before launching.*
+   *All 112 active unit and mock-hardware tests across 12 integration suites + library unit tests must pass with 0 failures before launching (2 live-hardware HID tests are ignored by default).*
 
 4. **Launch Development Mode:**
 
@@ -276,7 +280,7 @@ Ensure the following are installed:
 
 ### 🍎 macOS Installation & Local Network Permissions
 
-When installing the packaged DMG (`UPSED_0.1.0_aarch64.dmg` or `UPSED_0.1.0_x64.dmg`) on macOS:
+When installing the packaged DMG (`UPSED_0.1.5_aarch64.dmg` or `UPSED_0.1.5_x64.dmg`) on macOS:
 
 1. **Install to Applications:**
    Open the DMG disk image and drag **UPSED.app** into **/Applications**.
@@ -364,15 +368,18 @@ When installing the packaged DMG (`UPSED_0.1.0_aarch64.dmg` or `UPSED_0.1.0_x64.
 
 UPSED includes an in-memory mock-hardware test suite in `src-tauri/tests/`:
 
-- `stage_t1_tests.rs`: Validates Q1, QPIGS, QPIWS, QID, QVFW, QPIRI parsing, timeout handling, and read-only gating.
+- `auth_tests.rs`: Validates Argon2id hashing, session expiration, brute-force lockout, and OS-auth integration.
+- `battery_bridge_tests.rs`: Confirms that the OS battery bridge remains strictly disabled by default and validates tray icon RGBA generation.
+- `concurrency_tests.rs`: Verifies multi-port isolation and independent device polling.
+- `monitor_tests.rs`: Verifies application settings persistence, watch channel interval updates, and legacy SQLite database migration.
+- `p_series_parser_tests.rs`: Validates P-series protocol parsing and command encoding.
+- `protocol_catalog_tests.rs`: Verifies cataloged wire strings and protocol-aware encoding rejection.
+- `security_and_gate_tests.rs`: Verifies that no arbitrary raw string commands can be passed, stages cannot be bypassed, and rising-edge events trigger accurately.
 - `stage_t1_hid_tests.rs`: Tests USB HID candidate detection, VID matching, and null-padded frame decoding.
+- `stage_t1_tests.rs`: Validates Q1, QPIGS, QPIWS, QID, QVFW, QPIRI parsing, timeout handling, and read-only gating.
 - `stage_t2_tests.rs`: Tests buzzer toggle and 10s battery test commands and gate enforcement.
 - `stage_t3_tests.rs`: Tests parameter validation (charge current, voltage windows, battery floors).
 - `stage_t4_tests.rs`: Tests shutdown and outlet delay validation.
-- `security_and_gate_tests.rs`: Verifies that no arbitrary raw string commands can be passed, stages cannot be bypassed, and rising-edge events trigger accurately.
-- `concurrency_tests.rs`: Verifies multi-port isolation and independent device polling.
-- `battery_bridge_tests.rs`: Confirms that the OS battery bridge remains strictly disabled by default.
-- `monitor_tests.rs`: Verifies application settings persistence, watch channel interval updates, and legacy SQLite database migration.
 
 Run all tests:
 

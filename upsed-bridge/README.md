@@ -7,15 +7,21 @@ The **UPSED Bridge** is an intelligent, dual-mode hardware gateway based on the 
 ## 📋 Features
 
 - **Dual-Mode Operation:**
-  - **Proxy Mode (Desktop Active):** Directly streams telemetry and hardware commands between UPSED and the UPS at 115,200 baud over USB or via WebSocket (`ws://upsed-bridge.local:81`).
+  - **Proxy Mode (Desktop Active):** Directly streams telemetry and hardware commands between UPSED and the UPS at 115,200 baud over USB or via WebSocket (`ws://upsed-bridge.local:81`), supporting up to 8 concurrent WebSocket clients.
   - **Standalone Mode (Desktop Offline):** Automatically takes over polling the UPS every 10 seconds after 15 seconds of desktop silence.
-- **8MB PSRAM MessagePack Ring Buffer:** Buffers up to 8,192 offline telemetry snapshots (~22.7 hours at 10s cadence) while your PC is off or asleep, automatically syncing them into UPSED's SQLite history upon desktop reconnection.
-- **Real-Time JSON-RPC 2.0 Streaming:** Asynchronously pushes diagnostic logs and hardware events (`bridge.log`) to the UPSED Live Debug Console.
+- **Autonomous Master Polling & Turbo Mode:** Polls the UPS every 5 seconds in idle (`BRIDGE_IDLE_POLL_MS`, 6.5s cache TTL) and automatically accelerates to 2-second turbo polling (`BRIDGE_TURBO_POLL_MS`, 2.2s cache TTL) during urgent conditions (`utility_fail`, `battery_low`, `test_in_progress`, or faults).
+- **Continuous Flight-Recorder Ring Buffer (PSRAM / SRAM Auto-Sizing):** Continuously records `Q1` telemetry in both Proxy and Standalone modes with monotonic `seq` numbers and non-destructive `since_ts` / `since_seq` queries:
+  - **8MB PSRAM (ESP32-S3):** Auto-sizes up to **32,768 records** (~45.5 hours at 5s idle / ~91 hours at 10s standalone).
+  - **2MB–4MB PSRAM:** Scales proportionally between 8,192 and 16,384 records.
+  - **Non-PSRAM Chips:** Safely falls back to 256–512 slots in internal SRAM.
+- **TuyaLink Cloud MQTT Integration:** Publishes 19-DP telemetry snapshots over TLS with exponential backoff, explicit DNS verification, and centralized multi-server NTP clock synchronization.
+- **Autonomous LED Illumination Policy:** Supports scheduled Night Mode dimming/off (`bridge.setIllumination`), Desktop Proxy Stealth Mode (dimming/extinguishing the LED while the desktop app is active), and automatic Critical Alert Wakeup during power outages or inverter faults.
+- **Real-Time JSON-RPC 2.0 Streaming:** Asynchronously pushes diagnostic logs (`bridge.log`), state transitions (`bridge.stateChanged`), status updates (`bridge.statusChanged`), and command audits (`bridge.cmdExecuted`).
 - **Hardware-Enforced Protocol Guarding:**
   - 150ms inter-command UART guard delay prevents RS-232 transceiver buffer collisions.
   - 1400ms read timeout accommodates 2400-baud UPS microcontroller ADC sampling.
   - Transparent 3-attempt retry with 150ms backoff for noisy 2400-baud industrial lines.
-- **NVS Persistent Storage:** Saves Wi-Fi credentials securely in non-volatile flash partitions.
+- **NVS Persistent Storage:** Saves Wi-Fi credentials, TuyaLink configuration, illumination policy, and runtime settings securely in non-volatile flash partitions.
 
 ---
 
@@ -213,7 +219,7 @@ If the board does not auto-reset or is caught in a boot loop:
 
 The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and WebSocket (`ws://0.0.0.0:81`).
 
-### 1. `bridge.ping` — System Health
+### 1. `bridge.ping` / `bridge.getStatus` — System Health & Backlog Bounds
 
 - **Request:**
 
@@ -229,7 +235,7 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
     "id": 1,
     "result": {
       "bridge": "UPSED_BRIDGE_V1",
-      "fw": "1.0.0",
+      "fw": "1.6.0",
       "mac": "80:65:99:A6:B9:F8",
       "mode": "proxy",
       "wifi_connected": true,
@@ -239,9 +245,12 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
       "ws_port": 81,
       "rssi": -42,
       "backlog_records": 0,
-      "backlog_capacity": 8192,
+      "backlog_capacity": 32768,
+      "backlog_oldest_ts": 1730352000,
+      "backlog_newest_ts": 1730355600,
+      "backlog_latest_seq": 420,
       "psram_active": true,
-      "psram_free": 7599327,
+      "psram_free": 4899327,
       "uptime_sec": 1420
     }
   }
@@ -267,22 +276,22 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
 
 - Returns detected SSIDs, RSSI dBm values, and open/WPA2 flags.
 
-### 4. `bridge.getBacklog` & `bridge.clearBacklog` — Offline Buffer
+### 4. `bridge.getBacklog` / `bridge.getTelemetryHistory` & `bridge.clearBacklog` — Flight-Recorder Buffer
 
 - **Request:**
 
   ```json
-  {"jsonrpc": "2.0", "id": 4, "method": "bridge.getBacklog", "params": {"limit": 50}}
+  {"jsonrpc": "2.0", "id": 4, "method": "bridge.getTelemetryHistory", "params": {"since_ts": 1730352000, "since_seq": 100, "limit": 50}}
   ```
 
-- Drains batches of offline MessagePack telemetry records stored while PC was offline.
+- Non-destructively queries MessagePack telemetry records using `since_ts` (UNIX epoch seconds) or `since_seq` (monotonic sequence number) without wiping the ring buffer. Use `bridge.clearBacklog` to explicitly reset the buffer.
 
-### 5. `ups.cmd` — Raw Hardware Passthrough
+### 5. `ups.cmd` — UPS Hardware Command (Cached / Live)
 
 - **Request:**
 
   ```json
-  {"jsonrpc": "2.0", "id": 5, "method": "ups.cmd", "params": {"cmd": "Q1"}}
+  {"jsonrpc": "2.0", "id": 5, "method": "ups.cmd", "params": {"cmd": "Q1", "force_refresh": false}}
   ```
 
 - **Response:**
@@ -334,9 +343,27 @@ The bridge listens on USB CDC Serial (`115200 8N1`, newline-delimited JSON) and 
 
 - **Description:** Immediately terminates the HTTP server and ArduinoOTA listeners, releasing the lease and returning to normal mode.
 
-### 8. `bridge.log` — Real-Time Push Notification
+### 8. `bridge.syncTime` & `bridge.clearCache` — Clock & Cache Maintenance
 
-Unprompted notification pushed to all connected clients:
+- `bridge.syncTime`: Synchronizes the bridge's local RTC (`epoch` UNIX timestamp) from the desktop host.
+- `bridge.clearCache`: Clears the bridge's in-memory UPS command/telemetry response cache.
+
+### 9. TuyaLink Cloud RPCs (`bridge.getTuyaConfig`, `bridge.setTuyaConfig`, `bridge.testTuyaPublish`, `bridge.reconnectTuya`)
+
+- Manage TuyaLink MQTT credentials (`product_id`, `device_id`, `device_secret`, `region`), trigger a test 19-DP publish (`bridge.testTuyaPublish`), or force an immediate reconnection (`bridge.reconnectTuya`).
+
+### 10. Illumination Policy RPCs (`bridge.setIllumination`, `bridge.toggleNightModeNow`)
+
+- Configure autonomous Night Mode schedules, dimming percentages, Proxy Stealth Mode, and Critical Alert Wakeup (`bridge.setIllumination`), or immediately toggle Night Mode (`bridge.toggleNightModeNow`).
+
+### 11. Real-Time Push Notifications (`bridge.log`, `bridge.stateChanged`, `bridge.statusChanged`, `bridge.cmdExecuted`)
+
+Unprompted JSON-RPC notifications pushed to all connected clients:
+
+- `bridge.log`: Firmware diagnostic log stream (`seq`, `ms`, `level`, `msg`).
+- `bridge.stateChanged`: Immediate edge-transition alert when UPS state bits change (`utility_fail`, `battery_low`, `test_in_progress`, `ups_failed`).
+- `bridge.statusChanged`: Bridge operational/Tuya/mode status updates.
+- `bridge.cmdExecuted`: Broadcasts executed `ups.cmd` results across connected clients.
 
 ```json
 {
