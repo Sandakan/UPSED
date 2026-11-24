@@ -126,7 +126,7 @@ fn fast_drain_cycle_step(app: &AppHandle, state: &AppState) {
                     let detected = detect_status_events(prev_status.as_ref(), &status, Some(uid));
                     for event_record in detected {
                         let _ = state.db.insert_event(&event_record);
-                        let _ = app.emit("ups-event", &event_record);
+                        crate::notifications::emit_ups_event(app, &event_record);
                     }
                 }
 
@@ -196,7 +196,7 @@ fn fast_drain_cycle_step(app: &AppHandle, state: &AppState) {
                     let detected = detect_status_events(prev_status.as_ref(), &status, Some(uid));
                     for event_record in detected {
                         let _ = state.db.insert_event(&event_record);
-                        let _ = app.emit("ups-event", &event_record);
+                        crate::notifications::emit_ups_event(app, &event_record);
                     }
                 }
 
@@ -356,7 +356,7 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) -> bool {
                     let detected = detect_status_events(last_status.as_ref(), &status, Some(uid));
                     for ev in &detected {
                         let _ = state.db.insert_event(ev);
-                        let _ = app.emit("ups-event", ev);
+                        crate::notifications::emit_ups_event(app, ev);
                     }
                 }
 

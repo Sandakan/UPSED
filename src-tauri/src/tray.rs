@@ -7,6 +7,42 @@ use tauri::{AppHandle, Emitter, Manager};
 
 pub const TRAY_ID: &str = "battery-tray";
 
+/// Shows the existing `"main"` WebView2 window, or recreates it from config if it was unloaded in tray.
+pub fn show_or_create_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        let _ = window.emit("app-window-visibility", true);
+        return;
+    }
+
+    let Some(window_cfg) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+    else {
+        tracing::error!("[LIFECYCLE] Missing 'main' window configuration in tauri.conf.json");
+        return;
+    };
+
+    match tauri::WebviewWindowBuilder::from_config(app, &window_cfg).and_then(|b| b.build()) {
+        Ok(window) => {
+            let _ = window.set_background_color(Some(tauri::window::Color(34, 38, 47, 255)));
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+            let _ = window.emit("app-window-visibility", true);
+        }
+        Err(e) => {
+            tracing::error!("[LIFECYCLE] Failed to recreate main WebView2 window: {}", e);
+        }
+    }
+}
+
 /// Initializes the Windows / Desktop system tray icon.
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let open_item = MenuItem::with_id(app, "open", "Open UPSED", true, None::<&str>)?;
@@ -23,19 +59,14 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                    let _ = window.emit("app-window-visibility", true);
-                    tracing::info!(
-                        "[LIFECYCLE] UPSED application window opened from system tray menu"
-                    );
-                }
+                show_or_create_main_window(app);
+                tracing::info!(
+                    "[LIFECYCLE] UPSED application window opened from system tray menu"
+                );
             }
             "quit" => {
                 tracing::info!("[LIFECYCLE] Quit action triggered from system tray menu");
-                app.exit(0);
+                crate::request_app_exit(app);
             }
             _ => {}
         })
@@ -47,15 +78,10 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } = event
             {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                    let _ = window.emit("app-window-visibility", true);
-                    tracing::info!(
-                        "[LIFECYCLE] UPSED application window restored via system tray click"
-                    );
-                }
+                show_or_create_main_window(app);
+                tracing::info!(
+                    "[LIFECYCLE] UPSED application window restored via system tray click"
+                );
             }
         })
         .build(app)?;

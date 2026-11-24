@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Rust-Owned OS Action Center Notifications:** Moved native OS notification dispatch into the Rust backend (`notifications.rs`) so UPS alarms and state-change banners fire reliably via `tauri_plugin_notification` even when the WebView2 UI is completely unloaded in the system tray, minimized, or unfocused. Persisted `os_notifications_enabled` in SQLite (`get_os_notifications_enabled` / `set_os_notifications_enabled`), while keeping `react-hot-toast` for in-app toasts when the UI is active.
+
+### Changed
+- **Headless System Tray Mode & Deferred WebView2 Startup:** Configured the `"main"` window (`"create": false` in `tauri.conf.json`) so `--minimized` login boot never spawns WebView2 processes, and closing the window with `close_to_minimize` enabled unloads the WebView2 UI completely (`0%` WebView2 CPU/GPU and `0 MB` WebView2 RAM in tray) while `RunEvent::ExitRequested` keeps the Rust monitor and tray icon active. Clicking the tray icon or **Open UPSED** recreates the window on demand.
+- **Dependency & Toolchain Upgrades:** Updated frontend packages (TypeScript `^7.0.2`, `i18next` `^27.2.6`, `react-i18next` `^18.0.3`, Vite `8.3.8`, `@vitejs/plugin-react` `6.3.0`, `@tauri-apps/*`, Recharts `3.11.1`, TanStack Query `5.108.4`, Tailwind CSS `4.3.5`) and Rust Cargo crates (`tauri` `2.12.7`, `tauri-plugin-notification` `2.8.1`, `tauri-plugin-window-state` `2.5.0`, `tokio` `1.54.1`).
+
+### Fixed
+- **Minimized / Hidden / Unfocused Window Animation Pausing:** Updated `useWindowVisibility` to query native `isVisible()`, `isMinimized()`, and `isFocused()` on mount and track `WindowEvent::Focused` / `blur` / `focus` events, and added a root `.window-hidden` CSS rule in `App.css` to pause all CSS/SVG animations whenever the window is minimized, hidden, or unfocused behind another window.
+- **Windows `cargo test` `STATUS_ENTRYPOINT_NOT_FOUND` (`0xc0000139`):** Embedded the Windows Common Controls v6 manifest in `src-tauri/build.rs` for `--lib` and integration test binaries (suppressing duplicate linker manifests on binary targets via `cargo:rustc-link-arg-bins=/MANIFEST:NO`) so `comctl32.dll` `TaskDialogIndirect` imports resolve cleanly across all `cargo test` targets.
+
+---
+
 ## [0.1.5] - 2026-11-09
 
 ### Added

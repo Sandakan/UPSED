@@ -1509,6 +1509,26 @@ pub fn set_start_minimized(state: State<AppState>, enabled: bool) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn get_os_notifications_enabled(state: State<AppState>) -> Result<bool, String> {
+    let val = state
+        .db
+        .get_setting("os_notifications_enabled")
+        .map_err(|e| e.to_string())?;
+    Ok(val.map(|v| v != "false").unwrap_or(true))
+}
+
+#[tauri::command]
+pub fn set_os_notifications_enabled(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .db
+        .set_setting(
+            "os_notifications_enabled",
+            if enabled { "true" } else { "false" },
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_theme(state: State<AppState>) -> Result<String, String> {
     let val = state.db.get_setting("theme").map_err(|e| e.to_string())?;
     Ok(val.unwrap_or_else(|| "system".to_string()))

@@ -1,9 +1,4 @@
 import toast from 'react-hot-toast';
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from '@tauri-apps/plugin-notification';
 import { EventLogRecord } from './types';
 import i18n from './i18n';
 
@@ -270,9 +265,10 @@ export function getEventInfo(event: EventLogRecord): {
 }
 
 /**
- * Handles an incoming UPS event:
- * 1. Checks if OS notifications are allowed and if window is unfocused -> triggers OS notification
- * 2. Displays bespoke custom toast in-app via react-hot-toast
+ * Handles an incoming UPS event in the active UI:
+ * Native OS Action Center notifications are dispatched directly by the Rust backend
+ * when the window is in the background or unloaded in the tray; this handler
+ * displays the bespoke in-app toast via react-hot-toast when enabled.
  */
 export async function handleIncomingUpsEvent(
   event: EventLogRecord,
@@ -282,42 +278,17 @@ export async function handleIncomingUpsEvent(
   }
 ) {
   // Lifecycle events (APP_START, APP_HIDE, APP_EXIT) and user actions (USER_ACTION)
-  // are preserved in the audit log but do not trigger popup toasts or OS notifications
+  // are preserved in the audit log but do not trigger popup toasts
   // since the user/UI already initiated them and receives inline UI feedback.
   if (event.event_type.startsWith('APP_') || event.event_type === 'USER_ACTION') {
     return;
   }
 
-  const osAllowed = options?.osNotificationsEnabled ?? true;
   const inAppAllowed = options?.inAppToastsEnabled ?? true;
 
   const { title, description } = getEventInfo(event);
 
-  // Check if window is in focus
-  const isWindowFocused =
-    typeof document !== 'undefined' && document.hasFocus();
-
-  // If app is not in focus (or minimized/tray), dispatch native OS notification
-  if (!isWindowFocused && osAllowed) {
-    try {
-      let permitted = await isPermissionGranted();
-      if (!permitted) {
-        const permission = await requestPermission();
-        permitted = permission === 'granted';
-      }
-
-      if (permitted) {
-        sendNotification({
-          title: `UPSED: ${title}`,
-          body: event.ups_id ? `${description} (${event.ups_id})` : description,
-        });
-      }
-    } catch (err) {
-      console.warn('Native notification failed:', err);
-    }
-  }
-
-  // Always show in-app toast if inAppToastsEnabled is true
+  // Show in-app toast if inAppToastsEnabled is true
   if (inAppAllowed) {
     // Dispatched to custom headless toaster
     toast.custom(

@@ -50,6 +50,18 @@ export function App() {
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
+
+  useEffect(() => {
+    api
+      .getOsNotificationsEnabled()
+      .then((val) => setOsNotificationsEnabled(val))
+      .catch(() => {});
+  }, []);
+
+  const handleOsNotificationsChange = useCallback((val: boolean) => {
+    setOsNotificationsEnabled(val);
+    api.setOsNotificationsEnabled(val).catch(console.error);
+  }, []);
   const [showOutageHighlights, setShowOutageHighlights] = useState<boolean>(() => {
     const saved = localStorage.getItem('upsed_show_outage_highlights');
     return saved !== null ? saved === 'true' : true;
@@ -755,7 +767,9 @@ export function App() {
 
   return (
     <div
-      className="flex h-screen text-slate-100 overflow-hidden font-sans select-none"
+      className={`flex h-screen text-slate-100 overflow-hidden font-sans select-none${
+        !isWindowVisible ? ' window-hidden' : ''
+      }`}
       style={{ backgroundColor: 'var(--app-bg)' }}
     >
       {/* Sidebar navigation */}
@@ -888,7 +902,7 @@ export function App() {
                 queryClient.invalidateQueries({ queryKey: ['upsProfiles'] });
               }}
               osNotificationsEnabled={osNotificationsEnabled}
-              onOsNotificationsChange={setOsNotificationsEnabled}
+              onOsNotificationsChange={handleOsNotificationsChange}
               inAppToastsEnabled={inAppToastsEnabled}
               onInAppToastsChange={setInAppToastsEnabled}
               themeMode={themeMode}

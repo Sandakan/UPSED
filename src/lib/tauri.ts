@@ -178,6 +178,11 @@ export const api = {
   setStartMinimized: (enabled: boolean) =>
     invoke<void>('set_start_minimized', { enabled }),
 
+  getOsNotificationsEnabled: () => invoke<boolean>('get_os_notifications_enabled'),
+
+  setOsNotificationsEnabled: (enabled: boolean) =>
+    invoke<void>('set_os_notifications_enabled', { enabled }),
+
   getTheme: () => invoke<ThemeMode>('get_theme'),
 
   setTheme: (theme: ThemeMode) =>

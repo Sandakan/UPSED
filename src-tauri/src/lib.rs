@@ -6,9 +6,20 @@ pub mod gate;
 pub mod logging;
 pub mod monitor;
 pub mod multi_port;
+pub mod notifications;
 pub mod protocol;
 pub mod serial;
 pub mod tray;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// Marks the application as intentionally exiting and terminates the Tauri event loop.
+pub fn request_app_exit(app: &tauri::AppHandle) {
+    ALLOW_EXIT.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
 
 use battery_bridge::BatteryBridge;
 use commands::AppState;
@@ -157,31 +168,21 @@ pub fn run() {
                 .map(|v| v != "false")
                 .unwrap_or(true);
 
-            if let Some(window) = app.get_webview_window("main") {
-                // Set initial native window background color to signature dark theme (#22262f) to eliminate OS-level black flash during cold boot
-                let _ = window.set_background_color(Some(tauri::window::Color(34, 38, 47, 255)));
-
-                if is_minimized_arg && start_minimized_pref {
-                    let _ = window.hide();
-                    let _ = window.emit("app-window-visibility", false);
-                    tracing::info!("[LIFECYCLE] UPSED application started minimized in system tray");
-                    let hide_event = db::EventLogRecord {
-                        id: None,
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                        ups_id: None,
-                        event_type: "APP_HIDE".into(),
-                        severity: "info".into(),
-                        message: "UPSED application started minimized in system tray".into(),
-                        acknowledged: true,
-                    };
-                    let _ = app_state.db.insert_event(&hide_event);
-                } else {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                    let _ = window.emit("app-window-visibility", true);
-                    tracing::info!("[LIFECYCLE] UPSED application window displayed on screen");
-                }
+            if is_minimized_arg && start_minimized_pref {
+                tracing::info!("[LIFECYCLE] UPSED application started minimized in system tray (WebView2 deferred)");
+                let hide_event = db::EventLogRecord {
+                    id: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    ups_id: None,
+                    event_type: "APP_HIDE".into(),
+                    severity: "info".into(),
+                    message: "UPSED application started minimized in system tray".into(),
+                    acknowledged: true,
+                };
+                let _ = app_state.db.insert_event(&hide_event);
+            } else {
+                tray::show_or_create_main_window(app.handle());
+                tracing::info!("[LIFECYCLE] UPSED application window displayed on screen");
             }
 
             // Register AppHandle for bridge real-time event streaming
@@ -199,7 +200,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
+                tauri::WindowEvent::CloseRequested { .. } => {
                     let state = window.state::<AppState>();
                     let close_to_minimize = state
                         .db
@@ -210,26 +211,28 @@ pub fn run() {
                         .unwrap_or(true);
 
                     if close_to_minimize {
-                        api.prevent_close();
-                        let _ = window.hide();
-                        let _ = window.emit("app-window-visibility", false);
-                        tracing::info!("[LIFECYCLE] UPSED application window hidden to system tray");
+                        // Allow the WebView2 window to close and unload completely;
+                        // ExitRequested will keep the Rust backend and tray icon alive.
+                        tracing::info!("[LIFECYCLE] UPSED application window unloaded to system tray");
                         let hide_event = db::EventLogRecord {
                             id: None,
                             timestamp: chrono::Utc::now().to_rfc3339(),
                             ups_id: None,
                             event_type: "APP_HIDE".into(),
                             severity: "info".into(),
-                            message: "UPSED application window hidden to system tray".into(),
+                            message: "UPSED application window unloaded to system tray".into(),
                             acknowledged: true,
                         };
                         let _ = state.db.insert_event(&hide_event);
+                    } else {
+                        ALLOW_EXIT.store(true, Ordering::SeqCst);
                     }
                 }
                 tauri::WindowEvent::Resized(_) => {
                     let is_visible = window.is_visible().unwrap_or(true);
                     let is_minimized = window.is_minimized().unwrap_or(false);
-                    let visible_on_screen = is_visible && !is_minimized;
+                    let is_focused = window.is_focused().unwrap_or(true);
+                    let visible_on_screen = is_visible && !is_minimized && is_focused;
                     let _ = window.emit("app-window-visibility", visible_on_screen);
 
                     static WAS_MINIMIZED: std::sync::atomic::AtomicBool =
@@ -252,6 +255,14 @@ pub fn run() {
                     } else if prev_minimized && !is_minimized {
                         tracing::info!("[LIFECYCLE] UPSED application window unminimized / restored");
                     }
+                }
+                tauri::WindowEvent::Focused(focused) => {
+                    let is_visible = window.is_visible().unwrap_or(true);
+                    let is_minimized = window.is_minimized().unwrap_or(false);
+                    let _ = window.emit(
+                        "app-window-visibility",
+                        is_visible && !is_minimized && *focused,
+                    );
                 }
                 _ => {}
             }
@@ -298,6 +309,8 @@ pub fn run() {
             commands::set_close_to_minimize,
             commands::get_start_minimized,
             commands::set_start_minimized,
+            commands::get_os_notifications_enabled,
+            commands::set_os_notifications_enabled,
             commands::get_theme,
             commands::set_theme,
             commands::is_dev_mode,
@@ -334,10 +347,14 @@ pub fn run() {
         .expect("error while building UPSED application")
         .run(|app_handle, event| {
             match event {
-                tauri::RunEvent::ExitRequested { .. } => {
-                    static EXIT_LOGGED: std::sync::atomic::AtomicBool =
-                        std::sync::atomic::AtomicBool::new(false);
-                    if !EXIT_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    if !ALLOW_EXIT.load(Ordering::SeqCst) {
+                        api.prevent_exit();
+                        return;
+                    }
+
+                    static EXIT_LOGGED: AtomicBool = AtomicBool::new(false);
+                    if !EXIT_LOGGED.swap(true, Ordering::SeqCst) {
                         tracing::info!("[LIFECYCLE] UPSED application is exiting...");
                         if let Some(state) = app_handle.try_state::<AppState>() {
                             let exit_event = db::EventLogRecord {

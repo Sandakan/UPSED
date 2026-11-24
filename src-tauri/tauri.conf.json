@@ -16,7 +16,8 @@
         "title": "UPSED",
         "width": 1366,
         "height": 768,
-        "visible": false
+        "visible": false,
+        "create": false
       }
     ],
     "security": {
