@@ -353,6 +353,7 @@ export interface BridgeFirmwareCheckResult {
   published_at?: string | null;
   download_url?: string | null;
   binary_size?: number | null;
+  expected_sha256?: string | null;
   local_binary_path?: string | null;
   local_binary_size?: number | null;
   local_binary_modified?: string | null;

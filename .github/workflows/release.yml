@@ -169,3 +169,73 @@ jobs:
           fi
           echo "Attaching upsed-bridge-firmware.bin to release '$TAG'..."
           gh release upload "$TAG" upsed-bridge-firmware.bin --clobber
+
+      - name: Generate & Attach Release manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+          fi
+          gh release view "$TAG" --json tagName,url,targetCommitish,publishedAt,assets > release_meta.json
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from datetime import datetime, timezone
+
+          with open("package.json", "r", encoding="utf-8") as f:
+              pkg = json.load(f)
+          app_version = pkg["version"]
+
+          with open("upsed-bridge/include/config.h", "r", encoding="utf-8") as f:
+              cfg = f.read()
+          m = re.search(r'#define\s+BRIDGE_FIRMWARE_VER\s+"([^"]+)"', cfg)
+          if not m:
+              raise RuntimeError("Could not find BRIDGE_FIRMWARE_VER in upsed-bridge/include/config.h")
+          bridge_version = m.group(1)
+
+          bin_path = "upsed-bridge-firmware.bin"
+          with open(bin_path, "rb") as f:
+              bin_bytes = f.read()
+          bridge_size = len(bin_bytes)
+          bridge_sha256 = hashlib.sha256(bin_bytes).hexdigest()
+
+          with open("release_meta.json", "r", encoding="utf-8") as f:
+              rel = json.load(f)
+
+          app_assets = [
+              {
+                  "name": a["name"],
+                  "size": a["size"],
+                  "url": a["url"],
+              }
+              for a in rel.get("assets", [])
+              if a["name"] not in ("manifest.json", bin_path)
+          ]
+
+          manifest = {
+              "schemaVersion": 1,
+              "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+              "release": {
+                  "tag": rel.get("tagName", ""),
+                  "commit": os.environ.get("GITHUB_SHA", rel.get("targetCommitish", "")),
+                  "url": rel.get("url", ""),
+              },
+              "app": {
+                  "version": app_version,
+                  "assets": app_assets,
+              },
+              "bridge": {
+                  "version": bridge_version,
+                  "board": "esp32-s3-devkitc-1",
+                  "asset": bin_path,
+                  "size": bridge_size,
+                  "sha256": bridge_sha256,
+              },
+          }
+
+          with open("manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          PY
+          gh release upload "$TAG" manifest.json --clobber

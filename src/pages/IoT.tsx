@@ -1503,6 +1503,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
           source: otaSource,
           customPath: otaSource === 'file' ? customBinaryPath : undefined,
           downloadUrl: otaSource === 'github' ? firmwareCheck?.download_url ?? undefined : undefined,
+          expectedSha256: otaSource === 'github' ? firmwareCheck?.expected_sha256 ?? undefined : undefined,
         });
 
         toast.custom(

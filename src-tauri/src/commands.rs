@@ -39,6 +39,7 @@ pub struct BridgeFirmwareCheckResult {
     pub published_at: Option<String>,
     pub download_url: Option<String>,
     pub binary_size: Option<u64>,
+    pub expected_sha256: Option<String>,
     pub local_binary_path: Option<String>,
     pub local_binary_size: Option<u64>,
     pub local_binary_modified: Option<String>,
@@ -2475,6 +2476,7 @@ pub async fn check_bridge_firmware_update(
     let mut published_at: Option<String> = None;
     let mut download_url: Option<String> = None;
     let mut binary_size: Option<u64> = None;
+    let mut expected_sha256: Option<String> = None;
 
     let client = reqwest::Client::builder()
         .user_agent("UPSED-Desktop")
@@ -2497,21 +2499,76 @@ pub async fn check_bridge_firmware_update(
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
 
+                        let mut manifest_url: Option<String> = None;
+                        let mut bin_assets: Vec<(String, String, Option<u64>)> = Vec::new();
+
                         if let Some(assets) = release.get("assets").and_then(|v| v.as_array()) {
                             for asset in assets {
                                 let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                if name.ends_with(".bin") {
-                                    download_url = asset
-                                        .get("browser_download_url")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string());
-                                    binary_size = asset.get("size").and_then(|v| v.as_u64());
-                                    break;
+                                let dl = asset
+                                    .get("browser_download_url")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                let size = asset.get("size").and_then(|v| v.as_u64());
+
+                                if name == "manifest.json" {
+                                    manifest_url = dl;
+                                } else if name.ends_with(".bin") {
+                                    if let Some(dl_url) = dl {
+                                        bin_assets.push((name.to_string(), dl_url, size));
+                                    }
                                 }
                             }
                         }
 
-                        let clean_latest = tag.trim_start_matches(|c: char| !c.is_ascii_digit());
+                        let mut preferred_asset_name: Option<String> = None;
+                        if let Some(m_url) = manifest_url {
+                            if let Ok(m_resp) = client.get(&m_url).send().await {
+                                if m_resp.status().is_success() {
+                                    if let Ok(manifest) = m_resp.json::<serde_json::Value>().await {
+                                        if let Some(bridge) = manifest.get("bridge") {
+                                            if let Some(ver) =
+                                                bridge.get("version").and_then(|v| v.as_str())
+                                            {
+                                                let trimmed = ver.trim().trim_start_matches('v');
+                                                if !trimmed.is_empty() {
+                                                    latest_version = Some(format!("v{}", trimmed));
+                                                }
+                                            }
+                                            if let Some(sz) =
+                                                bridge.get("size").and_then(|v| v.as_u64())
+                                            {
+                                                binary_size = Some(sz);
+                                            }
+                                            expected_sha256 = bridge
+                                                .get("sha256")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.trim().to_ascii_lowercase());
+                                            preferred_asset_name = bridge
+                                                .get("asset")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(selected) = preferred_asset_name
+                            .as_deref()
+                            .and_then(|target| bin_assets.iter().find(|(n, _, _)| n == target))
+                            .or_else(|| bin_assets.first())
+                        {
+                            download_url = Some(selected.1.clone());
+                            if binary_size.is_none() {
+                                binary_size = selected.2;
+                            }
+                        }
+
+                        let clean_latest = latest_version
+                            .as_deref()
+                            .unwrap_or(tag)
+                            .trim_start_matches(|c: char| !c.is_ascii_digit());
                         let clean_current =
                             current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
                         update_available = is_version_newer(clean_latest, clean_current);
@@ -2529,6 +2586,7 @@ pub async fn check_bridge_firmware_update(
         published_at,
         download_url,
         binary_size,
+        expected_sha256,
         local_binary_path: local_path,
         local_binary_size: local_size,
         local_binary_modified: local_mod,
@@ -2544,6 +2602,7 @@ pub async fn flash_bridge_firmware(
     source: String,
     custom_path: Option<String>,
     download_url: Option<String>,
+    expected_sha256: Option<String>,
 ) -> Result<String, String> {
     if !state.auth.is_authenticated() {
         return Err(
@@ -2600,6 +2659,18 @@ pub async fn flash_bridge_firmware(
                 .bytes()
                 .await
                 .map_err(|e| format!("Failed to read firmware stream: {}", e))?;
+            if let Some(expected) = expected_sha256.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                use sha2::{Digest, Sha256};
+                let digest = Sha256::digest(&bytes);
+                let actual: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+                if actual != expected.to_ascii_lowercase() {
+                    return Err(format!(
+                        "Firmware SHA-256 mismatch (expected {}, got {}). Aborting OTA flash.",
+                        expected.to_ascii_lowercase(),
+                        actual
+                    ));
+                }
+            }
             bytes.to_vec()
         }
         "local" => {

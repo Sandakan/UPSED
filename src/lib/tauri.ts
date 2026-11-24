@@ -237,12 +237,14 @@ export const api = {
     source: 'github' | 'local' | 'file';
     customPath?: string;
     downloadUrl?: string;
+    expectedSha256?: string;
   }) =>
     invoke<string>('flash_bridge_firmware', {
       portName: args.portName,
       source: args.source,
       customPath: args.customPath,
       downloadUrl: args.downloadUrl,
+      expectedSha256: args.expectedSha256,
     }),
 
   getBridgeTuyaConfig: (portName?: string) =>

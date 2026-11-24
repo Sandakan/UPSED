@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.6] - 2026-11-24
+
+### Added
+- **Release Manifest & OTA SHA-256 Verification:** Updated `.github/workflows/release.yml` to generate and attach `manifest.json` (recording desktop app setup assets, `app.version`, and ESP32 bridge firmware `version`, `size`, `board`, and `sha256`). Updated `check_bridge_firmware_update` and `flash_bridge_firmware` to read the bridge firmware version from `manifest.json` (falling back to release `tag_name` for older releases) and verify the downloaded binary's SHA-256 digest before flashing.
+- **VS Code Debugging Configuration:** Added `.vscode/launch.json` and `.vscode/tasks.json` supporting CodeLLDB (`upsed.exe` attach/launch and `cargo test` targets) and WebView2 frontend debugging on port `9222`.
+
+### Changed
+- **Centralized Repository & Changelog URLs (`master` Branch):** Added `repository` and `defaultBranch` (`"master"`) to `package.json` and created `src/lib/repo.ts`, updating `AboutModal` and `IoT` changelog fetches and GitHub links from `main` to `master`.
+
+---
+
 ## [0.1.5] - 2026-11-24
 
 ### Added
