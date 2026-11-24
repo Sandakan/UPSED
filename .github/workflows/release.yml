@@ -11,9 +11,6 @@ on:
         description: 'Mark as Pre-release'
         type: boolean
         default: false
-  push:
-    tags:
-      - 'v*'
 
 concurrency:
   group: release-${{ github.ref }}

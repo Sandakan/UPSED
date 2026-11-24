@@ -66,6 +66,7 @@ import {
 } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useAuth } from '../lib/auth';
+import { BRIDGE_CHANGELOG_BLOB_URL, BRIDGE_CHANGELOG_RAW_URL } from '../lib/repo';
 
 export interface IoTProps {
   portName?: string | null;
@@ -1462,9 +1463,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
     setIsChangelogLoading(true);
     setChangelogError(null);
     try {
-      const res = await fetch(
-        'https://raw.githubusercontent.com/Sandakan/UPSED/main/upsed-bridge/CHANGELOG.md'
-      );
+      const res = await fetch(BRIDGE_CHANGELOG_RAW_URL);
       if (!res.ok) {
         throw new Error(`Failed to load changelog from GitHub (${res.status} ${res.statusText})`);
       }
@@ -4074,7 +4073,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
             {/* Modal Footer */}
             <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-between">
               <a
-                href="https://github.com/Sandakan/UPSED/blob/main/upsed-bridge/CHANGELOG.md"
+                href={BRIDGE_CHANGELOG_BLOB_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer"

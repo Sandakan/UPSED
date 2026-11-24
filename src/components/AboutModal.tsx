@@ -4,6 +4,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { marked } from 'marked';
 import { UpsedLogo } from './UpsedLogo';
 import { PrimaryButton } from './PrimaryButton';
+import { APP_CHANGELOG_BLOB_URL, APP_CHANGELOG_RAW_URL, REPO_URL } from '../lib/repo';
 
 export interface AboutModalProps {
   isOpen: boolean;
@@ -32,9 +33,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     setIsChangelogLoading(true);
     setChangelogError(null);
     try {
-      const res = await fetch(
-        'https://raw.githubusercontent.com/Sandakan/UPSED/main/CHANGELOG.md'
-      );
+      const res = await fetch(APP_CHANGELOG_RAW_URL);
       if (!res.ok) {
         throw new Error(`Failed to load changelog from GitHub (${res.status} ${res.statusText})`);
       }
@@ -262,11 +261,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         {/* ── Footer Actions ──────────────────────────────────── */}
         <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-between">
           <a
-            href={
-              activeTab === 'changelog'
-                ? 'https://github.com/Sandakan/UPSED/blob/main/CHANGELOG.md'
-                : 'https://github.com/Sandakan/UPSED'
-            }
+            href={activeTab === 'changelog' ? APP_CHANGELOG_BLOB_URL : REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer"
