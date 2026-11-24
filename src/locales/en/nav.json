@@ -8,12 +8,13 @@
     "control": "Hardware Control",
     "config": "Configuration",
     "history": "History & Graphs",
+    "iot": "IoT Bridge",
     "events": "Events",
     "settings": "Settings"
   },
   "device": {
     "noDevice": "No device connected",
-    "discoveredPorts": "Discovered Ports",
+    "discoveredPorts": "Available Interfaces",
     "scanTitle": "Scan for UPS devices",
     "noUpsFound": "No UPS found. Click scan to discover."
   },

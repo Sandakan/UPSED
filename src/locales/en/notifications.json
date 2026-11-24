@@ -59,6 +59,18 @@
     "title": "Telemetry Polling Error",
     "description": "Hardware telemetry query timed out or returned corrupted response packet."
   },
+  "APP_START": {
+    "title": "UPSED Application Started",
+    "description": "UPSED background monitor and system services started."
+  },
+  "APP_HIDE": {
+    "title": "UPSED Window Hidden",
+    "description": "Application window minimized or hidden to system tray."
+  },
+  "APP_EXIT": {
+    "title": "UPSED Application Shut Down",
+    "description": "UPSED application process terminated."
+  },
   "warning": {
     "a0": {
       "title": "Battery Disconnected",

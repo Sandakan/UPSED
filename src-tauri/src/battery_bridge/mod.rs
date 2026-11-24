@@ -7,11 +7,24 @@ pub struct BatteryBridgeState {
     pub platform: &'static str,
 }
 
-/// Generates a dynamic 32x32 RGBA pixel buffer displaying the battery level,
-/// charging status, and critical warning colors.
-pub fn generate_battery_icon_rgba(pct: u32, on_battery: bool, battery_low: bool) -> Vec<u8> {
-    let width = 32usize;
-    let height = 32usize;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UpsTrayState {
+    Disconnected,
+    AcNormal { pct: u32 },
+    OnBattery { pct: u32 },
+    BatteryLow { pct: u32 },
+    BypassMode { pct: u32 },
+    UpsFault,
+    TestInProgress { pct: u32 },
+}
+
+pub const TRAY_ICON_SIZE: u32 = 32;
+
+/// Generates a dynamic 32x32 high-DPI RGBA pixel buffer displaying the state-aware UPS icon.
+/// Designed as a sleek, wide horizontal cylinder (rounded capsule) with generous breathing space around it.
+pub fn generate_tray_icon_rgba(state: UpsTrayState) -> Vec<u8> {
+    let width = TRAY_ICON_SIZE as usize;
+    let height = TRAY_ICON_SIZE as usize;
     let mut buf = vec![0u8; width * height * 4];
 
     let mut set_pixel = |x: usize, y: usize, color: [u8; 4]| {
@@ -21,57 +34,222 @@ pub fn generate_battery_icon_rgba(pct: u32, on_battery: bool, battery_low: bool)
         }
     };
 
-    // Color palette
-    let border_color = [210, 220, 235, 255]; // Crisp light slate
-    let fill_color = if battery_low {
-        [239, 68, 68, 255] // Red
-    } else if on_battery {
-        [245, 158, 11, 255] // Amber
-    } else {
-        [16, 185, 129, 255] // Emerald green
+    // Capsule outer geometry on 32x32 canvas:
+    // Dimensions: Width = 24px (x: 4..=27), Height = 12px (y: 10..=21).
+    // Padding: 4px on left and right, 10px on top and bottom.
+    // Perfectly centered, wide horizontal cylinder with smooth curved ends.
+    let draw_cylinder_casing = |set_px: &mut dyn FnMut(usize, usize, [u8; 4]), border: [u8; 4]| {
+        // Top and bottom horizontal edges
+        for x in 7..=24 {
+            set_px(x, 10, border);
+            set_px(x, 21, border);
+        }
+        // Rounded left cap
+        set_px(6, 11, border);
+        set_px(5, 12, border);
+        set_px(5, 13, border);
+        set_px(4, 14, border);
+        set_px(4, 15, border);
+        set_px(4, 16, border);
+        set_px(4, 17, border);
+        set_px(5, 18, border);
+        set_px(5, 19, border);
+        set_px(6, 20, border);
+
+        // Rounded right cap
+        set_px(25, 11, border);
+        set_px(26, 12, border);
+        set_px(26, 13, border);
+        set_px(27, 14, border);
+        set_px(27, 15, border);
+        set_px(27, 16, border);
+        set_px(27, 17, border);
+        set_px(26, 18, border);
+        set_px(26, 19, border);
+        set_px(25, 20, border);
     };
 
-    // Battery Body: Box from x=3 to x=25, y=9 to y=23 (Height=15, Width=23)
-    // Top & Bottom border (y=9, y=23)
-    for x in 4..=24 {
-        set_pixel(x, 9, border_color);
-        set_pixel(x, 23, border_color);
-    }
-    // Left & Right border (x=3, x=25)
-    for y in 10..=22 {
-        set_pixel(3, y, border_color);
-        set_pixel(25, y, border_color);
-    }
+    // Return the interior x bounds (inclusive) for a given y row inside the capsule
+    let get_row_bounds = |y: usize| -> Option<(usize, usize)> {
+        match y {
+            11 => Some((7, 24)),
+            12..=13 => Some((6, 25)),
+            14..=17 => Some((5, 26)),
+            18..=19 => Some((6, 25)),
+            20 => Some((7, 24)),
+            _ => None,
+        }
+    };
 
-    // Battery Terminal Nub on the right: x=26..=27, y=13..=19
-    for x in 26..=27 {
-        for y in 13..=19 {
-            set_pixel(x, y, border_color);
+    // Background fill for the empty/unfilled chamber: dark translucent slate
+    let empty_bg = [15, 23, 42, 220];
+
+    match state {
+        UpsTrayState::Disconnected => {
+            // Muted slate gray empty cylinder
+            let border = [148, 163, 184, 255];
+            draw_cylinder_casing(&mut set_pixel, border);
+
+            // Fill empty chamber with dark glass
+            for y in 11..=20 {
+                if let Some((x_start, x_end)) = get_row_bounds(y) {
+                    for x in x_start..=x_end {
+                        set_pixel(x, y, empty_bg);
+                    }
+                }
+            }
+
+            // Crisp diagonal red slash (2px thick)
+            let slash = [239, 68, 68, 255];
+            for i in 0..12 {
+                let px = 10 + i;
+                let py = 19 - (i * 8 / 11);
+                set_pixel(px, py, slash);
+                set_pixel(px + 1, py, slash);
+            }
+        }
+        UpsTrayState::UpsFault => {
+            // High-visibility crimson casing with dark crimson fill and bold white 'X'
+            let border = [239, 68, 68, 255];
+            draw_cylinder_casing(&mut set_pixel, border);
+
+            let dark_crimson = [127, 29, 29, 240];
+            for y in 11..=20 {
+                if let Some((x_start, x_end)) = get_row_bounds(y) {
+                    for x in x_start..=x_end {
+                        set_pixel(x, y, dark_crimson);
+                    }
+                }
+            }
+
+            // Bold white 'X'
+            let white = [255, 255, 255, 255];
+            for i in 0..7 {
+                let x1 = 13 + i;
+                let y1 = 12 + i;
+                let x2 = 18 - i;
+                set_pixel(x1, y1, white);
+                set_pixel(x2, y1, white);
+            }
+        }
+        UpsTrayState::AcNormal { pct }
+        | UpsTrayState::OnBattery { pct }
+        | UpsTrayState::BatteryLow { pct }
+        | UpsTrayState::BypassMode { pct }
+        | UpsTrayState::TestInProgress { pct } => {
+            let (border_color, fill_color) = match state {
+                UpsTrayState::BatteryLow { .. } => (
+                    [239, 68, 68, 255], // Red border
+                    [239, 68, 68, 255], // Red fill
+                ),
+                UpsTrayState::OnBattery { .. } => (
+                    [255, 255, 255, 255], // Bright white border for maximum contrast
+                    [245, 158, 11, 255],  // Amber fill
+                ),
+                UpsTrayState::BypassMode { .. } => (
+                    [249, 115, 22, 255], // Orange border
+                    [56, 189, 248, 255], // Sky blue fill
+                ),
+                UpsTrayState::TestInProgress { .. } => (
+                    [6, 182, 212, 255],  // Cyan border
+                    [6, 182, 212, 255],  // Cyan fill
+                ),
+                _ => (
+                    [255, 255, 255, 255], // Bright white border for maximum visibility on all taskbars
+                    [16, 185, 129, 255],  // Emerald green fill
+                ),
+            };
+
+            // Draw outer cylinder casing
+            draw_cylinder_casing(&mut set_pixel, border_color);
+
+            // Proportional battery charge fill: max width = 22px (x: 5..=26)
+            let clamped_pct = pct.min(100);
+            let fill_width = ((clamped_pct as f32 / 100.0) * 22.0).round() as usize;
+            let fill_cutoff_x = 5 + fill_width;
+
+            for y in 11..=20 {
+                if let Some((x_start, x_end)) = get_row_bounds(y) {
+                    for x in x_start..=x_end {
+                        if x < fill_cutoff_x {
+                            set_pixel(x, y, fill_color);
+                        } else {
+                            set_pixel(x, y, empty_bg);
+                        }
+                    }
+                }
+            }
+
+            // State-specific overlays
+            match state {
+                UpsTrayState::AcNormal { .. } => {
+                    // Crisp white charging lightning bolt centered vertically
+                    let bolt = [255, 255, 255, 255];
+                    for (bx, by) in &[
+                        (16, 12),
+                        (15, 13), (16, 13),
+                        (14, 14), (15, 14), (16, 14), (17, 14),
+                        (15, 15), (16, 15),
+                        (15, 16),
+                        (16, 17),
+                        (16, 18),
+                    ] {
+                        set_pixel(*bx, *by, bolt);
+                    }
+                }
+                UpsTrayState::BatteryLow { .. } => {
+                    // White exclamation mark '!'
+                    let white = [255, 255, 255, 255];
+                    for y in 12..=16 {
+                        set_pixel(15, y, white);
+                        set_pixel(16, y, white);
+                    }
+                    for y in 18..=19 {
+                        set_pixel(15, y, white);
+                        set_pixel(16, y, white);
+                    }
+                }
+                UpsTrayState::BypassMode { .. } => {
+                    // White bypass arrow '→'
+                    let white = [255, 255, 255, 255];
+                    for x in 12..=19 {
+                        set_pixel(x, 15, white);
+                        set_pixel(x, 16, white);
+                    }
+                    set_pixel(18, 13, white);
+                    set_pixel(19, 14, white);
+                    set_pixel(19, 17, white);
+                    set_pixel(18, 18, white);
+                }
+                UpsTrayState::TestInProgress { .. } => {
+                    // Diagnostic cross '+'
+                    let white = [255, 255, 255, 255];
+                    for x in 12..=19 {
+                        set_pixel(x, 15, white);
+                        set_pixel(x, 16, white);
+                    }
+                    for y in 12..=19 {
+                        set_pixel(15, y, white);
+                        set_pixel(16, y, white);
+                    }
+                }
+                _ => {}
+            }
         }
     }
-
-    // Inner Fill Area: x=5 to x=23 (Total 19 pixels width), y=11 to y=21
-    let clamped_pct = pct.min(100);
-    let fill_pixels = ((clamped_pct as f32 / 100.0) * 19.0).round() as usize;
-
-    for x in 5..(5 + fill_pixels).min(24) {
-        for y in 11..=21 {
-            set_pixel(x, y, fill_color);
-        }
-    }
-
-    // If AC grid is present (charging / line mode), overlay a white charging lightning bolt
-    if !on_battery {
-        let bolt = [255, 255, 255, 255];
-        set_pixel(14, 12, bolt);
-        set_pixel(13, 13, bolt);
-        set_pixel(14, 14, bolt);
-        set_pixel(15, 14, bolt);
-        set_pixel(13, 15, bolt);
-        set_pixel(14, 16, bolt);
-    }
-
     buf
+}
+
+/// Backwards-compatible wrapper delegating to `generate_tray_icon_rgba`.
+pub fn generate_battery_icon_rgba(pct: u32, on_battery: bool, battery_low: bool) -> Vec<u8> {
+    let state = if battery_low {
+        UpsTrayState::BatteryLow { pct }
+    } else if on_battery {
+        UpsTrayState::OnBattery { pct }
+    } else {
+        UpsTrayState::AcNormal { pct }
+    };
+    generate_tray_icon_rgba(state)
 }
 
 /// Calibrates battery voltage to SoC percentage matching ViewPower standards.

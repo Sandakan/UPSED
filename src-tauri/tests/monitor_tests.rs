@@ -42,6 +42,27 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     let temp_db = std::env::temp_dir().join(format!("upsed_perf_test_{}.db", uuid_or_timestamp()));
     let db = Database::init(&temp_db).expect("Failed to initialize database for performance test");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "UPS-TEST-001".into(),
+        name: "Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     // Insert 300 telemetry records spaced 10 seconds apart
     let base_time = chrono::Utc::now() - chrono::Duration::seconds(3000);
     for i in 0..300 {
@@ -49,7 +70,7 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "UPS-TEST-001".into(),
             grid_voltage: 230.0 + (i as f32 % 5.0),
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -63,7 +84,7 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     }
 
     // 1. Verify query_recent_telemetry with index seek
-    let recent = db.query_recent_telemetry("COM1", 20).unwrap();
+    let recent = db.query_recent_telemetry("UPS-TEST-001", 20).unwrap();
     assert_eq!(recent.len(), 20);
     // Chronological order verification
     for w in recent.windows(2) {
@@ -75,11 +96,11 @@ fn monitor_005_database_performance_indexes_and_downsampling() {
     let end_iso = (base_time + chrono::Duration::seconds(3100)).to_rfc3339();
 
     // Raw mode (max_points = 0): returns all 300 points
-    let raw = db.query_telemetry_range("COM1", &start_iso, &end_iso, Some(0)).unwrap();
+    let raw = db.query_telemetry_range("UPS-TEST-001", &start_iso, &end_iso, Some(0)).unwrap();
     assert_eq!(raw.len(), 300);
 
     // Downsampled mode (max_points = 100): stride should be ceil(300/100) = 3 -> 100 points
-    let downsampled = db.query_telemetry_range("COM1", &start_iso, &end_iso, Some(100)).unwrap();
+    let downsampled = db.query_telemetry_range("UPS-TEST-001", &start_iso, &end_iso, Some(100)).unwrap();
     assert_eq!(downsampled.len(), 100);
 
     // Chronological ordering preserved
@@ -96,6 +117,27 @@ fn monitor_006_database_concurrency_split_read_write() {
     let temp_db = std::env::temp_dir().join(format!("upsed_concurrency_{}.db", uuid_or_timestamp()));
     let db = Arc::new(Database::init(&temp_db).expect("Failed to init db"));
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "COM_CONCURRENT".into(),
+        name: "Concurrent Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     let db_writer = Arc::clone(&db);
     let db_reader = Arc::clone(&db);
 
@@ -106,7 +148,7 @@ fn monitor_006_database_concurrency_split_read_write() {
                 .insert_telemetry(&TelemetryRecord {
                     id: None,
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    port_name: "COM_CONCURRENT".into(),
+                    ups_id: "COM_CONCURRENT".into(),
                     grid_voltage: 230.0,
                     output_voltage: 230.0,
                     grid_frequency: 50.0,
@@ -147,6 +189,27 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     let temp_db = std::env::temp_dir().join(format!("upsed_maint_{}.db", uuid_or_timestamp()));
     let db = Database::init(&temp_db).expect("Failed to init db");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "COM1".into(),
+        name: "Maint Test UPS".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
     let now = chrono::Utc::now();
     // Insert 10 records from 100 days ago
     for i in 0..10 {
@@ -154,7 +217,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "COM1".into(),
             grid_voltage: 230.0,
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -173,7 +236,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
         db.insert_telemetry(&TelemetryRecord {
             id: None,
             timestamp: t.to_rfc3339(),
-            port_name: "COM1".into(),
+            ups_id: "COM1".into(),
             grid_voltage: 230.0,
             output_voltage: 230.0,
             grid_frequency: 50.0,
@@ -194,7 +257,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     assert!(stats.file_size_bytes > 0);
 
     // Prune older than 30 days -> should delete the 10 old records
-    let pruned = db.prune_telemetry(30).unwrap();
+    let pruned = db.prune_telemetry(30, None).unwrap();
     assert_eq!(pruned, 10);
 
     let stats_after = db.get_db_stats().unwrap();
@@ -204,7 +267,7 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     db.vacuum_database().unwrap();
 
     // Clear telemetry
-    let cleared = db.clear_telemetry().unwrap();
+    let cleared = db.clear_telemetry(None).unwrap();
     assert_eq!(cleared, 15);
 
     let stats_final = db.get_db_stats().unwrap();
@@ -214,6 +277,77 @@ fn monitor_007_database_maintenance_pruning_and_stats() {
     let _ = std::fs::remove_file(&temp_db);
 }
 
+#[test]
+fn monitor_008_resolve_and_migrate_ups_metadata() {
+    use upsed_lib::db::{Database, UpsMetadata};
+
+    let db = Database::init(":memory:").unwrap();
+
+    // 1. Insert a legacy profile with -FW-GENERIC suffix
+    let legacy_profile = UpsMetadata {
+        unique_id: "BRIDGE-MAC-806599A6B9F8-FW-GENERIC".into(),
+        name: "PROLINK PRO901-ES".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
+        updated_at: "2026-10-19T08:00:00Z".into(),
+    };
+    db.save_ups_metadata(&legacy_profile).unwrap();
+
+    // 2. Resolve using clean canonical BRIDGE-MAC ID
+    let resolved = db
+        .resolve_ups_metadata(
+            "BRIDGE-MAC-806599A6B9F8",
+            Some("80:65:99:A6:B9:F8"),
+            None,
+            Some("P00:24V"),
+        )
+        .unwrap();
+
+    assert!(resolved.is_some());
+    let canonical = resolved.unwrap();
+    assert_eq!(canonical.unique_id, "BRIDGE-MAC-806599A6B9F8");
+    assert_eq!(canonical.name, "PROLINK PRO901-ES");
+    assert_eq!(canonical.bridge_mac.as_deref(), Some("806599A6B9F8"));
+    assert_eq!(canonical.hardware_signature.as_deref(), Some("P00:24V"));
+
+    // 3. Test twin-unit disambiguation candidates
+    let twin_profile = UpsMetadata {
+        unique_id: "BRIDGE-MAC-3C8427124A9C".into(),
+        name: "PROLINK PRO901-ES #2 (Server)".into(),
+        usb_uuid: None,
+        bridge_mac: Some("3C8427124A9C".into()),
+        hardware_signature: Some("P00:24V".into()),
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
+        updated_at: "2026-10-20T10:00:00Z".into(),
+    };
+    db.save_ups_metadata(&twin_profile).unwrap();
+
+    let candidates = db.get_disambiguation_candidates("P00:24V").unwrap();
+    assert_eq!(candidates.len(), 2);
+}
+
 fn uuid_or_timestamp() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -221,4 +355,71 @@ fn uuid_or_timestamp() -> u128 {
         .as_nanos()
 }
 
+#[test]
+fn monitor_009_get_latest_telemetry_timestamp() {
+    let temp_db = std::env::temp_dir().join(format!("upsed_test_{}.db", uuid_or_timestamp()));
+    let db = Database::init(&temp_db).expect("Failed to init temp db");
 
+    let profile = upsed_lib::db::UpsMetadata {
+        unique_id: "UPS-SYNC-01".into(),
+        name: "Sync Test Unit".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: true,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.save_ups_metadata(&profile).unwrap();
+
+    // Empty DB returns None
+    assert_eq!(db.get_latest_telemetry_timestamp("UPS-SYNC-01").unwrap(), None);
+
+    let t1 = chrono::Utc::now() - chrono::Duration::seconds(50);
+    let t2 = chrono::Utc::now();
+
+    db.insert_telemetry(&TelemetryRecord {
+        id: None,
+        timestamp: t1.to_rfc3339(),
+        ups_id: "UPS-SYNC-01".into(),
+        grid_voltage: 230.0,
+        output_voltage: 230.0,
+        grid_frequency: 50.0,
+        output_frequency: 50.0,
+        load_pct: 20,
+        output_watts: 200,
+        battery_voltage: 27.2,
+        temperature_c: 30,
+    }).unwrap();
+
+    db.insert_telemetry(&TelemetryRecord {
+        id: None,
+        timestamp: t2.to_rfc3339(),
+        ups_id: "UPS-SYNC-01".into(),
+        grid_voltage: 230.0,
+        output_voltage: 230.0,
+        grid_frequency: 50.0,
+        output_frequency: 50.0,
+        load_pct: 20,
+        output_watts: 200,
+        battery_voltage: 27.2,
+        temperature_c: 30,
+    }).unwrap();
+
+    let latest = db.get_latest_telemetry_timestamp("UPS-SYNC-01").unwrap();
+    assert_eq!(latest, Some(t2.timestamp()));
+
+    // Different UPS ID still returns None
+    assert_eq!(db.get_latest_telemetry_timestamp("UPS-OTHER").unwrap(), None);
+
+    let _ = std::fs::remove_file(&temp_db);
+}

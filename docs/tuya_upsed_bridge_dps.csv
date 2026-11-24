@@ -1,0 +1,64 @@
+"Description (Do Not Delete)
+This template supports custom data points of Property with either of these data types, namely value, string, date, boolean, enumeration, raw, and fault.",,,,,,,,,,,
+"Required
+Enter a number from 101 to 499.","Required
+The function name can contain Chinese and alphanumeric characters, dashes, underscores, slashes, and periods, and should start with Chinese or alphanumeric characters.","Required
+The identifier can contain alphanumeric characters and underscores.","Required
+Single select
+For Send and Report, enter rw
+For Report Only, enter ro
+For Send Only, enter wr","Required
+Single select
+For Value type, enter value
+For String type, enter string
+For Date type, enter date
+For Boolean type, enter bool
+For Enumeration type, enter enum
+For Raw type, enter raw
+For Fault type, enter fault
+For Single-Precision Floating-Point type, enter float
+For Double-Precision Floating-Point type, enter double
+","For Value type, leave this field empty
+For String type, this field is required. Enter a value from 0 to 1024 to specify the maximum length.
+For Date type, leave this field empty
+For Boolean type, leave this field empty
+For Enumeration type, this field is required. Enter enum values, separated by commas (,).
+For Raw type, leave this field empty
+For Fault type, this field is required. Enter fault values, separated by commas (,).
+For Single-Precision Floating-Point type, leave this field empty
+For Double-Precision Floating-Point type, leave this field empty","Optional
+You can write a remark in Chinese or English.","This field is required for value, single-precision and double-precision floating-point, and long integer types.
+
+The minimum value must be less than the maximum value.
+
+For Value type, enter a positive integer.
+For Single-Precision Floating-Point type, enter the number of decimal places.
+For Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point, and long integer types.
+
+The maximum value must be greater than the minimum value.
+
+For Value type, enter a positive integer.
+For Single-Precision Floating-Point type, enter the number of decimal places.
+For Double-Precision Floating-Point type, enter the number of decimal places.","This field is required for value, single-precision and double-precision floating-point",This field is required for value type.,"Optional
+This field is required for value, single-precision and double-precision floating-point"
+DP ID,Function Name,Identifier,Data Transfer Type,Data Type,Data Definition,Remark,Minimum Value,Maximum Value,Pitch,Scale,Unit
+101,UPS Power Switch,ups_power_switch,Send and Report (rw),bool,,Turns UPS inverter ON (SON) or OFF (SOFF),,,,,
+102,Force Shutdown Override,force_shutdown,Send and Report (rw),bool,,Bypasses safety interlock and immediately powers off output,,,,,
+103,Cancel Shutdown,cancel_shutdown,Send and Report (rw),bool,,Aborts pending hardware shutdown countdown (CS),,,,,
+104,AC Output Status,output_enabled,Report Only (ro),bool,,Reported true when AC output voltage >= 80V,,,,,
+105,PC Host Online,pc_online,Report Only (ro),bool,,Reported true when Desktop proxy active or load > threshold,,,,,
+106,Grid Voltage,grid_voltage,Report Only (ro),value,,Input AC grid voltage,0,3000,1,1,V
+107,Output Voltage,output_voltage,Report Only (ro),value,,Output AC voltage,0,3000,1,1,V
+108,Load Percentage,load_pct,Report Only (ro),value,,Real-time output load percentage,0,100,1,0,%
+109,Battery Percentage,battery_pct,Report Only (ro),value,,Estimated battery state-of-charge,0,100,1,0,%
+110,Battery Voltage,battery_voltage,Report Only (ro),value,,Raw DC battery bank voltage,0,10000,1,2,V
+111,Internal Temperature,temperature_c,Report Only (ro),value,,Internal heatsink temperature,0,1000,1,1,℃
+112,UPS Operating Mode,ups_mode,Report Only (ro),enum,"standby, line, battery, bypass, fault",Current UPS operating mode,,,,,
+113,Utility Grid Fail,utility_fail,Report Only (ro),bool,,Reported true during blackouts (running on battery),,,,,
+114,Battery Low Alarm,battery_low,Report Only (ro),bool,,Reported true when battery is critically depleted,,,,,
+115,Buzzer Mute,buzzer_mute,Send and Report (rw),bool,,Toggles UPS audible beeper (Q),,,,,
+116,10s Battery Test,battery_test_10s,Send and Report (rw),bool,,Dispatches 10-second battery self-test (T),,,,,
+117,Deep Battery Test,deep_battery_test,Send and Report (rw),bool,,Tests battery until low threshold (TL),,,,,
+118,Cancel Battery Test,cancel_test,Send and Report (rw),bool,,Cancels active battery test (CT),,,,,
+119,Programmable Outlet 1,outlet_1_switch,Send and Report (rw),bool,,Toggles outlet group 1 (SKON1/SKOFF1),,,,,
+120,Programmable Outlet 2,outlet_2_switch,Send and Report (rw),bool,,Toggles outlet group 2 (SKON2/SKOFF2),,,,,

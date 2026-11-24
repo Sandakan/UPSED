@@ -4,15 +4,32 @@ use upsed_lib::protocol::{UnlockStage, VoltronicCommand};
 
 #[test]
 fn sec_001_cannot_skip_stages() {
-    let mut gate = CommandGate::new();
+    let gate = CommandGate::new();
 
-    // Trying to jump directly from T1 to T3
-    let result_t3 = gate.unlock_stage(UnlockStage::T3ConfigWrite);
-    assert!(matches!(result_t3, Err(GateError::PrerequisiteNotMet(_))));
+    // Trying to execute T2, T3 or T4 while unauthenticated
+    let result_t2 = gate.check_command(&VoltronicCommand::TenSecondTest);
+    assert_eq!(
+        result_t2,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T2NonDestructive
+        })
+    );
 
-    // Trying to jump directly from T1 to T4
-    let result_t4 = gate.unlock_stage(UnlockStage::T4PowerControl);
-    assert!(matches!(result_t4, Err(GateError::PrerequisiteNotMet(_))));
+    let result_t3 = gate.check_command(&VoltronicCommand::SetBypassHighVoltage(240));
+    assert_eq!(
+        result_t3,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T3ConfigWrite
+        })
+    );
+
+    let result_t4 = gate.check_command(&VoltronicCommand::ShutdownWithDelay { minutes: 0.3 });
+    assert_eq!(
+        result_t4,
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T4PowerControl
+        })
+    );
 }
 
 #[test]
@@ -29,31 +46,54 @@ fn sec_002_all_commands_strictly_typed_no_arbitrary_string_passthrough() {
 
 #[test]
 fn sec_003_gate_downgrade_to_t1_immediately_relocks_higher_commands() {
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
-    assert_eq!(gate.current_stage(), UnlockStage::T2NonDestructive);
+    let mut gate = CommandGate::new_authenticated();
+    assert_eq!(gate.current_stage(), UnlockStage::T4PowerControl);
+    assert!(gate.check_command(&VoltronicCommand::BuzzerToggle).is_ok());
 
-    // Downgrade back to T1
+    // Downgrade back to T1 (logout)
     gate.unlock_stage(UnlockStage::T1ReadOnly).unwrap();
     assert_eq!(gate.current_stage(), UnlockStage::T1ReadOnly);
 
-    // T2 command must now be rejected
-    assert!(matches!(
+    // Privileged command must now be rejected
+    assert_eq!(
         gate.check_command(&VoltronicCommand::BuzzerToggle),
-        Err(GateError::StageLocked { .. })
-    ));
+        Err(GateError::AuthRequired {
+            required: UnlockStage::T2NonDestructive
+        })
+    );
 }
 
 #[test]
 fn sec_004_sqlite_telemetry_isolation() {
+    use upsed_lib::db::UpsMetadata;
     // In-memory SQLite for testing
     let db = Database::init(":memory:").unwrap();
+
+    let meta = UpsMetadata {
+        unique_id: "COM1".into(),
+        name: "Test COM1".into(),
+        usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
+        rated_va: 1000,
+        power_factor: 0.8,
+        rated_watts: 800,
+        battery_voltage: 24,
+        battery_capacity_ah: 9.0,
+        battery_chemistry: "VRLA_SLA".into(),
+        topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
+        updated_at: "2026-09-09T20:00:00Z".into(),
+    };
+    db.save_ups_metadata(&meta).unwrap();
 
     let record = TelemetryRecord {
         id: None,
         timestamp: "2026-09-09T20:00:00Z".into(),
-        port_name: "COM1".into(),
+        ups_id: "COM1".into(),
         grid_voltage: 230.5,
         output_voltage: 230.0,
         grid_frequency: 50.1,
@@ -88,6 +128,8 @@ fn sec_005_ups_metadata_persistence() {
         unique_id: "QID-TESTSERIAL123".into(),
         name: "Office Test UPS".into(),
         usb_uuid: Some("USB#VID_0665&PID_5161#PORT_1".into()),
+        bridge_mac: None,
+        hardware_signature: None,
         rated_va: 1500,
         power_factor: 0.6,
         rated_watts: 900,
@@ -95,6 +137,10 @@ fn sec_005_ups_metadata_persistence() {
         battery_capacity_ah: 9.0,
         battery_chemistry: "VRLA_SLA".into(),
         topology: "LineInteractive".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
         updated_at: "2026-09-10T00:00:00Z".into(),
     };
 
@@ -148,6 +194,8 @@ fn sec_006_usb_uuid_roaming_and_settings() {
         unique_id: "QID-TESTSERIAL123".into(),
         name: "Workstation Prolink".into(),
         usb_uuid: Some("USB#VID_0665&PID_5161#REAR_USB_PORT_1".into()),
+        bridge_mac: None,
+        hardware_signature: None,
         rated_va: 6000,
         power_factor: 0.9,
         rated_watts: 5400,
@@ -155,6 +203,10 @@ fn sec_006_usb_uuid_roaming_and_settings() {
         battery_capacity_ah: 9.0,
         battery_chemistry: "VRLA_SLA".into(),
         topology: "Online".into(),
+        poll_interval_secs: 10,
+        bridge_ws_host: None,
+        last_port: None,
+        is_primary: false,
         updated_at: "2026-09-10T00:00:00Z".into(),
     };
     db.save_ups_metadata(&meta).unwrap();
@@ -193,6 +245,7 @@ fn sec_007_hardware_event_transition_detection() {
         bypass_active: false,
         ups_failed: false,
         test_in_progress: false,
+        shutdown_active: false,
         beeper_on: false,
         raw_status_bits: "00000000".into(),
     };
@@ -202,13 +255,13 @@ fn sec_007_hardware_event_transition_detection() {
         utility_fail: true,
         ..base_status.clone()
     };
-    let events = detect_status_events(Some(&base_status), &blackout_status, "COM1");
+    let events = detect_status_events(Some(&base_status), &blackout_status, Some("UPS-TEST-1"));
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, "UTILITY_FAIL");
     assert_eq!(events[0].severity, "critical");
 
     // Test 2: Grid restored falling edge
-    let restored_events = detect_status_events(Some(&blackout_status), &base_status, "COM1");
+    let restored_events = detect_status_events(Some(&blackout_status), &base_status, Some("UPS-TEST-1"));
     assert_eq!(restored_events.len(), 1);
     assert_eq!(restored_events[0].event_type, "UTILITY_RESTORE");
     assert_eq!(restored_events[0].severity, "success");
@@ -218,7 +271,7 @@ fn sec_007_hardware_event_transition_detection() {
         battery_low: true,
         ..base_status.clone()
     };
-    let bat_events = detect_status_events(Some(&base_status), &low_bat_status, "COM1");
+    let bat_events = detect_status_events(Some(&base_status), &low_bat_status, Some("UPS-TEST-1"));
     assert_eq!(bat_events.len(), 1);
     assert_eq!(bat_events[0].event_type, "BATTERY_LOW");
     assert_eq!(bat_events[0].severity, "critical");
@@ -228,13 +281,13 @@ fn sec_007_hardware_event_transition_detection() {
         output_load_pct: 125,
         ..base_status.clone()
     };
-    let ovld_events = detect_status_events(Some(&base_status), &overload_status, "COM1");
+    let ovld_events = detect_status_events(Some(&base_status), &overload_status, Some("UPS-TEST-1"));
     assert_eq!(ovld_events.len(), 1);
     assert_eq!(ovld_events[0].event_type, "OVERLOAD");
     assert_eq!(ovld_events[0].severity, "critical");
 
     // Test 5: Overload cleared
-    let cleared_ovld = detect_status_events(Some(&overload_status), &base_status, "COM1");
+    let cleared_ovld = detect_status_events(Some(&overload_status), &base_status, Some("UPS-TEST-1"));
     assert_eq!(cleared_ovld.len(), 1);
     assert_eq!(cleared_ovld[0].event_type, "OVERLOAD_CLEARED");
     assert_eq!(cleared_ovld[0].severity, "info");
@@ -244,12 +297,28 @@ fn sec_007_hardware_event_transition_detection() {
         temperature_c: 58,
         ..base_status.clone()
     };
-    let temp_events = detect_status_events(Some(&base_status), &hot_status, "COM1");
+    let temp_events = detect_status_events(Some(&base_status), &hot_status, Some("UPS-TEST-1"));
     assert_eq!(temp_events.len(), 1);
     assert_eq!(temp_events[0].event_type, "OVER_TEMP");
     assert_eq!(temp_events[0].severity, "warning");
 
-    // Test 7: No change produces no events
-    let no_events = detect_status_events(Some(&base_status), &base_status, "COM1");
+    // Test 7: Shutdown active rising edge
+    let shutdown_status = Q1Status {
+        shutdown_active: true,
+        ..base_status.clone()
+    };
+    let shut_events = detect_status_events(Some(&base_status), &shutdown_status, Some("UPS-TEST-1"));
+    assert_eq!(shut_events.len(), 1);
+    assert_eq!(shut_events[0].event_type, "SHUTDOWN_ACTIVE");
+    assert_eq!(shut_events[0].severity, "warning");
+
+    // Test 8: Shutdown cancelled falling edge
+    let cancelled_events = detect_status_events(Some(&shutdown_status), &base_status, Some("UPS-TEST-1"));
+    assert_eq!(cancelled_events.len(), 1);
+    assert_eq!(cancelled_events[0].event_type, "SHUTDOWN_CANCELLED");
+    assert_eq!(cancelled_events[0].severity, "info");
+
+    // Test 9: No change produces no events
+    let no_events = detect_status_events(Some(&base_status), &base_status, Some("UPS-TEST-1"));
     assert!(no_events.is_empty());
 }

@@ -25,7 +25,7 @@ function upsedLogoSync() {
 export default defineConfig(() => ({
   plugins: [
     upsedLogoSync(),
-    react(),
+    react({compiler: true}),
     tailwindcss(),
     {
       name: "html-react-devtools",

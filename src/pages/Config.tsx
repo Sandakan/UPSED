@@ -1,27 +1,30 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ShieldAlert, Check, XCircle, Sliders } from 'lucide-react';
+import { Check, XCircle, Sliders, Lock, Unlock } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 import { UnlockStage, VoltronicCommand } from '../lib/types';
 import { api } from '../lib/tauri';
 import { PrimaryButton } from '../components/PrimaryButton';
 
 interface ConfigProps {
   portName: string | null;
+  upsId?: string | null;
   safetyStage: UnlockStage;
 }
 
-export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
+export const Config: React.FC<ConfigProps> = ({ portName, upsId, safetyStage: _safetyStage }) => {
   const { t } = useTranslation(['config', 'common']);
+  const auth = useAuth();
   const [bypassHigh, setBypassHigh] = useState<number>(260);
   const [bypassLow, setBypassLow] = useState<number>(190);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const isLocked = safetyStage === 'T1ReadOnly' || safetyStage === 'T2NonDestructive';
+  const isLocked = !auth.status?.authenticated;
 
   const handleSaveParam = async (cmd: VoltronicCommand, label: string) => {
     if (!portName) {
-      setStatusMessage(t('config:feedback.noDevice', 'Error: No active UPS device selected'));
+      setStatusMessage(t('config:feedback.noDevice', 'Error: No active UPS device selected or device is offline'));
       return;
     }
 
@@ -29,7 +32,7 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
     setStatusMessage(null);
 
     try {
-      const resp = await api.sendCommand(portName, cmd);
+      const resp = await api.sendCommand(portName, cmd, upsId || undefined);
       setStatusMessage(t('config:feedback.success', { label, resp, defaultValue: `Success: ${label} saved to UPS EEPROM (Response: ${resp})` }));
     } catch (err: any) {
       setStatusMessage(t('config:feedback.failed', { error: err?.message || String(err), defaultValue: `Failed: ${err?.message || String(err)}` }));
@@ -40,20 +43,37 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
 
   return (
     <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
-      {/* Safety Gate Alert */}
+      {/* Protected Access Alert */}
       {isLocked && (
-        <div className="p-4 rounded-2xl bg-amber-500/[0.08] border border-amber-500/20 flex items-start space-x-3.5">
-          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 shrink-0">
-            <ShieldAlert className="w-5 h-5" />
+        <div className="p-4 rounded-2xl bg-indigo-500/[0.08] border border-indigo-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="text-xs">
+              <h4 className="font-semibold text-indigo-300">
+                {t('config:alert.lockedTitle', 'Configuration Writes are Protected')}
+              </h4>
+              <p className="text-slate-400 mt-1 leading-relaxed">
+                {t(
+                  'config:alert.lockedDesc',
+                  'Writing parameters alters the UPS EEPROM/flash memory. Log in as administrator to unlock parameter writes.'
+                )}
+              </p>
+            </div>
           </div>
-          <div className="text-xs">
-            <h4 className="font-semibold text-amber-300">
-              {t('config:alert.lockedTitle', { stage: safetyStage, defaultValue: `Configuration Writes are Locked (Stage ${safetyStage})` })}
-            </h4>
-            <p className="text-slate-400 mt-1 leading-relaxed">
-              {t('config:alert.lockedDesc', 'Writing parameters alters the UPS EEPROM/flash memory. To unlock configuration writes, advance the Safety Gate to Stage T3 (Config Write) on the Hardware Control page.')}
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => auth.requireAuth(() => {}, 'Unlock Configuration Writes')}
+            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-950/40 transition cursor-pointer shrink-0 self-start sm:self-auto flex items-center gap-1.5"
+          >
+            <Unlock className="w-3.5 h-3.5" />
+            <span>
+              {auth.status?.os_auth_available
+                ? `Unlock with ${auth.status.provider_name}`
+                : t('config:alert.unlockBtn', 'Log In to Unlock')}
+            </span>
+          </button>
         </div>
       )}
 
@@ -116,12 +136,14 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
               />
               <PrimaryButton
                 onClick={() =>
-                  handleSaveParam(
-                    { type: 'SetBypassHighVoltage', payload: bypassHigh },
-                    `Bypass High ${bypassHigh}V`
+                  auth.requireAuth(() =>
+                    handleSaveParam(
+                      { type: 'SetBypassHighVoltage', payload: bypassHigh },
+                      `Bypass High ${bypassHigh}V`
+                    )
                   )
                 }
-                disabled={isLocked || isSaving}
+                disabled={isSaving}
               >
                 <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>
@@ -147,12 +169,14 @@ export const Config: React.FC<ConfigProps> = ({ portName, safetyStage }) => {
               />
               <PrimaryButton
                 onClick={() =>
-                  handleSaveParam(
-                    { type: 'SetBypassLowVoltage', payload: bypassLow },
-                    `Bypass Low ${bypassLow}V`
+                  auth.requireAuth(() =>
+                    handleSaveParam(
+                      { type: 'SetBypassLowVoltage', payload: bypassLow },
+                      `Bypass Low ${bypassLow}V`
+                    )
                   )
                 }
-                disabled={isLocked || isSaving}
+                disabled={isSaving}
               >
                 <span>{t('common:buttons.apply', 'Apply')}</span>
               </PrimaryButton>

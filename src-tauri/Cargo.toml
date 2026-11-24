@@ -1,6 +1,6 @@
 [package]
 name = "upsed"
-version = "0.1.0"
+version = "0.1.5"
 description = "A modern, secure, cross-platform Voltronic UPS manager"
 authors = ["UPSED Contributors"]
 edition = "2021"
@@ -30,6 +30,24 @@ log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
+tungstenite = "0.24"
+dotenvy = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
+argon2 = { version = "0.5", features = ["std"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+rand = "0.8"
+rfd = "0.17.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
+block2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Security_Credentials_UI",
+] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

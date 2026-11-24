@@ -23,6 +23,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 
 interface EventsProps {
   events: EventLogRecord[];
+  upsId?: string | null;
   onRefresh: () => void;
   isRefreshing: boolean;
 }
@@ -31,6 +32,7 @@ const PAGE_SIZE = 10;
 
 export const Events: React.FC<EventsProps> = ({
   events,
+  upsId,
   onRefresh,
   isRefreshing,
 }) => {
@@ -86,8 +88,8 @@ export const Events: React.FC<EventsProps> = ({
         const matchesMsg = ev.message.toLowerCase().includes(q);
         const matchesTitle = info.title.toLowerCase().includes(q);
         const matchesDesc = info.description.toLowerCase().includes(q);
-        const matchesPort = ev.port_name.toLowerCase().includes(q);
-        return matchesType || matchesMsg || matchesTitle || matchesDesc || matchesPort;
+        const matchesUps = (ev.ups_id && ev.ups_id.toLowerCase().includes(q)) || (!ev.ups_id && 'system'.includes(q));
+        return matchesType || matchesMsg || matchesTitle || matchesDesc || matchesUps;
       }
       return true;
     });
@@ -130,7 +132,7 @@ export const Events: React.FC<EventsProps> = ({
   const handleConfirmClear = async () => {
     try {
       setIsClearing(true);
-      await api.clearEvents();
+      await api.clearEvents(upsId || undefined);
       setShowClearConfirm(false);
       setSelectedIds(new Set());
       onRefresh();
@@ -155,7 +157,7 @@ export const Events: React.FC<EventsProps> = ({
     if (unreadCount === 0 || isMarkingAllRead) return;
     try {
       setIsMarkingAllRead(true);
-      await api.acknowledgeAllEvents();
+      await api.acknowledgeAllEvents(upsId || undefined);
       onRefresh();
     } catch (err) {
       console.error('Failed to mark all events as read:', err);
@@ -165,13 +167,13 @@ export const Events: React.FC<EventsProps> = ({
   };
 
   const exportCsv = () => {
-    const headers = 'ID,Timestamp,Port,Event_Type,Severity,Title,Description,Acknowledged\n';
+    const headers = 'ID,Timestamp,UPS_ID,Event_Type,Severity,Title,Description,Acknowledged\n';
     const rows = filteredEvents
       .map((e) => {
         const info = getEventInfo(e);
         const cleanTitle = `"${info.title.replace(/"/g, '""')}"`;
         const cleanDesc = `"${info.description.replace(/"/g, '""')}"`;
-        return `${e.id || ''},"${e.timestamp}","${e.port_name}","${e.event_type}","${e.severity}",${cleanTitle},${cleanDesc},${e.acknowledged ? 1 : 0}`;
+        return `${e.id || ''},"${e.timestamp}","${e.ups_id || 'SYSTEM'}","${e.event_type}","${e.severity}",${cleanTitle},${cleanDesc},${e.acknowledged ? 1 : 0}`;
       })
       .join('\n');
 
@@ -419,12 +421,16 @@ export const Events: React.FC<EventsProps> = ({
                         />
                       </td>
 
-                      {/* Device ID / Port */}
+                      {/* Device ID / Scope */}
                       <td
-                        className="py-3 px-4 font-mono font-medium text-slate-200 whitespace-nowrap max-w-[150px] truncate"
-                        title={ev.port_name}
+                        className="py-3 px-4 font-mono font-medium whitespace-nowrap max-w-[150px] truncate text-[11px]"
+                        title={ev.ups_id || 'SYSTEM'}
                       >
-                        {ev.port_name}
+                        {ev.ups_id ? (
+                          <span className="text-emerald-400">{ev.ups_id}</span>
+                        ) : (
+                          <span className="text-slate-400">SYSTEM</span>
+                        )}
                       </td>
 
                       {/* Timestamp */}

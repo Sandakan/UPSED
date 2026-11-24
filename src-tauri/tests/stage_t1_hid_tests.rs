@@ -1,5 +1,5 @@
 use upsed_lib::protocol::{decode_response, parse_protocol_id};
-use upsed_lib::serial::{is_candidate_ups_hid, scan_available_ports};
+use upsed_lib::serial::{is_candidate_ups_hid, scan_available_ports, with_hid_api};
 
 #[test]
 fn hid_001_candidate_ups_known_vids_recognized() {
@@ -9,20 +9,17 @@ fn hid_001_candidate_ups_known_vids_recognized() {
         0x0001, 0xffff,
     ];
 
-    let api = match hidapi::HidApi::new() {
-        Ok(a) => a,
-        Err(_) => return, // Environment without HID subsystem (e.g. headless CI)
-    };
-
-    for dev in api.device_list() {
-        if known_vids.contains(&dev.vendor_id()) {
-            assert!(
-                is_candidate_ups_hid(dev),
-                "Known UPS VID {:04x} should be identified as candidate",
-                dev.vendor_id()
-            );
+    with_hid_api(move |api| {
+        for dev in api.device_list() {
+            if known_vids.contains(&dev.vendor_id()) {
+                assert!(
+                    is_candidate_ups_hid(dev),
+                    "Known UPS VID {:04x} should be identified as candidate",
+                    dev.vendor_id()
+                );
+            }
         }
-    }
+    });
 }
 
 #[test]
@@ -94,4 +91,32 @@ fn hid_005_live_hardware_read_only_q1_telemetry() {
     assert!(status.output_voltage_v > 100.0 && status.output_voltage_v < 300.0);
     assert!(status.output_frequency_hz >= 40.0 && status.output_frequency_hz <= 70.0);
     assert!(status.battery_voltage_v > 10.0 && status.battery_voltage_v < 60.0);
+}
+
+#[test]
+fn hid_006_concurrent_multithreaded_hid_scans_do_not_crash() {
+    use std::thread;
+    use upsed_lib::serial::scan_hid_devices;
+
+    // Spawn 8 concurrent threads hammering HID scanning simultaneously.
+    // On macOS Apple Silicon (ARM64e), unpinned HidApi access across Tokio worker threads
+    // triggered EXC_BREAKPOINT (SIGTRAP) in __CFCheckCFInfoPACSignature due to cross-thread CFRunLoop mutation.
+    // The dedicated upsed-hid-actor thread ensures all IOKit/hidapi calls are safely pinned to a single OS thread.
+    let mut handles = Vec::new();
+    for thread_idx in 0..8 {
+        handles.push(thread::spawn(move || {
+            for _ in 0..3 {
+                let results = scan_hid_devices(&[]);
+                println!(
+                    "Thread {} completed HID scan: {} devices found",
+                    thread_idx,
+                    results.len()
+                );
+            }
+        }));
+    }
+
+    for h in handles {
+        h.join().expect("Thread panicked during concurrent HID scan");
+    }
 }

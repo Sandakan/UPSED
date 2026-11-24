@@ -8,12 +8,13 @@
     "control": "Contrôle matériel",
     "config": "Configuration",
     "history": "Historique & Graphiques",
+    "iot": "Passerelle IoT",
     "events": "Événements",
     "settings": "Paramètres"
   },
   "device": {
     "noDevice": "Aucun appareil connecté",
-    "discoveredPorts": "Ports détectés",
+    "discoveredPorts": "Interfaces disponibles",
     "scanTitle": "Rechercher des appareils UPS",
     "noUpsFound": "Aucun onduleur trouvé. Cliquez sur scanner pour rechercher."
   },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import './App.css';
 import { Sidebar } from './components/Sidebar';
@@ -11,13 +11,27 @@ import { Control } from './pages/Control';
 import { Config } from './pages/Config';
 import { History } from './pages/History';
 import { Events } from './pages/Events';
+import { IoT } from './pages/IoT';
 import { Settings, SettingsHandle } from './pages/Settings';
 import { UpsedToaster } from './components/UpsedToaster';
 import { AboutModal } from './components/AboutModal';
+import { LoginModal } from './components/LoginModal';
 import { handleIncomingUpsEvent } from './lib/notifications';
+import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/tauri';
-import { UpsMetadata, EventLogRecord, Q1Status, TelemetryRecord, ProbeStatusEvent } from './lib/types';
+import {
+  UpsMetadata,
+  EventLogRecord,
+  Q1Status,
+  TelemetryRecord,
+  ProbeStatusEvent,
+  TransportStatusEvent,
+  DiscoveredDevice,
+  UpsTelemetryPayload,
+  BridgeStatus,
+  BridgeCmdExecutedEvent,
+} from './lib/types';
 import { useTheme } from './lib/theme';
 import { useWindowVisibility } from './lib/useWindowVisibility';
 
@@ -26,12 +40,28 @@ export function App() {
   const isWindowVisible = useWindowVisibility();
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [selectedUpsId, setSelectedUpsId] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [pollInterval, setPollInterval] = useState<number>(10); // 10 seconds default
+  const [deviceStatuses, setDeviceStatuses] = useState<Record<string, Q1Status>>({});
+  const [deviceUpdatedTimes, setDeviceUpdatedTimes] = useState<Record<string, number>>({});
+  const [configuringDevice, setConfiguringDevice] = useState<DiscoveredDevice | null>(null);
+  const [pollInterval, setPollInterval] = useState<number>(10);
   const [isSetupModalDismissed, setIsSetupModalDismissed] = useState(false);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [osNotificationsEnabled, setOsNotificationsEnabled] = useState<boolean>(true);
   const [inAppToastsEnabled, setInAppToastsEnabled] = useState<boolean>(true);
+
+  useEffect(() => {
+    api
+      .getOsNotificationsEnabled()
+      .then((val) => setOsNotificationsEnabled(val))
+      .catch(() => {});
+  }, []);
+
+  const handleOsNotificationsChange = useCallback((val: boolean) => {
+    setOsNotificationsEnabled(val);
+    api.setOsNotificationsEnabled(val).catch(console.error);
+  }, []);
   const [showOutageHighlights, setShowOutageHighlights] = useState<boolean>(() => {
     const saved = localStorage.getItem('upsed_show_outage_highlights');
     return saved !== null ? saved === 'true' : true;
@@ -48,6 +78,38 @@ export function App() {
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const settingsRef = useRef<SettingsHandle>(null);
 
+  const [activeTransport, setActiveTransport] = useState<'usb' | 'websocket' | null>(null);
+  const [transportIp, setTransportIp] = useState<string | null>(null);
+  const [bridgeUpdateAvailable, setBridgeUpdateAvailable] = useState(false);
+  const [bridgeCompatible, setBridgeCompatible] = useState(true);
+
+  // Check for ESP32 Bridge firmware updates periodically
+  useEffect(() => {
+    let isMounted = true;
+    const checkUpdate = async () => {
+      try {
+        const st = await api.getBridgeStatus().catch(() => null);
+        if (st && st.is_compatible !== undefined) {
+          setBridgeCompatible(st.is_compatible);
+        }
+        const fw = st?.fw || '1.0.0';
+        const res = await api.checkBridgeFirmwareUpdate(fw);
+        if (isMounted) {
+          setBridgeUpdateAvailable(res.update_available);
+        }
+      } catch {
+        // Ignore offline / network check failures
+      }
+    };
+
+    checkUpdate();
+    const interval = setInterval(checkUpdate, 5 * 60 * 1000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const handleShowOutageHighlightsChange = (val: boolean) => {
     setShowOutageHighlights(val);
     localStorage.setItem('upsed_show_outage_highlights', String(val));
@@ -58,7 +120,17 @@ export function App() {
     localStorage.setItem('upsed_downsampling_max_points', String(val));
   };
 
-  // 1. Scan serial and USB ports query
+  // 1. All saved UPS profiles query
+  const {
+    data: profiles = [],
+    refetch: refetchProfiles,
+  } = useQuery({
+    queryKey: ['upsProfiles'],
+    queryFn: () => api.listUpsMetadata(),
+    staleTime: 5000,
+  });
+
+  // 1a. Scan serial and USB ports query
   const {
     data: devices = [],
     isFetching: isScanning,
@@ -69,39 +141,94 @@ export function App() {
     staleTime: 60000,
   });
 
-  // 1a. Query last connected device from DB on startup
-  const { data: lastSavedDeviceId = null } = useQuery({
-    queryKey: ['lastConnectedDevice'],
-    queryFn: () => api.getLastConnectedDevice(),
+  // 1b. Query connected devices directly from multi-port manager
+  const { data: connectedDevices = [] } = useQuery({
+    queryKey: ['connectedDevices'],
+    queryFn: () => api.listConnectedDevices(),
+    refetchInterval: 5000,
   });
 
-  // Active connected device info (or fallback to discovered device matching last saved id)
-  const activeDevice =
-    devices.find((d) => d.port_name === selectedDevice) ||
-    devices.find((d) => d.unique_id === lastSavedDeviceId) ||
-    null;
+  // Combine discovered ports with currently connected devices
+  const allDevices: DiscoveredDevice[] = useMemo(() => {
+    const list = [...connectedDevices];
+    for (const dev of devices) {
+      const alreadyPresent = list.some(
+        (existing) => existing.port_name === dev.port_name || existing.unique_id === dev.unique_id
+      );
+      if (!alreadyPresent) {
+        list.push(dev);
+      }
+    }
+    return list;
+  }, [devices, connectedDevices]);
+
+  // Auto-select primary UPS profile or first available on startup / profile list changes
+  useEffect(() => {
+    if (profiles.length > 0) {
+      if (!selectedUpsId || !profiles.some((p) => p.unique_id === selectedUpsId)) {
+        const primary = profiles.find((p) => p.is_primary);
+        const fallback = primary ? primary.unique_id : profiles[0].unique_id;
+        setSelectedUpsId(fallback);
+      }
+    }
+  }, [profiles, selectedUpsId]);
+
+  // Active profile matching selectedUpsId
+  const activeProfile: UpsMetadata | null = useMemo(() => {
+    if (!selectedUpsId) return null;
+    return profiles.find((p) => p.unique_id === selectedUpsId) || null;
+  }, [profiles, selectedUpsId]);
+
+  // Active connected hardware matching selected profile
+  const activeDevice: DiscoveredDevice | null = useMemo(() => {
+    if (!selectedUpsId && !selectedDevice) {
+      return allDevices[0] || null;
+    }
+    return (
+      allDevices.find((d) => d.unique_id === selectedUpsId) ||
+      allDevices.find((d) => activeProfile?.last_port && d.port_name === activeProfile.last_port) ||
+      allDevices.find((d) => d.port_name === selectedDevice) ||
+      null
+    );
+  }, [allDevices, selectedUpsId, selectedDevice, activeProfile]);
+
+  const effectivePort = activeDevice?.port_name || activeProfile?.last_port || selectedDevice || null;
 
   // Reset modal dismissed state when active unique_id changes
   useEffect(() => {
     setIsSetupModalDismissed(false);
-  }, [activeDevice?.unique_id]);
+  }, [selectedUpsId]);
 
-  // 1b. UPS Hardware Profile & Specifications query
-  const targetUniqueId = activeDevice?.unique_id || lastSavedDeviceId;
-  const { data: upsMetadata = null } = useQuery({
-    queryKey: ['upsMetadata', targetUniqueId],
-    queryFn: () => (targetUniqueId ? api.getUpsMetadata(targetUniqueId) : null),
-    enabled: !!targetUniqueId,
-  });
-
+  // Save metadata mutation
   const saveMetadataMutation = useMutation({
     mutationFn: (meta: UpsMetadata) => api.saveUpsMetadata(meta),
     onSuccess: () => {
+      refetchProfiles();
+      queryClient.invalidateQueries({ queryKey: ['upsProfiles'] });
       queryClient.invalidateQueries({ queryKey: ['upsMetadata'] });
     },
   });
 
-  // 2. Connect device mutation
+  const linkTransportMutation = useMutation({
+    mutationFn: ({
+      profileId,
+      bridgeMac,
+      usbUuid,
+      hardwareSig,
+    }: {
+      profileId: string;
+      bridgeMac?: string | null;
+      usbUuid?: string | null;
+      hardwareSig?: string | null;
+    }) => api.linkTransportToProfile(profileId, bridgeMac, usbUuid, hardwareSig),
+    onSuccess: () => {
+      refetchProfiles();
+      queryClient.invalidateQueries({ queryKey: ['upsProfiles'] });
+      queryClient.invalidateQueries({ queryKey: ['upsMetadata'] });
+    },
+  });
+
+  // Connect device mutation
   const connectMutation = useMutation({
     mutationFn: (portName: string) => api.connectDevice(portName),
     onSuccess: (connectedDevice, portName) => {
@@ -110,94 +237,115 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ['lastConnectedDevice'] });
       }
       queryClient.invalidateQueries({ queryKey: ['deviceStatus', portName] });
+      queryClient.invalidateQueries({ queryKey: ['deviceStatus', connectedDevice?.unique_id] });
       queryClient.invalidateQueries({ queryKey: ['telemetryHistory', portName] });
+      queryClient.invalidateQueries({ queryKey: ['telemetryHistory', connectedDevice?.unique_id] });
       queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
+      refetchProfiles();
     },
   });
+
+  const handleSelectUps = useCallback(
+    (upsId: string) => {
+      setSelectedUpsId(upsId);
+      const target = profiles.find((p) => p.unique_id === upsId);
+      if (target?.last_port) {
+        setSelectedDevice(target.last_port);
+      }
+    },
+    [profiles]
+  );
 
   const handleSelectDevice = useCallback(
     (portName: string) => {
       setSelectedDevice(portName);
       connectMutation.mutate(portName);
-    },
-    [connectMutation]
-  );
 
-  // Auto-reconnect to saved device or intelligently match relocated USB port
-  useEffect(() => {
-    if (devices.length === 0 || selectedDevice) return;
-
-    // 1. Try to find the device matching the last saved unique_id
-    let target = lastSavedDeviceId
-      ? devices.find((d) => d.unique_id === lastSavedDeviceId)
-      : null;
-
-    // 2. If not matched by unique_id, try matching by usb_uuid locator
-    if (!target && upsMetadata?.usb_uuid) {
-      target = devices.find((d) => d.usb_uuid === upsMetadata.usb_uuid) || null;
-    }
-
-    // 3. Dynamic USB port roaming check: if same physical UPS discovered on a new USB port/UUID, auto-update in SQLite!
-    if (target && upsMetadata && target.unique_id === upsMetadata.unique_id) {
-      if (target.usb_uuid && target.usb_uuid !== upsMetadata.usb_uuid) {
-        console.info(
-          `[UPSED] Device ${target.unique_id} moved to new USB port (UUID: ${target.usb_uuid})`
+      // Check if this device matches an existing profile
+      const discovered = allDevices.find((d) => d.port_name === portName);
+      if (discovered) {
+        const matchingProfile = profiles.find(
+          (p) =>
+            p.unique_id === discovered.unique_id ||
+            (discovered.usb_uuid && p.usb_uuid === discovered.usb_uuid) ||
+            (discovered.bridge_mac && p.bridge_mac === discovered.bridge_mac)
         );
-        api
-          .updateDeviceUsbUuid(
-            target.unique_id,
-            target.usb_uuid,
-            new Date().toISOString()
-          )
-          .then(() => {
-            queryClient.invalidateQueries({ queryKey: ['upsMetadata', target.unique_id] });
-          })
-          .catch(console.error);
+        if (matchingProfile) {
+          setSelectedUpsId(matchingProfile.unique_id);
+        } else {
+          // Unapproved device -> launch setup modal
+          setConfiguringDevice(discovered);
+        }
       }
-    }
-
-    // 4. Connect to matched device or fallback to first discovered
-    const finalDevice = target || devices[0];
-    handleSelectDevice(finalDevice.port_name);
-  }, [devices, selectedDevice, lastSavedDeviceId, upsMetadata, handleSelectDevice, queryClient]);
+    },
+    [allDevices, profiles, connectMutation]
+  );
 
   // Load initial poll interval from backend settings
   useEffect(() => {
-    api.getPollInterval().then((val) => {
-      if (val) setPollInterval(val);
-    }).catch(console.error);
+    api
+      .getPollInterval()
+      .then((val) => {
+        if (val) setPollInterval(val);
+      })
+      .catch(console.error);
   }, []);
 
-  // 3. Live Device Telemetry query (Q1) - Event-driven, populated by background Rust monitor
+  // Live Device Telemetry query (Q1) for the active selection
+  const targetTelemetryKey = selectedUpsId || effectivePort;
   const {
-    data: status = null,
+    data: fetchedStatus = null,
     error: statusError,
     isFetching: isFetchingStatus,
     refetch: refetchStatus,
+    dataUpdatedAt: queryStatusUpdatedAt,
   } = useQuery({
-    queryKey: ['deviceStatus', selectedDevice],
-    queryFn: () => api.getDeviceStatus(selectedDevice!),
-    enabled: !!selectedDevice,
+    queryKey: ['deviceStatus', targetTelemetryKey],
+    queryFn: () => api.getDeviceStatus(effectivePort || '', selectedUpsId || undefined),
+    enabled: !!effectivePort || !!selectedUpsId,
     retry: 1,
   });
 
-  // 4. Telemetry History query
+  // Effective status combining real-time memory map with query cache
+  const status: Q1Status | null = useMemo(() => {
+    if (selectedUpsId && deviceStatuses[selectedUpsId]) {
+      return deviceStatuses[selectedUpsId];
+    }
+    if (effectivePort && deviceStatuses[effectivePort]) {
+      return deviceStatuses[effectivePort];
+    }
+    return fetchedStatus;
+  }, [selectedUpsId, effectivePort, deviceStatuses, fetchedStatus]);
+
+  // Compute timestamp of when the active UPS data was last updated
+  const activeDeviceUpdatedTime = targetTelemetryKey ? deviceUpdatedTimes[targetTelemetryKey] : undefined;
+  const lastUpdatedAt = useMemo(() => {
+    const ts = Math.max(queryStatusUpdatedAt || 0, activeDeviceUpdatedTime || 0);
+    return ts > 0 ? ts : undefined;
+  }, [queryStatusUpdatedAt, activeDeviceUpdatedTime]);
+
+  // Telemetry History query scoped to active UPS profile
   const {
     data: history = [],
     refetch: refetchHistory,
   } = useQuery({
-    queryKey: ['telemetryHistory', selectedDevice],
-    queryFn: () => api.getRecentTelemetry(selectedDevice!, 50),
-    enabled: !!selectedDevice,
+    queryKey: ['telemetryHistory', targetTelemetryKey],
+    queryFn: () =>
+      api.getRecentTelemetry(
+        targetTelemetryKey || undefined,
+        50,
+        selectedUpsId || undefined
+      ),
+    enabled: !!targetTelemetryKey,
   });
 
-  // 5. Recent System Events query
+  // Recent Events query scoped to active UPS profile (or system events)
   const {
     data: events = [],
     refetch: refetchEvents,
   } = useQuery({
-    queryKey: ['recentEvents'],
-    queryFn: () => api.getRecentEvents(50),
+    queryKey: ['recentEvents', selectedUpsId],
+    queryFn: () => api.getRecentEvents(50, selectedUpsId || undefined),
   });
 
   // Listen to real-time 'ups-telemetry' broadcast pushed by Rust background monitor task
@@ -205,31 +353,71 @@ export function App() {
     let unlisten: (() => void) | undefined;
     let isMounted = true;
 
-    listen<Q1Status>('ups-telemetry', (tauriEvent) => {
-      const newStatus = tauriEvent.payload;
-      queryClient.setQueryData(['deviceStatus', selectedDevice], newStatus);
+    listen<UpsTelemetryPayload>('ups-telemetry', (tauriEvent) => {
+      const payload = tauriEvent.payload;
+      const newStatus = payload.status;
 
-      // Optimistically append new telemetry sample to cache to eliminate redundant IPC DB queries and avoid secondary re-renders
-      if (selectedDevice) {
-        queryClient.setQueryData<TelemetryRecord[]>(
-          ['telemetryHistory', selectedDevice],
-          (oldHistory = []) => {
-            const newRecord: TelemetryRecord = {
-              timestamp: new Date().toISOString(),
-              port_name: selectedDevice,
-              grid_voltage: newStatus.grid_voltage_v,
-              output_voltage: newStatus.output_voltage_v,
-              grid_frequency: newStatus.grid_frequency_hz,
-              output_frequency: newStatus.output_frequency_hz,
-              load_pct: newStatus.output_load_pct,
-              output_watts: newStatus.output_watts,
-              battery_voltage: newStatus.battery_voltage_v,
-              temperature_c: newStatus.temperature_c,
-            };
-            const updated = [...oldHistory, newRecord];
-            return updated.length > 50 ? updated.slice(-50) : updated;
-          }
-        );
+      const now = Date.now();
+
+      // Update multi-device status cache in memory
+      setDeviceStatuses((prev) => {
+        const next = { ...prev, [payload.port_name]: newStatus };
+        if (payload.ups_id) {
+          next[payload.ups_id] = newStatus;
+        }
+        return next;
+      });
+
+      // Update multi-device last updated timestamps
+      setDeviceUpdatedTimes((prev) => {
+        const next = { ...prev, [payload.port_name]: now };
+        if (payload.ups_id) {
+          next[payload.ups_id] = now;
+        }
+        return next;
+      });
+
+      // If payload matches the active profile or effective port, update query cache
+      const isTarget =
+        (payload.ups_id && payload.ups_id === selectedUpsId) ||
+        (!selectedUpsId && payload.port_name === effectivePort);
+
+      if (isTarget) {
+        const cacheKey = selectedUpsId || effectivePort;
+        if (cacheKey) {
+          queryClient.setQueryData(['deviceStatus', cacheKey], newStatus);
+          queryClient.setQueryData<TelemetryRecord[]>(
+            ['telemetryHistory', cacheKey],
+            (oldHistory = []) => {
+              const recordToUse: TelemetryRecord = payload.record || {
+                timestamp: new Date().toISOString(),
+                ups_id: payload.ups_id || cacheKey,
+                grid_voltage: newStatus.grid_voltage_v,
+                output_voltage: newStatus.output_voltage_v,
+                grid_frequency: newStatus.grid_frequency_hz,
+                output_frequency: newStatus.output_frequency_hz,
+                load_pct: newStatus.output_load_pct,
+                output_watts: newStatus.output_watts,
+                battery_voltage: newStatus.battery_voltage_v,
+                temperature_c: newStatus.temperature_c,
+              };
+
+              if (payload.bucket_committed === false) {
+                // In-place bucket update: replace active leading point without warping X-axis time scale
+                if (oldHistory.length === 0) {
+                  return [recordToUse];
+                }
+                const updated = [...oldHistory];
+                updated[updated.length - 1] = recordToUse;
+                return updated;
+              } else {
+                // Bucket completed and committed: append point and cap at 50
+                const updated = [...oldHistory, recordToUse];
+                return updated.length > 50 ? updated.slice(-50) : updated;
+              }
+            }
+          );
+        }
       }
     }).then((fn) => {
       if (!isMounted) {
@@ -243,7 +431,7 @@ export function App() {
       isMounted = false;
       unlisten?.();
     };
-  }, [selectedDevice, queryClient]);
+  }, [selectedUpsId, effectivePort, queryClient]);
 
   // Listen to real-time 'ups-event' broadcast from backend
   useEffect(() => {
@@ -255,7 +443,6 @@ export function App() {
         osNotificationsEnabled,
         inAppToastsEnabled,
       });
-      // Invalidate events cache to show in table
       queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
     }).then((fn) => {
       if (!isMounted) {
@@ -297,23 +484,140 @@ export function App() {
     };
   }, [selectedDevice]);
 
+  // Listen to real-time 'ups-transport-status' broadcast
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<TransportStatusEvent>('ups-transport-status', (tauriEvent) => {
+      const payload = tauriEvent.payload;
+      setActiveTransport(payload.active_transport);
+      if (payload.ip) {
+        setTransportIp(payload.ip);
+      }
+      queryClient.invalidateQueries({ queryKey: ['connectedDevices'] });
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
+  // Listen to real-time 'bridge-status' broadcast pushed by Rust background monitor task
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<BridgeStatus>('bridge-status', (tauriEvent) => {
+      if (!isMounted) return;
+      const bridgeSt = tauriEvent.payload;
+      queryClient.setQueryData(['bridgeStatus', effectivePort], bridgeSt);
+      queryClient.setQueryData(['bridgeStatus'], bridgeSt);
+      queryClient.setQueryData(['bridgeStatus', undefined], bridgeSt);
+
+      if (bridgeSt.active_transport === 'websocket' || bridgeSt.active_transport === 'usb') {
+        setActiveTransport(bridgeSt.active_transport as 'usb' | 'websocket');
+      }
+      if (bridgeSt.ip) {
+        setTransportIp(bridgeSt.ip);
+      }
+      if (bridgeSt.is_compatible !== undefined) {
+        setBridgeCompatible(bridgeSt.is_compatible);
+      }
+    }).then((fn) => {
+      if (!isMounted) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    }).catch(console.error);
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [effectivePort, queryClient]);
+
+  // Listen to real-time 'ups-bridge-cmd-executed' broadcast from any client or bridge
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
+    listen<BridgeCmdExecutedEvent>('ups-bridge-cmd-executed', (tauriEvent) => {
+      if (!isMounted) return;
+      const payload = tauriEvent.payload;
+      queryClient.invalidateQueries({ queryKey: ['deviceStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['outletStates'] });
+      queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
+      queryClient.invalidateQueries({ queryKey: ['recentEvents'] });
+
+      if (payload.source !== 'desktop-ui') {
+        toast(`Remote command '${payload.cmd}' executed via ${payload.source}`, {
+          icon: '⚡',
+        });
+      }
+    }).then((fn) => {
+      if (!isMounted) fn();
+      else unlisten = fn;
+    }).catch(console.error);
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
+  // Synchronize transport state based on effective port
+  useEffect(() => {
+    if (!effectivePort) {
+      setActiveTransport(null);
+      setTransportIp(null);
+      return;
+    }
+
+    if (effectivePort.startsWith('BRIDGE:WS:')) {
+      setActiveTransport('websocket');
+      const parts = effectivePort.replace('BRIDGE:WS:', '').split(':');
+      if (parts[0]) setTransportIp(parts[0]);
+    } else if (effectivePort.startsWith('BRIDGE:')) {
+      api
+        .getBridgeStatus(effectivePort)
+        .then((st) => {
+          if (st) {
+            setActiveTransport(st.active_transport === 'websocket' ? 'websocket' : 'usb');
+            if (st.ip) setTransportIp(st.ip);
+            if (st.is_compatible !== undefined) setBridgeCompatible(st.is_compatible);
+          }
+        })
+        .catch(() => {
+          if (!activeTransport) setActiveTransport('usb');
+        });
+    } else {
+      setActiveTransport(null);
+      setTransportIp(null);
+    }
+  }, [effectivePort]);
+
   const criticalCount = events.filter((e) => !e.acknowledged && e.severity === 'critical').length;
   const warningCount = events.filter((e) => !e.acknowledged && e.severity === 'warning').length;
 
-  // Display label for the sidebar UPS device dropdown
   const activeDeviceLabel: string | null =
-    upsMetadata?.name || activeDevice?.port_name || null;
+    activeProfile?.name || activeDevice?.port_name || null;
 
-  // 6. Safety Stage query
+  // Safety Stage query for the active UPS profile
   const {
     data: safetyStage = 'T1ReadOnly',
     refetch: refetchSafetyStage,
   } = useQuery({
-    queryKey: ['safetyStage'],
-    queryFn: () => api.getSafetyStage(),
+    queryKey: ['safetyStage', selectedUpsId],
+    queryFn: () => api.getSafetyStage(selectedUpsId || undefined),
   });
 
-  // 7. Battery Bridge Status query & mutation (default enabled)
+  // Battery Bridge Status query & mutation (default enabled)
   const {
     data: batteryBridgeActive = true,
     refetch: refetchBatteryBridge,
@@ -341,13 +645,53 @@ export function App() {
     api.setPollInterval(newInterval).catch(console.error);
   }, []);
 
-  // Manual refresh handler
-  const pollTelemetry = useCallback(() => {
-    if (!selectedDevice) return;
-    refetchStatus();
+  // Manual refresh handler with forceRefresh support
+  const pollTelemetry = useCallback((forceRefresh?: boolean) => {
+    if (forceRefresh && effectivePort) {
+      api.getDeviceStatus(effectivePort, selectedUpsId || undefined, true)
+        .then((newStatus) => {
+          const cacheKey = selectedUpsId || effectivePort;
+          if (cacheKey) {
+            queryClient.setQueryData(['deviceStatus', cacheKey], newStatus);
+          }
+        })
+        .catch(console.error);
+    } else {
+      refetchStatus();
+    }
     refetchHistory();
     refetchEvents();
-  }, [selectedDevice, refetchStatus, refetchHistory, refetchEvents]);
+    queryClient.invalidateQueries({ queryKey: ['bridgeStatus'] });
+    queryClient.invalidateQueries({ queryKey: ['outletStates'] });
+    queryClient.invalidateQueries({ queryKey: ['deviceFlags'] });
+  }, [effectivePort, selectedUpsId, refetchStatus, refetchHistory, refetchEvents, queryClient]);
+
+  // System sleep/wake, network restore, and stale telemetry recovery watchdog
+  useEffect(() => {
+    const handleWakeOrFocus = () => {
+      const isStale =
+        !lastUpdatedAt || Date.now() - lastUpdatedAt > Math.max(pollInterval * 1500, 15000);
+      if (isStale && document.visibilityState === 'visible') {
+        api.notifySystemResume().catch(console.error);
+        pollTelemetry(true);
+      }
+    };
+
+    const handleNetworkOnline = () => {
+      api.notifySystemResume().catch(console.error);
+      pollTelemetry(true);
+    };
+
+    window.addEventListener('online', handleNetworkOnline);
+    window.addEventListener('focus', handleWakeOrFocus);
+    document.addEventListener('visibilitychange', handleWakeOrFocus);
+
+    return () => {
+      window.removeEventListener('online', handleNetworkOnline);
+      window.removeEventListener('focus', handleWakeOrFocus);
+      document.removeEventListener('visibilitychange', handleWakeOrFocus);
+    };
+  }, [lastUpdatedAt, pollInterval, pollTelemetry]);
 
   // Metadata refresh handler
   const refreshMetadata = useCallback(() => {
@@ -416,18 +760,22 @@ export function App() {
 
   const isRefreshing = isFetchingStatus;
 
+  // Device to configure in UpsSetupModal
+  const targetSetupDevice =
+    configuringDevice ||
+    (activeDevice && !activeProfile && !isSetupModalDismissed ? activeDevice : null);
+
   return (
-    <div className="flex h-screen text-slate-100 overflow-hidden font-sans select-none" style={{ backgroundColor: 'var(--app-bg)' }}>
+    <div
+      className={`flex h-screen text-slate-100 overflow-hidden font-sans select-none${
+        !isWindowVisible ? ' window-hidden' : ''
+      }`}
+      style={{ backgroundColor: 'var(--app-bg)' }}
+    >
       {/* Sidebar navigation */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}
-        devices={devices}
-        selectedDevice={selectedDevice}
-        activeDeviceLabel={activeDeviceLabel}
-        onSelectDevice={handleSelectDevice}
-        onScan={handleScan}
-        isScanning={isScanning}
         safetyStage={safetyStage}
         criticalCount={criticalCount}
         warningCount={warningCount}
@@ -444,12 +792,28 @@ export function App() {
       >
         <Header
           currentTab={currentTab}
-          selectedDevice={selectedDevice}
+          selectedUpsId={selectedUpsId}
+          activeProfile={activeProfile}
+          activeDevice={activeDevice}
+          activeStatus={status}
+          selectedDevice={effectivePort}
+          activeTransport={activeTransport}
+          transportIp={transportIp}
+          bridgeUpdateAvailable={bridgeUpdateAvailable}
+          bridgeCompatible={bridgeCompatible}
           onRefresh={pollTelemetry}
           isRefreshing={isRefreshing}
+          lastUpdatedAt={lastUpdatedAt}
+          pollInterval={pollInterval}
           safetyStage={safetyStage}
           onTabChange={handleTabChange}
           onOpenAddDeviceModal={handleOpenAddDeviceModal}
+          profiles={profiles}
+          deviceStatuses={deviceStatuses}
+          deviceUpdatedTimes={deviceUpdatedTimes}
+          onSelectUps={handleSelectUps}
+          onScan={handleScan}
+          isScanning={isScanning}
         />
 
         <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar min-w-0">
@@ -457,9 +821,9 @@ export function App() {
             <Dashboard
               status={status}
               history={history}
-              portName={selectedDevice || activeDevice?.port_name || null}
+              portName={effectivePort}
               lastError={lastError}
-              metadata={upsMetadata}
+              metadata={activeProfile}
               isScanning={isScanning}
               isConnecting={connectMutation.isPending}
               probeStatus={probeStatus}
@@ -475,6 +839,7 @@ export function App() {
           {currentTab === 'events' && (
             <Events
               events={events}
+              upsId={selectedUpsId}
               onRefresh={refetchEvents}
               isRefreshing={isRefreshing}
             />
@@ -482,14 +847,22 @@ export function App() {
 
           {currentTab === 'control' && (
             <Control
-              portName={selectedDevice}
+              portName={effectivePort}
+              upsId={selectedUpsId}
               safetyStage={safetyStage}
               onRefreshStage={refreshMetadata}
+              device={activeDevice}
+              deviceName={activeDeviceLabel}
+              status={status}
             />
           )}
 
           {currentTab === 'config' && (
-            <Config portName={selectedDevice} safetyStage={safetyStage} />
+            <Config
+              portName={effectivePort}
+              upsId={selectedUpsId}
+              safetyStage={safetyStage}
+            />
           )}
 
           {currentTab === 'history' && (
@@ -500,7 +873,16 @@ export function App() {
               isRefreshing={isRefreshing}
               showOutageHighlights={showOutageHighlights}
               downsamplingMaxPoints={downsamplingMaxPoints}
-              portName={selectedDevice}
+              portName={effectivePort}
+              upsId={selectedUpsId}
+            />
+          )}
+
+          {currentTab === 'iot' && (
+            <IoT
+              portName={effectivePort}
+              upsId={selectedUpsId}
+              pollInterval={pollInterval}
             />
           )}
 
@@ -511,10 +893,16 @@ export function App() {
               onPollIntervalChange={handlePollIntervalChange}
               batteryBridgeActive={batteryBridgeActive}
               onBatteryBridgeChange={handleBatteryBridgeChange}
-              metadata={upsMetadata}
+              metadata={activeProfile}
               onUpdateMetadata={(meta) => saveMetadataMutation.mutate(meta)}
+              profiles={profiles}
+              onSelectUps={handleSelectUps}
+              onProfilesChanged={() => {
+                refetchProfiles();
+                queryClient.invalidateQueries({ queryKey: ['upsProfiles'] });
+              }}
               osNotificationsEnabled={osNotificationsEnabled}
-              onOsNotificationsChange={setOsNotificationsEnabled}
+              onOsNotificationsChange={handleOsNotificationsChange}
               inAppToastsEnabled={inAppToastsEnabled}
               onInAppToastsChange={setInAppToastsEnabled}
               themeMode={themeMode}
@@ -532,6 +920,9 @@ export function App() {
 
       {/* Headless Bespoke Toast Notification Container */}
       <UpsedToaster />
+
+      {/* Authentication & Security Login Modal */}
+      <LoginModal />
 
       {/* About UPSED Modal */}
       <AboutModal
@@ -552,25 +943,50 @@ export function App() {
       <DeviceConnectModal
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
-        devices={devices}
-        selectedDevice={selectedDevice}
+        devices={allDevices}
+        profiles={profiles}
+        selectedDevice={effectivePort}
         isScanning={isScanning}
         onScan={handleScan}
         onSelectDevice={(port) => {
           handleSelectDevice(port);
           setIsConnectModalOpen(false);
         }}
+        onConfigureDevice={(dev) => {
+          setConfiguringDevice(dev);
+          setIsConnectModalOpen(false);
+        }}
       />
 
-      {/* First-time UPS Configuration Modal */}
-      {activeDevice && upsMetadata === null && !isSetupModalDismissed && (
+      {/* UPS Profile Configuration Modal */}
+      {targetSetupDevice && (
         <UpsSetupModal
-          device={activeDevice}
+          device={targetSetupDevice}
           status={status}
           isOpen={true}
-          onClose={() => setIsSetupModalDismissed(true)}
+          isFirstProfile={profiles.length === 0}
+          onClose={() => {
+            setConfiguringDevice(null);
+            setIsSetupModalDismissed(true);
+          }}
           onSave={(meta) => {
             saveMetadataMutation.mutate(meta);
+            setSelectedUpsId(meta.unique_id);
+            if (targetSetupDevice.port_name) {
+              api.connectDevice(targetSetupDevice.port_name).catch(console.error);
+            }
+            setConfiguringDevice(null);
+            setIsSetupModalDismissed(true);
+          }}
+          onLinkExisting={(targetProfileId) => {
+            linkTransportMutation.mutate({
+              profileId: targetProfileId,
+              bridgeMac: targetSetupDevice.bridge_mac,
+              usbUuid: targetSetupDevice.usb_uuid,
+              hardwareSig: targetSetupDevice.hardware_signature,
+            });
+            setSelectedUpsId(targetProfileId);
+            setConfiguringDevice(null);
             setIsSetupModalDismissed(true);
           }}
         />

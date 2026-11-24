@@ -17,8 +17,17 @@ import {
   RotateCcw,
   CheckCircle2,
   Activity,
+  Star,
+  Trash2,
+  Cpu,
+  KeyRound,
+  ShieldCheck,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../lib/auth';
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
@@ -41,6 +50,9 @@ export interface SettingsProps {
   onBatteryBridgeChange: (val: boolean) => void;
   metadata?: UpsMetadata | null;
   onUpdateMetadata?: (val: UpsMetadata) => void;
+  profiles?: UpsMetadata[];
+  onSelectUps?: (upsId: string) => void;
+  onProfilesChanged?: () => void;
   osNotificationsEnabled: boolean;
   onOsNotificationsChange: (val: boolean) => void;
   inAppToastsEnabled: boolean;
@@ -67,6 +79,7 @@ interface PersistedSettings {
   inAppToast: boolean;
   outageHighlights: boolean;
   downsamplingMaxPoints: number;
+  urgentFastPoll: boolean;
   upsName: string;
   ratedVa: number;
   powerFactor: number;
@@ -85,6 +98,9 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
       onBatteryBridgeChange,
       metadata,
       onUpdateMetadata,
+      profiles = [],
+      onSelectUps,
+      onProfilesChanged,
       osNotificationsEnabled,
       onOsNotificationsChange,
       inAppToastsEnabled,
@@ -104,6 +120,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const [currentTheme, setCurrentTheme] = useState<ThemeMode>(themeMode);
     const [currentLangMode, setCurrentLangMode] = useState<AppLanguageMode>(getAppLanguageMode());
     const [intervalVal, setIntervalVal] = useState(pollInterval);
+    const [urgentFastPollVal, setUrgentFastPollVal] = useState(true);
     const [bridgeVal, setBridgeVal] = useState(batteryBridgeActive);
     const [osNotifVal, setOsNotifVal] = useState(osNotificationsEnabled);
     const [inAppToastVal, setInAppToastVal] = useState(inAppToastsEnabled);
@@ -129,6 +146,18 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     );
     const [topology, setTopology] = useState(metadata?.topology || 'Online');
 
+    // Authentication & Access Control state
+    const auth = useAuth();
+    const [currentPw, setCurrentPw] = useState('');
+    const [newPw, setNewPw] = useState('');
+    const [confirmNewPw, setConfirmNewPw] = useState('');
+    const [showPw, setShowPw] = useState(false);
+    const [isChangingPw, setIsChangingPw] = useState(false);
+    const [pwChangeError, setPwChangeError] = useState<string | null>(null);
+    const [pwChangeSuccess, setPwChangeSuccess] = useState<string | null>(null);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
+
     useEffect(() => {
       setCurrentTheme(themeMode);
     }, [themeMode]);
@@ -140,17 +169,20 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         isAutostartEnabled().catch(() => false),
         api.getCloseToMinimize().catch(() => true),
         api.getStartMinimized().catch(() => true),
-      ]).then(([devMode, autostart, closeToMin, startMin]) => {
+        api.getUrgentFastPoll().catch(() => true),
+      ]).then(([devMode, autostart, closeToMin, startMin, urgFast]) => {
         if (!isMounted) return;
         setIsDev(devMode);
         setAutostartVal(autostart);
         setCloseToMinimizeVal(closeToMin);
         setStartMinimizedVal(startMin);
+        setUrgentFastPollVal(urgFast);
 
         const initial: PersistedSettings = {
           theme: themeMode,
           lang: getAppLanguageMode(),
           interval: pollInterval,
+          urgentFastPoll: urgFast,
           bridge: batteryBridgeActive,
           autostart,
           startMinimized: startMin,
@@ -210,6 +242,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         currentTheme !== persisted.theme ||
         currentLangMode !== persisted.lang ||
         intervalVal !== persisted.interval ||
+        urgentFastPollVal !== persisted.urgentFastPoll ||
         bridgeVal !== persisted.bridge ||
         autostartVal !== persisted.autostart ||
         startMinimizedVal !== persisted.startMinimized ||
@@ -300,6 +333,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         await api.setBatteryBridgeStatus(bridgeVal);
         await api.setCloseToMinimize(closeToMinimizeVal);
         await api.setStartMinimized(startMinimizedVal);
+        await api.setUrgentFastPoll(urgentFastPollVal);
         await api.setTheme(currentTheme);
 
         if (!isDev) {
@@ -331,6 +365,7 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           theme: currentTheme,
           lang: currentLangMode,
           interval: intervalVal,
+          urgentFastPoll: urgentFastPollVal,
           bridge: bridgeVal,
           autostart: autostartVal,
           startMinimized: startMinimizedVal,
@@ -416,6 +451,52 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
     const handleLanguageChange = (mode: AppLanguageMode) => {
       setCurrentLangMode(mode);
       setAppLanguage(mode);
+    };
+
+    const handleChangePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPwChangeError(null);
+      setPwChangeSuccess(null);
+
+      if (!currentPw) {
+        setPwChangeError('Current password is required');
+        return;
+      }
+      if (newPw.length < 8) {
+        setPwChangeError('New password must be at least 8 characters');
+        return;
+      }
+      if (newPw !== confirmNewPw) {
+        setPwChangeError('New passwords do not match');
+        return;
+      }
+
+      setIsChangingPw(true);
+      try {
+        await auth.changePassword(currentPw, newPw);
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmNewPw('');
+        setPwChangeSuccess('Password changed successfully');
+        setTimeout(() => setPwChangeSuccess(null), 3000);
+      } catch (err: any) {
+        setPwChangeError(err?.message || String(err));
+      } finally {
+        setIsChangingPw(false);
+      }
+    };
+
+    const handleResetCredentials = async () => {
+      setIsResetting(true);
+      try {
+        await auth.reset();
+        setShowResetConfirm(false);
+        toast.success('Administrator credentials reset to unconfigured');
+      } catch (err: any) {
+        toast.error(`Reset failed: ${err?.message || String(err)}`);
+      } finally {
+        setIsResetting(false);
+      }
     };
 
     return (
@@ -667,7 +748,148 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         </div>
       </div>
 
-      {/* ── 3. Active UPS Profile & Specifications ───────────── */}
+      {/* ── 3. UPS Profiles Management ──────────────────────── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-4"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-slate-200">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <Cpu className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-100">
+                UPS Device Profiles Management
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Manage all registered UPS units, switch active profile view, set primary master device, or purge telemetry data.
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.04] text-slate-400 border border-white/[0.08]">
+            {profiles.length} Profiles
+          </span>
+        </div>
+
+        <div className="space-y-3 pt-1">
+          {profiles.length === 0 ? (
+            <p className="text-xs text-slate-500 italic py-2">
+              No UPS profiles saved yet. Connect and configure a UPS device to populate this list.
+            </p>
+          ) : (
+            profiles.map((p) => {
+              const isCurrentActive = metadata?.unique_id === p.unique_id;
+              return (
+                <div
+                  key={p.unique_id}
+                  className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition ${
+                    isCurrentActive
+                      ? 'bg-cyan-950/20 border-cyan-500/40'
+                      : 'bg-white/[0.02] border-white/[0.06]'
+                  }`}
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <span className="font-semibold text-sm text-slate-100 truncate">
+                        {p.name}
+                      </span>
+                      {p.is_primary && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                          <Star className="w-2.5 h-2.5 fill-amber-400" />
+                          Primary
+                        </span>
+                      )}
+                      {isCurrentActive && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          Active View
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono flex-wrap">
+                      <span>ID: {p.unique_id}</span>
+                      {p.last_port && <span>Port: {p.last_port}</span>}
+                      <span>{p.rated_va} VA ({p.rated_watts}W)</span>
+                      <span>Poll: {p.poll_interval_secs ?? 10}s</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-1">
+                    {!isCurrentActive && onSelectUps && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectUps(p.unique_id)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 transition cursor-pointer"
+                      >
+                        Select View
+                      </button>
+                    )}
+
+                    {!p.is_primary && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await api.setPrimaryUps(p.unique_id);
+                            toast.success(`Set ${p.name} as Primary Master UPS`);
+                            onProfilesChanged?.();
+                          } catch (e: any) {
+                            toast.error(`Failed to set primary: ${e?.message || e}`);
+                          }
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition cursor-pointer"
+                      >
+                        Set Primary
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(`Clear all telemetry history for "${p.name}"? This cannot be undone.`)) {
+                          try {
+                            const count = await api.clearTelemetry(p.unique_id);
+                            toast.success(`Cleared ${count} telemetry records for ${p.name}`);
+                          } catch (e: any) {
+                            toast.error(`Failed to clear telemetry: ${e?.message || e}`);
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border border-white/[0.08] transition cursor-pointer"
+                    >
+                      Clear History
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(`Permanently delete UPS profile "${p.name}" (${p.unique_id})? All recorded telemetry and events for this device will be deleted!`)) {
+                          try {
+                            await api.deleteUpsProfile(p.unique_id);
+                            toast.success(`Deleted profile ${p.name}`);
+                            onProfilesChanged?.();
+                          } catch (e: any) {
+                            toast.error(`Failed to delete profile: ${e?.message || e}`);
+                          }
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 border border-rose-800/40 transition cursor-pointer"
+                      title="Delete Profile"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── 4. Active UPS Profile & Specifications ───────────── */}
       {metadata && (
         <div
           className="rounded-2xl p-5 shadow-sm border transition space-y-4"
@@ -843,6 +1065,37 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
               {t('settings:pollingSection.pollSeconds', { count: sec, defaultValue: `${sec}s` })} {sec === 10 ? '(Default)' : ''}
             </button>
           ))}
+        </div>
+
+        {/* Adaptive Urgent Event Fast-Polling Toggle */}
+        <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between">
+          <div className="pr-4">
+            <h5 className="text-xs font-semibold text-slate-200">
+              Adaptive Urgent Event Fast-Polling (2s Turbo)
+            </h5>
+            <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+              Automatically steps up hardware polling to 2 seconds during active battery self-tests, shutdown sequences, and utility outages. Idles at your configured cadence during normal line operation. Supported on both ESP32 Bridge and Direct Serial connections.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={urgentFastPollVal}
+            onClick={() => {
+              const next = !urgentFastPollVal;
+              setUrgentFastPollVal(next);
+              api.setUrgentFastPoll(next).catch(console.error);
+            }}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              urgentFastPollVal ? 'bg-emerald-600' : 'bg-slate-700'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                urgentFastPollVal ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
       </div>
 
@@ -1117,6 +1370,248 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
             </label>
           </div>
         </div>
+      </div>
+
+      {/* ── 8. Security & Access Control ───────────────────────── */}
+      <div
+        className="rounded-2xl p-5 shadow-sm border transition space-y-4"
+        style={{
+          backgroundColor: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-slate-200">
+            <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-100">
+                {t('settings:securitySection.title', 'Security & Access Control')}
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {t(
+                  'settings:securitySection.desc',
+                  'Manage administrator credentials that protect write operations and live power controls.'
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {auth.status?.os_auth_available && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
+                {auth.status.provider_name}
+              </span>
+            )}
+            <span
+              className={`text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full border ${
+                auth.status?.authenticated
+                  ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+                  : !auth.status?.configured
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
+              }`}
+            >
+              {auth.status?.authenticated
+                ? 'Authenticated'
+                : !auth.status?.configured
+                ? 'Unconfigured'
+                : 'Protected'}
+            </span>
+          </div>
+        </div>
+
+        {/* Current Status Row */}
+        <div className="p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <p className="text-xs font-semibold text-slate-200">
+              {auth.status?.authenticated
+                ? t(
+                    'settings:securitySection.authenticatedAs',
+                    `Authenticated as ${auth.status.username}`
+                  )
+                : !auth.status?.configured
+                ? t('settings:securitySection.notConfigured', 'Credentials Not Configured')
+                : t('settings:securitySection.notAuthenticated', 'Protected / Locked')}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {auth.status?.authenticated
+                ? t(
+                    'settings:securitySection.sessionActiveDesc',
+                    'Write commands and power controls unlocked until session expires after 15m idle.'
+                  )
+                : !auth.status?.configured
+                ? t(
+                    'settings:securitySection.notConfiguredDesc',
+                    'Set up administrator credentials to guard hardware safety gates.'
+                  )
+                : t(
+                    'settings:securitySection.notAuthenticatedDesc',
+                    'Log in to modify persistent hardware configuration or power states.'
+                  )}
+            </p>
+          </div>
+          <div className="shrink-0">
+            {auth.status?.authenticated ? (
+              <button
+                type="button"
+                onClick={() => auth.logout()}
+                className="px-3 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-semibold transition cursor-pointer"
+              >
+                {t('common:buttons.logOut', 'Log Out')}
+              </button>
+            ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
+              <PrimaryButton
+                onClick={() => auth.openLoginModal()}
+                icon={<KeyRound className="w-3.5 h-3.5" />}
+              >
+                <span>{t('settings:securitySection.setupCredentials', 'Set Up Credentials')}</span>
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                onClick={() => auth.requireAuth(() => {}, 'Unlock Security Settings')}
+                icon={<Lock className="w-3.5 h-3.5" />}
+              >
+                <span>
+                  {auth.status?.os_auth_available
+                    ? `Unlock with ${auth.status.provider_name}`
+                    : t('settings:securitySection.unlockSession', 'Log In & Unlock')}
+                </span>
+              </PrimaryButton>
+            )}
+          </div>
+        </div>
+
+        {/* Change Password Sub-Card (Only relevant when not using OS Native Auth or if fallback password is in use) */}
+        {auth.status?.configured && !auth.status?.os_auth_available && (
+          <div className="p-4 rounded-xl border border-white/[0.07] bg-white/[0.02] space-y-3">
+            <div className="flex items-center justify-between">
+              <h5 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{t('settings:securitySection.changePassword', 'Change Administrator Password')}</span>
+              </h5>
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer"
+              >
+                {showPw ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                <span>{showPw ? 'Hide' : 'Show'}</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.currentPassword', 'Current Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    placeholder="••••••••"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.newPassword', 'New Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    placeholder="Min 8 characters"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-mono text-slate-400 block mb-1">
+                    {t('settings:securitySection.confirmNewPassword', 'Confirm New Password')}
+                  </label>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={confirmNewPw}
+                    onChange={(e) => setConfirmNewPw(e.target.value)}
+                    placeholder="Re-enter password"
+                    disabled={isChangingPw}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs font-mono text-slate-100 focus:outline-none focus:border-indigo-500/60 transition"
+                  />
+                </div>
+              </div>
+
+              {pwChangeError && (
+                <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+                  {pwChangeError}
+                </div>
+              )}
+              {pwChangeSuccess && (
+                <div className="p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs">
+                  {pwChangeSuccess}
+                </div>
+              )}
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={isChangingPw || !currentPw || !newPw || !confirmNewPw}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-950/40 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isChangingPw ? 'Updating...' : t('settings:securitySection.updatePasswordBtn', 'Update Password')}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Reset Danger Zone (Only relevant for fallback password store) */}
+        {auth.status?.configured && !auth.status?.os_auth_available && (
+          <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.03] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-rose-300">
+                {t('settings:securitySection.resetTitle', 'Reset Security Credentials')}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {t(
+                  'settings:securitySection.resetDesc',
+                  'Clear administrator credentials and return to initial setup state.'
+                )}
+              </p>
+            </div>
+
+            {showResetConfirm ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetConfirm(false)}
+                  disabled={isResetting}
+                  className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-white/[0.04] border border-white/[0.08] rounded-xl transition cursor-pointer"
+                >
+                  {t('common:buttons.cancel', 'Cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetCredentials}
+                  disabled={isResetting}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition shadow-lg shadow-rose-950/40 cursor-pointer"
+                >
+                  {isResetting ? 'Resetting...' : t('settings:securitySection.confirmResetBtn', 'Confirm Reset')}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition cursor-pointer self-start sm:self-auto"
+              >
+                {t('settings:securitySection.resetBtn', 'Reset Credentials')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Save / Unsaved Action Bar (Docked when idle, Sticky when dirty) ── */}

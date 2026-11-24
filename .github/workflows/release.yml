@@ -88,3 +88,76 @@ jobs:
           releaseBody: 'Automated release of UPSED.'
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || true }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+
+  build-bridge:
+    name: Build ESP32-S3 Bridge Firmware
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate UPSED_OTA_SECRET
+        run: |
+          if [ -z "${{ secrets.UPSED_OTA_SECRET }}" ]; then
+            echo "::error::UPSED_OTA_SECRET repository secret is not set! Please configure UPSED_OTA_SECRET in GitHub Settings > Secrets."
+            exit 1
+          fi
+          echo "UPSED_OTA_SECRET=${{ secrets.UPSED_OTA_SECRET }}" > .env
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade pip platformio
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Compile ESP32-S3 Firmware
+        run: npm run bridge:build
+
+      - name: Prepare Bridge Artifact
+        run: cp upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin upsed-bridge-firmware.bin
+
+      - name: Upload Bridge Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upsed-bridge-firmware
+          path: upsed-bridge-firmware.bin
+          if-no-files-found: error
+
+  upload-bridge-asset:
+    name: Attach Bridge Firmware to Release
+    needs: [build-tauri, build-bridge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Bridge Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: upsed-bridge-firmware
+
+      - name: Attach upsed-bridge-firmware.bin to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+          fi
+          echo "Attaching upsed-bridge-firmware.bin to release '$TAG'..."
+          gh release upload "$TAG" upsed-bridge-firmware.bin --clobber

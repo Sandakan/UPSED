@@ -117,30 +117,144 @@ body {
   background-color: rgba(148, 163, 184, 0.45);
 }
 
+/* ─── Changelog Markdown Styles ────────────────────────── */
+.changelog-markdown h1 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.5rem;
+}
+
+.changelog-markdown h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #34d399;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.changelog-markdown h3 {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #22d3ee;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.changelog-markdown p {
+  margin-bottom: 0.65rem;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+
+.changelog-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.changelog-markdown li {
+  margin-bottom: 0.3rem;
+  color: #cbd5e1;
+}
+
+.changelog-markdown strong {
+  color: #ffffff;
+}
+
+.changelog-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.375rem;
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #67e8f9;
+}
+
+.changelog-markdown hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin: 1.25rem 0;
+}
+
+[data-theme="light"] .changelog-markdown h1 {
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .changelog-markdown h2 {
+  color: #059669;
+}
+
+[data-theme="light"] .changelog-markdown h3 {
+  color: #0891b2;
+}
+
+[data-theme="light"] .changelog-markdown p {
+  color: #475569;
+}
+
+[data-theme="light"] .changelog-markdown li {
+  color: #334155;
+}
+
+[data-theme="light"] .changelog-markdown strong {
+  color: #0f172a;
+}
+
+[data-theme="light"] .changelog-markdown code {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0e7490;
+}
+
+[data-theme="light"] .changelog-markdown hr {
+  border-top-color: #e2e8f0;
+}
+
 /* ─── Power flow animations ─────────────────────────────── */
 @keyframes powerFlow {
-  from { stroke-dashoffset: 24; }
+  from { stroke-dashoffset: 28; }
   to   { stroke-dashoffset: 0;  }
 }
 
 @keyframes powerFlowReverse {
   from { stroke-dashoffset: 0;  }
-  to   { stroke-dashoffset: 24; }
+  to   { stroke-dashoffset: 28; }
 }
 
 .flow-active {
-  stroke-dasharray: 6 6;
-  animation: powerFlow 1s linear infinite;
+  stroke-dasharray: 6 8;
+  animation: powerFlow 1.6s linear infinite;
 }
 
 .flow-active-reverse {
-  stroke-dasharray: 6 6;
-  animation: powerFlowReverse 1s linear infinite;
+  stroke-dasharray: 6 8;
+  animation: powerFlowReverse 1.6s linear infinite;
 }
 
 .flow-paused .flow-active,
 .flow-paused .flow-active-reverse {
   animation-play-state: paused !important;
+}
+
+.window-hidden,
+.window-hidden *,
+.window-hidden *::before,
+.window-hidden *::after {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-active,
+  .flow-active-reverse {
+    animation: none !important;
+  }
 }
 
 /* ─── Modal animations ──────────────────────────────────── */

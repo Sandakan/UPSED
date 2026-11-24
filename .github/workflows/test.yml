@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 22
           cache: 'npm'
 
       - name: Install npm dependencies
@@ -33,6 +33,37 @@ jobs:
 
       - name: Run TypeScript & Vite build check
         run: npm run build
+
+  bridge-check:
+    name: ESP32 Bridge PlatformIO Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade pip platformio
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Create CI environment secret
+        run: echo 'UPSED_OTA_SECRET="ci-test-secret-key-12345"' > .env
+
+      - name: Compile ESP32-S3 Firmware
+        run: npm run bridge:build
 
   rust-test:
     name: Rust Mock Integration Tests

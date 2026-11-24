@@ -105,6 +105,27 @@
     "saveError": "Failed to save settings: {{error}}",
     "discardTitle": "Changes Discarded",
     "discardSuccess": "Settings restored to last saved state."
+  },
+  "securitySection": {
+    "title": "Security & Access Control",
+    "desc": "Manage administrator credentials that protect write operations and live power controls.",
+    "authenticatedAs": "Authenticated as {{username}}",
+    "sessionActiveDesc": "Write commands and power controls unlocked until session expires after 15m idle.",
+    "notAuthenticated": "Protected / Locked",
+    "notAuthenticatedDesc": "Log in to modify persistent hardware configuration or power states.",
+    "notConfigured": "Credentials Not Configured",
+    "notConfiguredDesc": "Set up administrator credentials to guard hardware safety gates.",
+    "setupCredentials": "Set Up Credentials",
+    "unlockSession": "Log In & Unlock",
+    "changePassword": "Change Administrator Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmNewPassword": "Confirm New Password",
+    "updatePasswordBtn": "Update Password",
+    "resetTitle": "Reset Security Credentials",
+    "resetDesc": "Clear administrator credentials and return to initial setup state.",
+    "resetBtn": "Reset Credentials",
+    "confirmResetBtn": "Confirm Reset"
   }
 }
 

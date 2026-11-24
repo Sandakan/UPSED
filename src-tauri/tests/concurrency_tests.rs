@@ -2,7 +2,7 @@ mod mock_serial;
 use mock_serial::MockSerialPort;
 use upsed_lib::gate::CommandGate;
 use upsed_lib::multi_port::MultiPortManager;
-use upsed_lib::protocol::{DeviceCapabilities, UnlockStage, VoltronicCommand};
+use upsed_lib::protocol::{DeviceCapabilities, VoltronicCommand};
 use upsed_lib::serial::DiscoveredDevice;
 
 #[test]
@@ -16,6 +16,8 @@ fn multi_001_register_multiple_devices() {
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -25,6 +27,8 @@ fn multi_001_register_multiple_devices() {
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -49,6 +53,8 @@ fn multi_002_commands_isolated_per_port() {
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -58,6 +64,8 @@ fn multi_002_commands_isolated_per_port() {
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("02"),
     };
 
@@ -67,9 +75,7 @@ fn multi_002_commands_isolated_per_port() {
     manager.register_device(dev1, Box::new(port1));
     manager.register_device(dev2, Box::new(port2));
 
-    let mut gate = CommandGate::new();
-    gate.set_test_passed(UnlockStage::T1ReadOnly);
-    gate.unlock_stage(UnlockStage::T2NonDestructive).unwrap();
+    let gate = CommandGate::new_authenticated();
 
     // Send buzzer command to COM1 only
     let resp = manager
@@ -89,6 +95,8 @@ fn multi_003_polling_multiple_ports() {
         unique_id: "QID-9293311030001".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
     let dev2 = DiscoveredDevice {
@@ -98,6 +106,8 @@ fn multi_003_polling_multiple_ports() {
         unique_id: "QID-9293311030002".into(),
         firmware_version: Some("00072.10".into()),
         usb_uuid: None,
+        bridge_mac: None,
+        hardware_signature: None,
         capabilities: DeviceCapabilities::for_protocol("17"),
     };
 

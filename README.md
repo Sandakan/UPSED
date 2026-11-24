@@ -23,11 +23,25 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 - Safely auto-discovers connected hardware on both USB HID and COM ports using strictly non-destructive Stage T1 read-only queries (`QPI\r`).
 - Concurrent multi-UPS management with independent communication channels and telemetry caches.
 
-### 🛡️ Safety-First Command Gate (4-Stage Tiering)
+### 🛡️ Safety-First Command Gate & Authenticated Permission Barrier
 
-- Enforces an incremental 4-stage safety unlock hierarchy (`T1ReadOnly` → `T2NonDestructive` → `T3ConfigWrite` → `T4PowerControl`).
+- Enforces a ViewPower-style user permission barrier atop a 4-tier risk classification:
+  - **Stage T1 (Read-Only):** Non-modifying telemetry queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`) remain open without authentication for auto-discovery and telemetry monitoring.
+  - **Stages T2–T4 (Protected):** Diagnostic self-tests (`T`, `CT`), persistent EEPROM writes (`MCHGC`, `PBVH`, `PBVL`), and power control require an active authenticated administrator session.
+  - **Stage T4 (Power Control):** Live load-drop operations (`ShutdownWithDelay`, `ShutdownAndRestore`, `OutputOff`, `OutletOff`) require typed confirmation ("type UPS name or SHUTDOWN") before transmission.
+- Credential protection using **Argon2id** password hashing stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) with secure SQLite fallback.
+- In-memory sliding session expires after 15 minutes of inactivity; brute-force protection locks out login after 5 failed attempts.
 - Completely eliminates raw string command injection vulnerabilities (such as ViewPower's `controlNew` flaw). Every interaction is a strongly typed variant of the `VoltronicCommand` enum.
-- Strict parameter bounds validation in Rust before any byte payload reaches the transport layer.
+- Strict physical parameter bounds validation in Rust before any byte payload reaches the transport layer.
+
+### ⚡ Comprehensive UPS Power Management
+
+- **Delayed Output Shutdown (`S.<M>` / `S<M>`):** Safely power off AC inverter output after a configurable delay (presets from 18 seconds to 10 minutes, or custom minutes 0.1–99).
+- **Shutdown & Auto-Restore (`S..R..`):** Shuts down AC output after delay, then automatically re-engages output once mains AC returns and a restore timer elapses.
+- **Inverter Output Toggle (`SON` / `SOFF`):** Directly toggle inverter output on/off for P-series hardware without powering down internal monitoring logic.
+- **Switchable Outlet Groups (`SKON` / `SKOFF`):** Independently control outlet banks 1 and 2 for smart load shedding and peripheral equipment cycling.
+- **Active Shutdown Countdown & Abort:** Real-time ticker synchronized with the hardware status bit (`shutdown_active`) and one-click immediate abort (`CS`).
+- **Host PC Power Safety Guard:** Prominent warnings prevent accidental power cuts to the machine running UPSED.
 
 ### 📉 Real-Time Outage Interval Detection
 
@@ -88,6 +102,16 @@ Built with **Tauri v2**, **Rust**, **React 19**, and **Tailwind CSS v4**, UPSED 
 
 - Multi-target structured logging powered by `tauri-plugin-log`: streams to terminal `stdout`, webview console, and local rotating log files (`%LOCALAPPDATA%\com.adsandakannipunajith.upsed\logs\upsed.log`).
 - Window geometry persistence via `tauri-plugin-window-state`: remembers dimensions, screen position, and maximized state across reboots.
+
+### 📡 ESP32-S3 IoT Hardware Bridge & Wireless OTA Flashing
+
+- **Wireless Hardware Gateway:** Connects UPS units to UPSED over 2.4GHz Wi-Fi WebSocket (`ws://upsed-bridge.local:81`) or high-speed USB CDC Serial (115,200 baud).
+- **8MB PSRAM MessagePack Ring Buffer:** Buffers up to 8,192 offline telemetry samples (~22.7 hours at 10s cadence) while PC is asleep or off, synchronizing into SQLite history on reconnect.
+- **On-Demand Leased Wireless OTA Flashing:**
+  - **In-App Desktop OTA:** One-click wireless flashing from GitHub releases or local builds directly from the UPSED UI.
+  - **PlatformIO CLI:** `npm run bridge:ota` for terminal flashing over Wi-Fi.
+  - **Fail-Safe Security:** Port 8080 opened strictly for 90 seconds on-demand with a hardware watchdog lease; requires `UPSED_OTA_SECRET` authentication token in `.env`. Telemetry UART paused during flash.
+- **Multi-State WS2812 RGB Status LED Engine:** Priority-ranked 60Hz hardware indicator communicating real-time operational states (Solid Green proxy, Breathing Cyan standalone logging, Pulsing Red power outage), network alerts (Wi-Fi connecting/auth fail and TuyaLink status overlays), and dual-stage OTA feedback (Blinking Magenta authentication & Pulsing Magenta firmware streaming).
 
 ### 🔋 OS Native Battery Bridge (Opt-In)
 
@@ -154,16 +178,16 @@ flowchart TD
 
 ---
 
-## 🛡️ Safety Command Gate: Incremental Unlock
+## 🛡️ Safety Command Gate & Authenticated Permission Barrier
 
-To safeguard connected equipment and prevent persistent EEPROM corruption or unintended power cuts, UPSED categorizes every hardware command into 4 strict safety stages:
+To safeguard connected equipment and prevent persistent EEPROM corruption or unintended power cuts, UPSED categorizes every hardware command into 4 risk tiers guarded by an authenticated user barrier:
 
-| Stage | Risk Level | Allowed Commands | Unlock Condition & Invariants |
+| Stage | Risk Level | Allowed Commands | Access Barrier & Invariants |
 | --- | --- | --- | --- |
-| **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.) | **Default at startup.** Automated hardware scans and live probing MUST strictly and exclusively use T1 commands. |
-| **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | Unlocks after automated T1 queries verify protocol compatibility. Does not modify non-volatile memory or drop load. |
-| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | Requires parameter pre-validation against physical equipment safety limits in Rust before transmission. |
-| **Stage T4 (Power Control)** | High | `S.3` (Delayed shutdown), `CS` (Cancel shutdown), `OLON`/`OLOFF` (Outlet group control) | Requires explicit user confirmation dialogs with countdown verification to prevent accidental power drops. |
+| **Stage T1 (Read-Only)** | None | `QPI` (Protocol ID), `Q1` (Quick Status), `QPIGS` (General Status), `QPIWS` (Warnings), `QPIRI` (Ratings), `QID` (Serial No.), `QVFW` (Firmware Ver.), `QSK1`/`QSK2` (Outlet states) | **Open unconditionally.** Automated hardware scans, discovery probes, and telemetry polling strictly use Stage T1 commands. |
+| **Stage T2 (Non-Destructive)** | Low | `Q` (Toggle beeper), `T` / `T<n>` (10s/timed battery test), `CT` (Cancel battery test) | **Requires Authenticated Session.** Observable diagnostics that do not alter flash/EEPROM or drop live load. |
+| **Stage T3 (Config Writes)** | Medium | `MCHGC` (Charge current), `PBVH`/`PBVL` (Bypass window), `PSDV` (Cutoff voltage) | **Requires Authenticated Session.** Persistent EEPROM writes; parameters must pass pre-validation against physical equipment safety limits in Rust before transmission. |
+| **Stage T4 (Power Control)** | High | `S.<M>` / `S<M>` (Delayed shutdown), `S..R..` (Shutdown & restore), `SON`/`SOFF` (Inverter toggle), `SKON`/`SKOFF` (Outlet control), `CS` (Cancel shutdown) | **Requires Authenticated Session + Typed Confirmation.** High-risk commands that cut output power require typing the target UPS name or `SHUTDOWN` to prevent accidental load drops. |
 
 ---
 
@@ -249,6 +273,30 @@ Ensure the following are installed:
    ```bash
    npm run tauri build
    ```
+
+### 🍎 macOS Installation & Local Network Permissions
+
+When installing the packaged DMG (`UPSED_0.1.0_aarch64.dmg` or `UPSED_0.1.0_x64.dmg`) on macOS:
+
+1. **Install to Applications:**
+   Open the DMG disk image and drag **UPSED.app** into **/Applications**.
+   > [!IMPORTANT]
+   > Do **not** launch UPSED directly from inside the mounted DMG volume. Running from the disk image triggers macOS Gatekeeper **App Translocation**, which places the app in a temporary isolated sandbox container and blocks local network traffic (mDNS `.local` host resolution, UDP broadcasts, and WebSocket bridge communication).
+
+2. **Clear Quarantine & Re-Sign Bundle (macOS Sequoia 15+ / Ad-Hoc Builds):**
+   For ad-hoc signed releases or newly packaged builds on macOS 15+, run the following in Terminal to remove Gatekeeper download flags and bind the application bundle identity to `Info.plist`:
+
+   ```bash
+   # Clear macOS download quarantine attribute
+   xattr -cr /Applications/UPSED.app
+
+   # Sign the application bundle with ad-hoc signature to bind Info.plist permissions
+   codesign --force --deep -s - /Applications/UPSED.app
+   ```
+
+3. **Grant Local Network Access:**
+   - On first launch, macOS displays a privacy prompt: ***"UPSED" would like to find and connect to devices on your local network***. Click **Allow**.
+   - If the dialog was previously dismissed, navigate to **System Settings > Privacy & Security > Local Network** and verify that **UPSED** is toggled **ON**.
 
 ---
 

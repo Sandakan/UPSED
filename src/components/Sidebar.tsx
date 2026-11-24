@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Activity,
@@ -6,26 +6,19 @@ import {
   Wrench,
   History,
   Settings,
-  Search,
-  ChevronDown,
-  CheckCircle2,
   Bell,
-  Plug,
-  Loader2,
   Info,
+  Cpu,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
-import { DiscoveredDevice, UnlockStage } from '../lib/types';
+import { useAuth } from '../lib/auth';
+import { UnlockStage } from '../lib/types';
 import { UpsedLogo } from './UpsedLogo';
 
 interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
-  devices: DiscoveredDevice[];
-  selectedDevice: string | null;
-  activeDeviceLabel: string | null;
-  onSelectDevice: (port: string) => void;
-  onScan: () => void;
-  isScanning: boolean;
   safetyStage: UnlockStage;
   criticalCount: number;
   warningCount: number;
@@ -47,62 +40,25 @@ const NAV_GROUPS = [
     items: [
       { id: 'config',   label: 'Configuration',   icon: Wrench  },
       { id: 'history',  label: 'History & Graphs', icon: History },
+      { id: 'iot',      label: 'IoT Bridge',       icon: Cpu     },
     ],
   },
 ];
 
-const getStageBadgeStyle = (stage: UnlockStage) => {
-  switch (stage) {
-    case 'T1ReadOnly':       return 'bg-emerald-950/80 text-emerald-400 border-emerald-700/40';
-    case 'T2NonDestructive': return 'bg-blue-950/80    text-blue-400    border-blue-700/40';
-    case 'T3ConfigWrite':    return 'bg-amber-950/80   text-amber-400   border-amber-700/40';
-    case 'T4PowerControl':   return 'bg-rose-950/80    text-rose-400    border-rose-700/40';
-  }
-};
-
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onTabChange,
-  devices,
-  selectedDevice,
-  activeDeviceLabel,
-  onSelectDevice,
-  onScan,
-  isScanning,
-  safetyStage,
+  safetyStage: _safetyStage,
   criticalCount,
   warningCount,
   onOpenAbout,
 }) => {
   const { t } = useTranslation(['nav', 'common']);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const getStageLabel = (stage: UnlockStage) => {
-    switch (stage) {
-      case 'T1ReadOnly':       return t('common:stages.t1.badge', 'T1 · Read-Only');
-      case 'T2NonDestructive': return t('common:stages.t2.badge', 'T2 · Diagnostic');
-      case 'T3ConfigWrite':    return t('common:stages.t3.badge', 'T3 · Config Write');
-      case 'T4PowerControl':   return t('common:stages.t4.badge', 'T4 · Power Control');
-    }
-  };
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const activeDevice = devices.find((d) => d.port_name === selectedDevice);
+  const auth = useAuth();
 
   // Badge: red for critical, amber for warning-only
   const badgeCount = criticalCount > 0 ? criticalCount : warningCount;
-  const badgeColor  = criticalCount > 0
+  const badgeColor = criticalCount > 0
     ? 'bg-rose-500 text-white'
     : 'bg-amber-500 text-black';
 
@@ -118,111 +74,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="w-60 flex flex-col h-screen select-none shrink-0"
+      className="w-64 flex flex-col h-screen select-none shrink-0"
       style={{ backgroundColor: 'var(--sidebar-bg)' }}
     >
       {/* ── Brand ───────────────────────────────────────────── */}
-      <div className="px-4 pt-5 pb-4 flex items-center">
+      <div className="px-4 pt-5 pb-3 flex items-center">
         <UpsedLogo size="lg" className="text-slate-100" />
       </div>
 
-      {/* ── UPS Device Dropdown ──────────────────────────────── */}
-      <div className="px-3 pb-4" ref={dropdownRef}>
-        <button
-          onClick={() => setDropdownOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition group"
-          style={{
-            backgroundColor: 'var(--card-bg)',
-            border: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div className="flex items-center space-x-2.5 min-w-0">
-            <div
-              className={`w-2 h-2 rounded-full shrink-0 transition ${
-                activeDevice ? 'bg-emerald-400' : 'bg-slate-600'
-              }`}
-            />
-            <span className="text-slate-200 font-medium text-xs truncate">
-              {activeDeviceLabel ?? t('nav:device.noDevice', 'No device connected')}
-            </span>
-          </div>
-          <ChevronDown
-            className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform duration-200 ${
-              dropdownOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        {/* Popover */}
-        {dropdownOpen && (
-          <div
-            className="mt-1.5 rounded-xl overflow-hidden shadow-2xl border"
-            style={{
-              backgroundColor: 'var(--popover-bg)',
-              borderColor: 'var(--border-subtle)',
-            }}
-          >
-            {/* Scan row */}
-            <div
-              className="flex items-center justify-between px-3 py-2"
-              style={{ borderBottom: '1px solid var(--border-subtle)' }}
-            >
-              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
-                {t('nav:device.discoveredPorts', 'Discovered Ports')}
-              </span>
-              <button
-                onClick={(e) => { e.stopPropagation(); onScan(); }}
-                disabled={isScanning}
-                className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-700/50 transition disabled:opacity-50 cursor-pointer"
-                title={t('nav:device.scanTitle', 'Scan for UPS devices')}
-              >
-                {isScanning
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Search  className="w-3.5 h-3.5" />
-                }
-              </button>
-            </div>
-
-            {/* Device list */}
-            <div className="max-h-48 overflow-y-auto py-1">
-              {devices.length === 0 ? (
-                <p className="text-xs text-slate-500 italic px-3 py-2.5">
-                  {t('nav:device.noUpsFound', 'No UPS found. Click scan to discover.')}
-                </p>
-              ) : (
-                devices.map((dev) => (
-                  <button
-                    key={dev.port_name}
-                    onClick={() => { onSelectDevice(dev.port_name); setDropdownOpen(false); }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between text-xs transition ${
-                      selectedDevice === dev.port_name
-                        ? 'bg-cyan-950/60 text-cyan-300'
-                        : 'text-slate-300 hover:bg-white/[0.04] hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2 min-w-0">
-                      <Plug className="w-3 h-3 text-slate-500 shrink-0" />
-                      <span className="font-mono truncate">{dev.port_name}</span>
-                    </div>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 ml-2 text-slate-400"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
-                    >
-                      {dev.capabilities.protocol_id}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Divider ─────────────────────────────────────────── */}
-      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '0 12px' }} />
-
       {/* ── Main Navigation ──────────────────────────────────── */}
-      <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto sidebar-nav">
+      <nav className="flex-1 px-3 py-2 space-y-5 overflow-y-auto sidebar-nav">
         {NAV_GROUPS.map((group) => (
           <div key={group.id}>
             <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold px-3 mb-1.5 select-none">
@@ -325,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* ── Safety Gate ─────────────────────────────────────── */}
+      {/* ── Safety Gate / Auth Barrier ───────────────────────── */}
       <div
         className="px-3 py-2"
         style={{ borderTop: '1px solid var(--border-subtle)' }}
@@ -334,13 +195,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
             {t('nav:safetyGate.title', 'Safety Gate')}
           </span>
-          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+          {auth.status?.authenticated ? (
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+          ) : (
+            <Lock className="w-3.5 h-3.5 text-slate-500" />
+          )}
         </div>
-        <div
-          className={`px-2 py-0.5 rounded-md border text-[10.5px] font-medium text-center ${getStageBadgeStyle(safetyStage)}`}
-        >
-          {getStageLabel(safetyStage)}
-        </div>
+        {auth.status?.authenticated ? (
+          <div className="flex items-center justify-between px-2 py-1 rounded-md border border-indigo-700/40 bg-indigo-950/60 text-[10.5px]">
+            <span className="font-medium text-indigo-300 truncate max-w-[120px] font-mono">
+              {auth.status.username}
+            </span>
+            <button
+              onClick={() => auth.logout()}
+              className="text-[10px] text-indigo-400 hover:text-indigo-200 transition cursor-pointer"
+              title="Log out"
+            >
+              Log Out
+            </button>
+          </div>
+        ) : !auth.status?.configured && !auth.status?.os_auth_available ? (
+          <button
+            onClick={() => auth.openLoginModal()}
+            className="w-full text-center px-2 py-1 rounded-md border border-amber-700/40 bg-amber-950/60 text-[10.5px] font-medium text-amber-300 hover:bg-amber-900/60 transition cursor-pointer"
+          >
+            Setup Required
+          </button>
+        ) : (
+          <button
+            onClick={() => auth.requireAuth(() => {}, 'Unlock UPSED Hardware Operations')}
+            className="w-full text-center px-2 py-1 rounded-md border border-white/[0.08] bg-white/[0.04] text-[10.5px] font-medium text-slate-300 hover:bg-white/[0.08] transition cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <Lock className="w-3 h-3 text-slate-400" />
+            <span>Protected · Unlock</span>
+          </button>
+        )}
       </div>
     </aside>
   );

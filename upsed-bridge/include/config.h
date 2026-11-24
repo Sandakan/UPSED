@@ -1,0 +1,76 @@
+#pragma once
+
+#include <Arduino.h>
+
+// ============================================================================
+// UPSED Hardware Bridge — Pin & Timing Configuration (ESP32-S3 DevKitC-1)
+// ============================================================================
+
+#define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
+#define BRIDGE_FIRMWARE_VER    "1.6.0"
+#define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
+#define BRIDGE_WS_PORT         81
+#define BRIDGE_OTA_PORT        8080
+#define BRIDGE_OTA_LEASE_MS    90000UL   // 90s auto-abort lease for on-demand HTTP OTA
+
+#ifndef BRIDGE_OTA_SECRET
+#define BRIDGE_OTA_SECRET      "upsed-ota-default-secret"
+#endif
+
+// Multi-Client WebSocket & Command Cache Configuration
+#define BRIDGE_MAX_WS_CLIENTS      8
+#define CMD_CACHE_CAPACITY         16
+#define UPS_CACHE_TELEMETRY_TTL_MS 6500UL    // 6.5s TTL for routine 5s idle polls
+#define UPS_CACHE_TURBO_TTL_MS     2200UL    // 2.2s TTL for urgent 2s turbo polls
+#define UPS_CACHE_CONFIG_TTL_MS    10000UL
+#define UPS_CACHE_STATIC_TTL_MS    60000UL
+
+// UART0 (USB Serial Bridge to Desktop PC)
+#define PC_SERIAL_BAUD         115200
+
+// UART1 (MAX3232 RS-232 Transceiver to Voltronic/Megatec UPS)
+#define UPS_RX_PIN             17
+#define UPS_TX_PIN             18
+#define UPS_BAUD               2400
+#define UPS_GUARD_DELAY_MS     150       // Guard delay between RS-232 UART frames
+#define UPS_READ_TIMEOUT_MS    1400      // Turnaround timeout for 2400-baud UPS MCU ADC/telemetry calculations
+
+// Hardware Master Polling Intervals
+#define BRIDGE_IDLE_POLL_MS    5000UL    // Steady-state idle poll: 5 seconds
+#define BRIDGE_TURBO_POLL_MS   2000UL    // Urgent event turbo poll: 2 seconds
+
+// Role Handoff & Standalone Polling Intervals
+#define PROXY_TIMEOUT_MS       15000UL   // Switch to Standalone Mode after 15s of PC silence
+#define STANDALONE_POLL_MS     10000UL   // Poll Q1 every 10s while in Standalone Mode
+#define WIFI_RETRY_INTERVAL_MS 30000UL   // Retry saved Wi-Fi every 30s if disconnected
+
+// MessagePack PSRAM Ring Buffer Sizing
+// 8192 slots * 96 bytes = 768 KB in 8MB PSRAM (~22.7 hours at 10s interval)
+// MessagePack PSRAM & SRAM Auto-Sizing Bounds
+#define BACKLOG_PSRAM_MAX_CAPACITY 32768   // Upper ceiling for >=4MB PSRAM (~3.14 MB, ~45.5h @ 5s)
+#define BACKLOG_SRAM_MAX_CAPACITY  512     // Upper ceiling for high-headroom SRAM (~49.1 KB, ~42m @ 5s)
+#define BACKLOG_SRAM_MIN_CAPACITY  256     // Safe floor for low-end SRAM (~24.5 KB, ~21m @ 5s)
+#define BACKLOG_PSRAM_CAPACITY     BACKLOG_PSRAM_MAX_CAPACITY
+#define BACKLOG_FALLBACK_CAP       BACKLOG_SRAM_MIN_CAPACITY
+#define BACKLOG_SLOT_BYTES     96        // Max bytes per MessagePack-encoded slot
+
+// Addressable WS2812 RGB LED Pins (ESP32-S3 DevKitC-1 clones use GPIO 48 or 38)
+#define RGB_PIN_PRIMARY        48
+#define RGB_PIN_ALT            38
+
+inline void setBridgeLed(uint8_t r, uint8_t g, uint8_t b) {
+#ifdef RGB_BUILTIN
+    neopixelWrite(RGB_BUILTIN, r, g, b);
+#else
+    neopixelWrite(RGB_PIN_PRIMARY, r, g, b);
+#endif
+
+    uint8_t primaryPin = 48;
+#ifdef RGB_BUILTIN
+    primaryPin = RGB_BUILTIN;
+#endif
+    if (RGB_PIN_ALT != primaryPin) {
+        delayMicroseconds(60); // Allow WS2812 latch reset (>50us) to avoid RMT channel collision
+        neopixelWrite(RGB_PIN_ALT, r, g, b);
+    }
+}

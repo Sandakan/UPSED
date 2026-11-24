@@ -54,13 +54,32 @@ const DashboardComponent: React.FC<DashboardProps> = ({
 }) => {
   const { t } = useTranslation(['dashboard', 'common']);
 
+  // Extract last recorded telemetry if real-time stream is disconnected
+  const lastSample = history.length > 0 ? history[history.length - 1] : null;
+  const isOffline = !status;
+  const effectiveStatus: Q1Status | null = status ?? (lastSample ? {
+    grid_voltage_v: lastSample.grid_voltage,
+    grid_frequency_hz: lastSample.grid_frequency ?? 50.0,
+    output_voltage_v: lastSample.output_voltage,
+    output_frequency_hz: lastSample.output_frequency ?? 50.0,
+    output_load_pct: lastSample.load_pct,
+    output_watts: lastSample.output_watts ?? 0,
+    battery_voltage_v: lastSample.battery_voltage,
+    temperature_c: lastSample.temperature_c,
+    utility_fail: lastSample.grid_voltage < 10,
+    battery_low: false,
+    bypass_active: false,
+    ups_failed: false,
+    raw_status_bits: '00000000',
+  } : null);
+
   // Calculate battery percentage using calibrated cell curves
   const nominalBat = metadata?.battery_voltage
     ? Number(metadata.battery_voltage)
-    : detectNominalVoltage(status?.battery_voltage_v ?? 0);
-  const batPct = status
+    : detectNominalVoltage(effectiveStatus?.battery_voltage_v ?? 0);
+  const batPct = effectiveStatus
     ? calculateBatterySoC(
-        status.battery_voltage_v,
+        effectiveStatus.battery_voltage_v,
         nominalBat,
         metadata?.battery_chemistry ?? 'VRLA_SLA'
       )
@@ -71,10 +90,10 @@ const DashboardComponent: React.FC<DashboardProps> = ({
     (metadata?.rated_va
       ? calculateActiveWatts(metadata.rated_va, metadata.power_factor || 0.8)
       : 600);
-  const effectiveWatts = status
-    ? status.output_watts > 0
-      ? status.output_watts
-      : Math.round((status.output_load_pct / 100) * ratedW)
+  const effectiveWatts = effectiveStatus
+    ? effectiveStatus.output_watts > 0
+      ? effectiveStatus.output_watts
+      : Math.round((effectiveStatus.output_load_pct / 100) * ratedW)
     : 0;
 
   const estRuntimeMins = calculateEstimatedRuntime(
@@ -87,7 +106,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
   );
 
   const sparkData = useMemo(() => {
-    if (!status) return [];
+    if (!effectiveStatus) return [];
 
     // If we have actual historical variance, use real telemetry history
     if (history.length >= 8) {
@@ -104,8 +123,8 @@ const DashboardComponent: React.FC<DashboardProps> = ({
     }
 
     // Generate gentle live organic wave points matching reference curve
-    const baseGridV = status.grid_voltage_v || 230;
-    const baseLoad = status.output_load_pct || 25;
+    const baseGridV = effectiveStatus.grid_voltage_v || 230;
+    const baseLoad = effectiveStatus.output_load_pct || 25;
     const baseBat = batPct || 95;
 
     const points = [];
@@ -123,20 +142,20 @@ const DashboardComponent: React.FC<DashboardProps> = ({
       });
     }
     return points;
-  }, [history, status, batPct]);
+  }, [history, effectiveStatus, batPct]);
 
   const gridVSeries = useMemo(() => sparkData.map((d) => d.gridV), [sparkData]);
   const loadSeries = useMemo(() => sparkData.map((d) => d.load), [sparkData]);
   const batVSeries = useMemo(() => sparkData.map((d) => d.batV), [sparkData]);
 
-  if (!portName || !status) {
+  if (!effectiveStatus) {
     const isBusy =
       isScanning ||
       isConnecting ||
       probeStatus?.phase === 'scanning' ||
       probeStatus?.phase === 'connecting' ||
       probeStatus?.phase === 'fetching' ||
-      (portName && !status && !lastError);
+      (portName && !effectiveStatus && !lastError);
 
     if (lastError && !isBusy) {
       return (
@@ -249,6 +268,39 @@ const DashboardComponent: React.FC<DashboardProps> = ({
 
   return (
     <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 overflow-y-auto max-h-[calc(100vh-3.5rem)] custom-scrollbar min-w-0">
+      {/* Offline Historical Snapshot Banner */}
+      {isOffline && (
+        <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-3 text-slate-300 min-w-0">
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 shrink-0">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-slate-100 truncate">
+                  {metadata?.name || 'UPS'} · Offline
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/50 shrink-0">
+                  Historical Snapshot
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                Displaying last recorded telemetry ({lastSample ? new Date(lastSample.timestamp).toLocaleString() : 'cached'})
+              </p>
+            </div>
+          </div>
+          {onRescan && (
+            <button
+              onClick={onRescan}
+              className="ml-3 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 transition flex items-center space-x-1.5 cursor-pointer shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Rescan</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Reference Design Stat Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
         {/* Input Voltage Card */}
@@ -262,14 +314,14 @@ const DashboardComponent: React.FC<DashboardProps> = ({
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3xl font-bold text-slate-100 font-sans tracking-tight">
-                {status.grid_voltage_v.toFixed(1)}
+                {effectiveStatus.grid_voltage_v.toFixed(1)}
               </span>
               <span className="text-sm font-semibold text-slate-400">V</span>
             </div>
             <p className="text-[11px] text-slate-400 font-sans truncate">
-              {t('dashboard:cards.freq', 'Freq')}: {status.grid_frequency_hz.toFixed(1)} Hz •{' '}
-              <span className={status.utility_fail ? 'text-rose-400 font-medium' : 'text-emerald-400 font-medium'}>
-                {status.utility_fail ? t('dashboard:cards.gridFail', 'Grid Fail') : t('dashboard:cards.lineNormal', 'Line Normal')}
+              {t('dashboard:cards.freq', 'Freq')}: {effectiveStatus.grid_frequency_hz.toFixed(1)} Hz •{' '}
+              <span className={effectiveStatus.utility_fail ? 'text-rose-400 font-medium' : 'text-emerald-400 font-medium'}>
+                {effectiveStatus.utility_fail ? t('dashboard:cards.gridFail', 'Grid Fail') : t('dashboard:cards.lineNormal', 'Line Normal')}
               </span>
             </p>
           </div>
@@ -295,7 +347,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-3xl font-bold text-slate-100 font-sans tracking-tight">
-                {status.output_load_pct}
+                {effectiveStatus.output_load_pct}
               </span>
               <span className="text-sm font-semibold text-slate-400">%</span>
             </div>
@@ -350,7 +402,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
 
       {/* Modern UPS Single-Line Power Flow Topology Graphic */}
       <PowerFlowDiagram
-        status={status}
+        status={effectiveStatus}
         portName={portName}
         metadata={metadata}
         isPaused={isWindowVisible !== undefined ? !isWindowVisible : undefined}
@@ -358,7 +410,7 @@ const DashboardComponent: React.FC<DashboardProps> = ({
 
       {/* Real-Time Telemetry & Multi-Metric Graphs Hub */}
       <MetricGraphsHub
-        status={status}
+        status={effectiveStatus}
         history={history}
         metadata={metadata}
         events={events}
@@ -380,46 +432,46 @@ const DashboardComponent: React.FC<DashboardProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs font-mono">
             <div
               className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                status.utility_fail
+                effectiveStatus.utility_fail
                   ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
                   : 'bg-slate-950/40 border-slate-800 text-slate-400'
               }`}
             >
               <span>{t('dashboard:flags.acUtilityGrid', 'AC Utility Grid')}</span>
-              <span className="font-semibold">{status.utility_fail ? t('dashboard:flags.failed', 'FAILED') : t('dashboard:flags.normal', 'NORMAL')}</span>
+              <span className="font-semibold">{effectiveStatus.utility_fail ? t('dashboard:flags.failed', 'FAILED') : t('dashboard:flags.normal', 'NORMAL')}</span>
             </div>
 
             <div
               className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                status.battery_low
+                effectiveStatus.battery_low
                   ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
                   : 'bg-slate-950/40 border-slate-800 text-slate-400'
               }`}
             >
               <span>{t('dashboard:flags.batteryLevel', 'Battery Level')}</span>
-              <span className="font-semibold">{status.battery_low ? t('dashboard:flags.low', 'LOW') : t('dashboard:flags.ok', 'OK')}</span>
+              <span className="font-semibold">{effectiveStatus.battery_low ? t('dashboard:flags.low', 'LOW') : t('dashboard:flags.ok', 'OK')}</span>
             </div>
 
             <div
               className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                status.bypass_active
+                effectiveStatus.bypass_active
                   ? 'bg-blue-950/40 border-blue-800/60 text-blue-300'
                   : 'bg-slate-950/40 border-slate-800 text-slate-400'
               }`}
             >
               <span>{t('dashboard:flags.bypassRelay', 'Bypass Relay')}</span>
-              <span className="font-semibold">{status.bypass_active ? t('dashboard:flags.active', 'ACTIVE') : t('dashboard:flags.off', 'OFF')}</span>
+              <span className="font-semibold">{effectiveStatus.bypass_active ? t('dashboard:flags.active', 'ACTIVE') : t('dashboard:flags.off', 'OFF')}</span>
             </div>
 
             <div
               className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                status.ups_failed
+                effectiveStatus.ups_failed
                   ? 'bg-rose-950/40 border-rose-800/60 text-rose-300 animate-pulse'
                   : 'bg-slate-950/40 border-slate-800 text-slate-400'
               }`}
             >
               <span>{t('dashboard:flags.inverterDiagnostics', 'Inverter Diagnostics')}</span>
-              <span className="font-semibold">{status.ups_failed ? t('dashboard:flags.fault', 'FAULT') : t('dashboard:flags.healthy', 'HEALTHY')}</span>
+              <span className="font-semibold">{effectiveStatus.ups_failed ? t('dashboard:flags.fault', 'FAULT') : t('dashboard:flags.healthy', 'HEALTHY')}</span>
             </div>
           </div>
         </div>

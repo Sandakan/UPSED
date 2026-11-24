@@ -7,11 +7,12 @@ This document establishes the universal rules, safety constraints, and architect
 ## 🛡️ 1. Hardware Safety & Command Gate Invariants
 
 - **NEVER bypass the CommandGate:** Every command dispatched to a serial transport or hardware port MUST flow through `CommandGate::check_command`.
-- **Incremental Safety Progression:** Commands must strictly obey the four-tier hierarchy:
-  - `T1ReadOnly`: Non-modifying queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`, `QPIRI`, `QID`, `QVFW`).
-  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`Q`, `T`, `CT`).
-  - `T3ConfigWrite`: Persistent parameters (`MCHGC`, `PBVH`, `PBVL`, `PSDV`).
-  - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`).
+- **Command Gate & Permission Barrier Invariant:** Commands obey a four-tier risk classification, enforced by an authenticated user permission barrier:
+  - `T1ReadOnly`: Non-modifying queries (`QPI`, `Q1`, `QPIGS`, `QPIWS`, `QPIRI`, `QID`, `QVFW`, `QSK1`, `QSK2`). Always permitted without authentication.
+  - `T2NonDestructive`: Observable diagnostics that do not alter flash/EEPROM or drop load (`Q`, `T`, `CT`). Requires an active authenticated session.
+  - `T3ConfigWrite`: Persistent parameters (`MCHGC`, `PBVH`, `PBVL`, `PSDV`) and persistent hardware bridge settings (ESP32 Wi-Fi credentials provisioning, TuyaLink cloud keys/interlock thresholds, failover host endpoint, clearing flash backlog). Requires an active authenticated session.
+  - `T4PowerControl`: Power drop and shutdown operations (`S.3`, `CS`, `OLON`, `OLOFF`, `SON`, `SOFF`, `SKON`, `SKOFF`) and wireless OTA bridge firmware flashing (`flash_bridge_firmware`). Requires an active authenticated session, fresh OS native user verification, and explicit modal confirmation.
+- **Credential Storage & Session Security:** Privileged access is authenticated primarily via OS Native User Verification (macOS Touch ID / Apple Watch / System Password via `LocalAuthentication.framework`, Windows Hello PIN / Biometrics via `UserConsentVerifier`, and Linux Polkit). If OS biometrics/PIN are unavailable, a hybrid fallback uses Argon2id hashed credentials stored in the OS native credential manager (macOS Keychain, Windows Credential Manager, Linux Secret Service) with secure SQLite fallback. Sessions expire after 15 minutes of inactivity; Stage T4 power control operations require an additional fresh OS authentication prompt alongside typed user confirmation.
 - **NO Raw Command Injection:** Never implement or expose raw string command endpoints (such as ViewPower's vulnerable `controlNew` method). All hardware interactions must be strongly typed variants of the `VoltronicCommand` enum.
 - **Pre-Transmission Validation:** All parameters (charging current, bypass voltages, battery cutoff thresholds) must be validated against physical safety limits and device-rated specs in Rust before any bytes are transmitted to the serial port.
 - **Port Discovery & Probing Invariant:** Serial and USB HID auto-discovery and automated live hardware probes must strictly and exclusively send Stage T1 Read-Only commands (`QPI\r`, fallback `Q1\r`, `QID\r`, `QVFW\r`). Probing unknown or live hardware with Stage T2 diagnostic commands (such as `T` 10-second battery test or `C` cancel test), Stage T3 configuration writes, or Stage T4 power control is strictly prohibited.
@@ -54,6 +55,18 @@ This document establishes the universal rules, safety constraints, and architect
   2. Input range validation in `as_cmd_str()`.
   3. Associated unit/mock tests in `tests/stage_t*.rs`.
   4. TypeScript interface updates in `src/lib/types.ts`.
+- **Desktop App Versioning & Changelog Invariant:** Whenever delivering new features, breaking changes, or fixes to the UPSED desktop application:
+  1. **Sync Version Manifests:** Maintain exact version parity across `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
+  2. **Maintain Root Changelog:** Document changes in root `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions (`### Added`, `### Changed`, `### Fixed`, `### Security`).
+  3. **Verify Build & Tests:** Confirm with `cargo test` and `npm run build`.
+- **Bridge Firmware Versioning, Changelog & Verification Invariant:** Whenever updating or modifying files in `upsed-bridge/` (C/C++ sources in `src/`, headers in `include/`, or `platformio.ini`):
+  1. **Maintain Semantic Versioning:** Ensure `BRIDGE_FIRMWARE_VER` in `upsed-bridge/include/config.h` accurately reflects the change (`MAJOR.MINOR.PATCH`).
+  2. **Update the Firmware Changelog:** Add a corresponding release entry in `upsed-bridge/CHANGELOG.md`.
+  3. **Verify Build Artifact:** Always verify compilation and regenerate the local binary artifact using:
+  ```bash
+  pio run --project-dir upsed-bridge
+  ```
+  *(or `npm run bridge:build`). If running in an environment with external toolchain restrictions, bypass sandbox permissions for the PlatformIO build tool.*
 
 ---
 

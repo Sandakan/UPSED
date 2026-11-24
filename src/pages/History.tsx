@@ -49,6 +49,7 @@ interface HistoryProps {
   isRefreshing: boolean;
   showOutageHighlights?: boolean;
   portName?: string | null;
+  upsId?: string | null;
   downsamplingMaxPoints?: number;
 }
 
@@ -61,6 +62,7 @@ export const History: React.FC<HistoryProps> = ({
   isRefreshing,
   showOutageHighlights = true,
   portName,
+  upsId,
   downsamplingMaxPoints = 5000,
 }) => {
   const { t } = useTranslation(['history', 'common']);
@@ -74,7 +76,7 @@ export const History: React.FC<HistoryProps> = ({
   type TelemetrySortField =
     | 'id'
     | 'timestamp'
-    | 'port_name'
+    | 'ups_id'
     | 'grid_voltage'
     | 'grid_frequency'
     | 'output_voltage'
@@ -84,7 +86,7 @@ export const History: React.FC<HistoryProps> = ({
     | 'battery_voltage'
     | 'temperature_c';
 
-  type EventSortField = 'id' | 'timestamp' | 'port_name' | 'event_type' | 'message';
+  type EventSortField = 'id' | 'timestamp' | 'ups_id' | 'event_type' | 'message';
   type SortDirection = 'asc' | 'desc';
 
   const [telemetrySortField, setTelemetrySortField] = useState<TelemetrySortField>('timestamp');
@@ -175,19 +177,21 @@ export const History: React.FC<HistoryProps> = ({
   }, [activeTimeRange]);
 
   const fetchTelemetryHistory = useCallback(async () => {
-    if (!portName) return;
+    const target = upsId || portName;
+    if (!target) return;
     setIsLoadingTelemetry(true);
     try {
       if (selectedDuration === 'all' || !activeTimeRange) {
         const limit = downsamplingMaxPoints === 0 ? 50000 : downsamplingMaxPoints;
-        const records = await api.getRecentTelemetry(portName, limit);
+        const records = await api.getRecentTelemetry(target, limit, upsId || undefined);
         setLoadedTelemetry(records);
       } else {
         const records = await api.getTelemetryRange(
-          portName,
+          target,
           activeTimeRange.startIso,
           activeTimeRange.endIso,
-          downsamplingMaxPoints
+          downsamplingMaxPoints,
+          upsId || undefined
         );
         setLoadedTelemetry(records);
       }
@@ -196,14 +200,14 @@ export const History: React.FC<HistoryProps> = ({
     } finally {
       setIsLoadingTelemetry(false);
     }
-  }, [portName, selectedDuration, activeTimeRange, downsamplingMaxPoints]);
+  }, [portName, upsId, selectedDuration, activeTimeRange, downsamplingMaxPoints]);
 
   useEffect(() => {
     fetchTelemetryHistory();
   }, [fetchTelemetryHistory]);
 
-  // Active telemetry source: database range records when portName is available, fallback to telemetry prop
-  const activeTelemetry = portName ? loadedTelemetry : telemetry;
+  // Active telemetry source: database range records when upsId or portName is available, fallback to telemetry prop
+  const activeTelemetry = (upsId || portName) ? loadedTelemetry : telemetry;
 
   // Filtered Telemetry
   const filteredTelemetry = useMemo(() => {
@@ -211,7 +215,7 @@ export const History: React.FC<HistoryProps> = ({
     const q = searchQuery.toLowerCase();
     return activeTelemetry.filter(
       (t) =>
-        t.port_name.toLowerCase().includes(q) ||
+        t.ups_id.toLowerCase().includes(q) ||
         t.timestamp.toLowerCase().includes(q) ||
         String(t.grid_voltage).includes(q) ||
         String(t.load_pct).includes(q)
@@ -234,7 +238,7 @@ export const History: React.FC<HistoryProps> = ({
     const q = searchQuery.toLowerCase();
     return list.filter(
       (e) =>
-        e.port_name.toLowerCase().includes(q) ||
+        (e.ups_id && e.ups_id.toLowerCase().includes(q)) ||
         e.event_type.toLowerCase().includes(q) ||
         e.message.toLowerCase().includes(q) ||
         e.timestamp.toLowerCase().includes(q)
@@ -250,8 +254,8 @@ export const History: React.FC<HistoryProps> = ({
         const timeA = Date.parse(a.timestamp) || 0;
         const timeB = Date.parse(b.timestamp) || 0;
         cmp = timeA - timeB;
-      } else if (telemetrySortField === 'port_name') {
-        cmp = a.port_name.localeCompare(b.port_name);
+      } else if (telemetrySortField === 'ups_id') {
+        cmp = a.ups_id.localeCompare(b.ups_id);
       } else if (telemetrySortField === 'id') {
         cmp = (a.id ?? 0) - (b.id ?? 0);
       } else {
@@ -273,8 +277,8 @@ export const History: React.FC<HistoryProps> = ({
         const timeA = Date.parse(a.timestamp) || 0;
         const timeB = Date.parse(b.timestamp) || 0;
         cmp = timeA - timeB;
-      } else if (eventSortField === 'port_name') {
-        cmp = a.port_name.localeCompare(b.port_name);
+      } else if (eventSortField === 'ups_id') {
+        cmp = (a.ups_id || 'SYSTEM').localeCompare(b.ups_id || 'SYSTEM');
       } else if (eventSortField === 'event_type') {
         cmp = a.event_type.localeCompare(b.event_type);
       } else if (eventSortField === 'message') {
@@ -289,11 +293,11 @@ export const History: React.FC<HistoryProps> = ({
 
   const exportCsv = () => {
     if (activeTab === 'telemetry' || activeTab === 'charts') {
-      const headers = 'ID,Timestamp_UTC,Local_Time,Port,Grid_V,Output_V,Grid_Hz,Output_Hz,Load_Pct,Output_Watts,Battery_V,Temp_C\n';
+      const headers = 'ID,Timestamp_UTC,Local_Time,UPS_ID,Grid_V,Output_V,Grid_Hz,Output_Hz,Load_Pct,Output_Watts,Battery_V,Temp_C\n';
       const rows = sortedTelemetry
         .map(
           (t) =>
-            `${t.id || ''},"${t.timestamp}","${formatLocalCsvTimestamp(t.timestamp)}","${t.port_name}",${t.grid_voltage},${t.output_voltage},${t.grid_frequency ?? 50.0},${t.output_frequency ?? 50.0},${t.load_pct},${t.output_watts ?? 0},${t.battery_voltage},${t.temperature_c}`
+            `${t.id || ''},"${t.timestamp}","${formatLocalCsvTimestamp(t.timestamp)}","${t.ups_id}",${t.grid_voltage},${t.output_voltage},${t.grid_frequency ?? 50.0},${t.output_frequency ?? 50.0},${t.load_pct},${t.output_watts ?? 0},${t.battery_voltage},${t.temperature_c}`
         )
         .join('\n');
       const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -303,11 +307,11 @@ export const History: React.FC<HistoryProps> = ({
       a.download = `upsed-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
     } else {
-      const headers = 'ID,Timestamp_UTC,Local_Time,Port,Type,Message\n';
+      const headers = 'ID,Timestamp_UTC,Local_Time,UPS_ID,Type,Message\n';
       const rows = sortedEvents
         .map(
           (e) =>
-            `${e.id || ''},"${e.timestamp}","${formatLocalCsvTimestamp(e.timestamp)}","${e.port_name}","${e.event_type}","${e.message}"`
+            `${e.id || ''},"${e.timestamp}","${formatLocalCsvTimestamp(e.timestamp)}","${e.ups_id || 'SYSTEM'}","${e.event_type}","${e.message}"`
         )
         .join('\n');
       const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -820,12 +824,12 @@ export const History: React.FC<HistoryProps> = ({
                     </th>
                     <th className="py-3.5 px-4">
                       <button
-                        onClick={() => handleTelemetrySort('port_name')}
+                        onClick={() => handleTelemetrySort('ups_id')}
                         className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
-                        title="Sort by port name"
+                        title="Sort by UPS ID"
                       >
-                        <span>{t('history:tableHeaders.port', 'Port')}</span>
-                        {renderTelemetrySortIcon('port_name')}
+                        <span>{t('history:tableHeaders.port', 'UPS Device')}</span>
+                        {renderTelemetrySortIcon('ups_id')}
                       </button>
                     </th>
                     <th className="py-3.5 px-4">
@@ -958,10 +962,10 @@ export const History: React.FC<HistoryProps> = ({
                               {formatTableTimestamp(row.timestamp)}
                             </td>
                             <td
-                              className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
-                              title={row.port_name}
+                              className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate font-mono text-[11px]"
+                              title={row.ups_id}
                             >
-                              {row.port_name}
+                              {row.ups_id}
                             </td>
                             <td className="py-3 px-4">{row.grid_voltage.toFixed(1)}</td>
                             <td className="py-3 px-4">{(row.grid_frequency ?? 50.0).toFixed(1)}</td>
@@ -1106,12 +1110,12 @@ export const History: React.FC<HistoryProps> = ({
                     </th>
                     <th className="py-3.5 px-4">
                       <button
-                        onClick={() => handleEventSort('port_name')}
+                        onClick={() => handleEventSort('ups_id')}
                         className="group flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 transition font-medium cursor-pointer"
-                        title="Sort by port name"
+                        title="Sort by UPS ID"
                       >
-                        <span>{t('history:tableHeaders.port', 'Port')}</span>
-                        {renderEventSortIcon('port_name')}
+                        <span>{t('history:tableHeaders.port', 'UPS Device')}</span>
+                        {renderEventSortIcon('ups_id')}
                       </button>
                     </th>
                     <th className="py-3.5 px-4">
@@ -1158,10 +1162,10 @@ export const History: React.FC<HistoryProps> = ({
                           {formatTableTimestamp(evt.timestamp)}
                         </td>
                         <td
-                          className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate"
-                          title={evt.port_name}
+                          className="py-3 px-4 text-emerald-400 font-semibold whitespace-nowrap max-w-[150px] truncate font-mono text-[11px]"
+                          title={evt.ups_id || 'SYSTEM'}
                         >
-                          {evt.port_name}
+                          {evt.ups_id || 'SYSTEM'}
                         </td>
                         <td className="py-3 px-4">
                           {evt.event_type === 'USER_ACTION' ? (

@@ -5,20 +5,20 @@
     "defaultCancel": "Annuler"
   },
   "connect": {
-    "title": "Connecter un appareil onduleur",
-    "subtitle": "Sélectionnez un port de communication pour démarrer la télémétrie en temps réel",
-    "scanning": "Recherche des ports série (2400/9600 bauds) et interfaces USB HID...",
-    "noDevices": "Aucun port détecté pour le moment",
-    "detectedCount": "{{count}} interface matérielle détectée",
-    "detectedCount_other": "{{count}} interfaces matérielles détectées",
+    "title": "Connecter un onduleur",
+    "subtitle": "Sélectionnez une interface de communication pour démarrer la télémétrie en temps réel",
+    "scanning": "Recherche des interfaces de communication (USB, Série, Wi-Fi WebSocket)...",
+    "noDevices": "Aucune interface détectée pour le moment",
+    "detectedCount": "{{count}} interface de communication détectée",
+    "detectedCount_other": "{{count}} interfaces de communication détectées",
     "discoveryStage": "Découverte Niveau T1",
     "noUpsFound": "Aucun onduleur Voltronic trouvé",
-    "noUpsDesc": "Vérifiez que le câble USB ou série est fermement connecté et qu'aucun autre logiciel (ex: ViewPower) ne verrouille le port COM.",
+    "noUpsDesc": "Vérifiez que l'interface de communication est active et qu'aucun autre logiciel ne verrouille la connexion.",
     "scanAgain": "Scanner à nouveau",
     "activeBadge": "Actif",
     "autoSwitch": "Bascule automatiquement la télémétrie sur le port sélectionné dès la connexion.",
     "connectBtn": "Connecter à {{port}}",
-    "selectPortFirst": "Sélectionnez un port pour vous connecter"
+    "selectPortFirst": "Sélectionnez une interface pour vous connecter"
   },
   "setup": {
     "title": "Configurer les spécifications matérielles",

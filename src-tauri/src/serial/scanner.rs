@@ -1,9 +1,9 @@
 use crate::protocol::{
-    parse_device_id, parse_firmware_version, parse_protocol_id, DeviceCapabilities,
+    parse_device_id, parse_firmware_version, parse_protocol_id, DeviceCapabilities, Q1Status,
 };
 use crate::serial::adapter::{PhysicalSerialPort, SerialTransport};
 use crate::serial::hid_adapter::HidTransport;
-use hidapi::{DeviceInfo, HidApi};
+use hidapi::DeviceInfo;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,7 +14,39 @@ pub struct DiscoveredDevice {
     pub unique_id: String,
     pub firmware_version: Option<String>,
     pub usb_uuid: Option<String>,
+    pub bridge_mac: Option<String>,
+    pub hardware_signature: Option<String>,
     pub capabilities: DeviceCapabilities,
+}
+
+pub fn compute_hardware_signature(
+    protocol_id: &str,
+    battery_voltage_v: Option<f32>,
+    rated_va: Option<u32>,
+) -> String {
+    let proto = if protocol_id.is_empty() { "00" } else { protocol_id };
+    let nominal_v = match battery_voltage_v {
+        Some(v) if v > 0.0 => {
+            if v < 16.0 {
+                12
+            } else if v < 32.0 {
+                24
+            } else if v < 44.0 {
+                36
+            } else if v < 64.0 {
+                48
+            } else if v < 120.0 {
+                96
+            } else {
+                192
+            }
+        }
+        _ => 24,
+    };
+    match rated_va {
+        Some(va) if va > 0 => format!("P{}:{}V:{}VA", proto, nominal_v, va),
+        _ => format!("P{}:{}V", proto, nominal_v),
+    }
 }
 
 /// Derives a deterministic unique identifier for a UPS unit.
@@ -112,7 +144,7 @@ pub fn is_candidate_ups_hid(dev: &DeviceInfo) -> bool {
 }
 
 /// Extracts a clean identifier token from a HID device path or serial.
-fn extract_hid_id(dev: &DeviceInfo) -> String {
+pub fn extract_hid_id(dev: &DeviceInfo) -> String {
     if let Some(sn) = dev.serial_number() {
         if !sn.trim().is_empty() {
             return sn.trim().to_uppercase();
@@ -137,30 +169,7 @@ fn extract_hid_id(dev: &DeviceInfo) -> String {
 /// Resolves the physical USB UUID / instance ID for a port (HID path or Serial USB PNP/Serial).
 pub fn get_port_usb_uuid(port_name: &str) -> Option<String> {
     if port_name.starts_with("USB:") {
-        if let Ok(api) = HidApi::new() {
-            let parts: Vec<&str> = port_name.split(':').collect();
-            if parts.len() >= 3 {
-                let vid = u16::from_str_radix(parts[1], 16).ok()?;
-                let pid = u16::from_str_radix(parts[2], 16).ok()?;
-                let id_filter = if parts.len() >= 4 {
-                    parts[3].to_lowercase()
-                } else {
-                    String::new()
-                };
-
-                for dev in api.device_list() {
-                    if dev.vendor_id() == vid && dev.product_id() == pid {
-                        let path_str = dev.path().to_string_lossy().to_string();
-                        if id_filter.is_empty()
-                            || path_str.to_lowercase().contains(&id_filter)
-                            || dev.serial_number().unwrap_or("").to_lowercase().contains(&id_filter)
-                        {
-                            return Some(path_str);
-                        }
-                    }
-                }
-            }
-        }
+        super::hid_actor::resolve_usb_uuid(port_name)
     } else if let Ok(ports) = serialport::available_ports() {
         for p in ports {
             if p.port_name == port_name {
@@ -171,8 +180,10 @@ pub fn get_port_usb_uuid(port_name: &str) -> Option<String> {
                 }
             }
         }
+        None
+    } else {
+        None
     }
-    None
 }
 
 /// Safely probes a USB HID device using ONLY Stage T1 read-only queries (QPI, fallback Q1, and QID).
@@ -236,6 +247,13 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         firmware_version.as_deref(),
     );
 
+    let battery_v = transport
+        .send_command("Q1")
+        .ok()
+        .and_then(|r| Q1Status::parse(&r).ok())
+        .map(|s| s.battery_voltage_v);
+    let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
     let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
 
     Some(DiscoveredDevice {
@@ -245,47 +263,89 @@ pub fn probe_hid_device(dev: &DeviceInfo) -> Option<DiscoveredDevice> {
         unique_id,
         firmware_version,
         usb_uuid,
+        bridge_mac: None,
+        hardware_signature,
         capabilities,
     })
 }
 
-/// Scans connected USB HID devices for candidate UPS units.
-pub fn scan_hid_devices() -> Vec<DiscoveredDevice> {
-    let mut discovered = Vec::new();
+/// Safely probes an ESP32 Hardware Bridge (`BRIDGE:COMx` or `BRIDGE:WS:...`) using Stage T1 read-only queries.
+fn probe_via_bridge(bridge_port_id: &str, fallback_ws_host: Option<&str>) -> Option<DiscoveredDevice> {
+    let mut transport = super::bridge_adapter::BridgeTransport::open(bridge_port_id, fallback_ws_host.map(|s| s.to_string())).ok()?;
 
-    let api = match HidApi::new() {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::warn!("Failed to initialize HID API during scan: {}", e);
-            return discovered;
+    let protocol_id = match transport.send_command("QPI") {
+        Ok(qpi_resp) => parse_protocol_id(&qpi_resp).unwrap_or_else(|_| "00".to_string()),
+        Err(_) => {
+            if let Ok(q1_resp) = transport.send_command("Q1") {
+                if q1_resp.starts_with('(') {
+                    "00".to_string()
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
         }
     };
 
-    for dev in api.device_list() {
-        if is_candidate_ups_hid(dev) {
-            if let Some(device) = probe_hid_device(dev) {
-                // Avoid duplicates if multiple interface endpoints exist for same UPS
-                if !discovered
-                    .iter()
-                    .any(|d: &DiscoveredDevice| d.port_name == device.port_name)
-                {
-                    tracing::info!(
-                        "Discovered USB HID UPS on {} (ID: {}) with protocol ID: {}",
-                        device.port_name,
-                        device.unique_id,
-                        device.protocol_id
-                    );
-                    discovered.push(device);
-                }
-            }
-        }
-    }
+    let serial_number = transport
+        .send_command("QID")
+        .ok()
+        .and_then(|r| parse_device_id(&r).ok());
 
-    discovered
+    let firmware_version = transport
+        .send_command("QVFW")
+        .ok()
+        .and_then(|r| parse_firmware_version(&r).ok());
+
+    let bridge_mac = transport.bridge_mac();
+    let unique_id = if let Some(sn) = serial_number.as_deref() {
+        generate_unique_id(Some(sn), bridge_port_id, firmware_version.as_deref())
+    } else if let Some(mac) = bridge_mac.as_deref() {
+        let clean_mac = mac.replace(|c: char| !c.is_alphanumeric(), "").to_uppercase();
+        format!("BRIDGE-MAC-{}", clean_mac)
+    } else {
+        generate_unique_id(
+            None,
+            bridge_port_id,
+            firmware_version.as_deref(),
+        )
+    };
+
+    let battery_v = transport
+        .send_command("Q1")
+        .ok()
+        .and_then(|r| Q1Status::parse(&r).ok())
+        .map(|s| s.battery_voltage_v);
+    let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
+    let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
+    let raw_com = bridge_port_id.strip_prefix("BRIDGE:").unwrap_or(bridge_port_id);
+    let usb_uuid = get_port_usb_uuid(raw_com);
+
+    Some(DiscoveredDevice {
+        port_name: bridge_port_id.to_string(),
+        protocol_id,
+        serial_number,
+        unique_id,
+        firmware_version,
+        usb_uuid,
+        bridge_mac,
+        hardware_signature,
+        capabilities,
+    })
 }
 
-/// Safely probes a port (COM serial or USB HID) using ONLY Stage T1 read-only queries.
+/// Safely probes a port (ESP32 Bridge, COM serial, or USB HID) using ONLY Stage T1 read-only queries.
 pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
+    probe_port_internal(port_name, None)
+}
+
+pub fn probe_port_internal(port_name: &str, fallback_ws_host: Option<&str>) -> Option<DiscoveredDevice> {
+    if port_name.starts_with("BRIDGE:") {
+        return probe_via_bridge(port_name, fallback_ws_host);
+    }
+
     if port_name.starts_with("USB:") {
         let mut transport = HidTransport::open_by_port_name(port_name).ok()?;
 
@@ -326,6 +386,13 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             firmware_version.as_deref(),
         );
 
+        let battery_v = transport
+            .send_command("Q1")
+            .ok()
+            .and_then(|r| Q1Status::parse(&r).ok())
+            .map(|s| s.battery_voltage_v);
+        let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
         let usb_uuid = get_port_usb_uuid(port_name);
 
@@ -336,8 +403,18 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             unique_id,
             firmware_version,
             usb_uuid,
+            bridge_mac: None,
+            hardware_signature,
             capabilities,
         });
+    }
+
+    // Check if this COM port is an ESP32 UPSED Bridge at 115200 baud
+    if super::bridge_adapter::probe_serial_bridge(port_name).is_some() {
+        let bridge_id = format!("BRIDGE:{}", port_name);
+        if let Some(dev) = probe_via_bridge(&bridge_id, fallback_ws_host) {
+            return Some(dev);
+        }
     }
 
     let baud_rates = [2400, 9600];
@@ -348,15 +425,23 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             Err(_) => continue,
         };
 
-        // Step 1: Send ONLY QPI (Query Protocol ID)
-        let qpi_resp = match transport.send_command("QPI") {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-
-        let protocol_id = match parse_protocol_id(&qpi_resp) {
-            Ok(id) => id,
-            Err(_) => continue,
+        // Step 1: Send Stage T1 QPI, with fallback to Stage T1 Q1 for Megatec/P01 RS-232 UPS units
+        let protocol_id = match transport.send_command("QPI") {
+            Ok(qpi_resp) => match parse_protocol_id(&qpi_resp) {
+                Ok(id) => id,
+                Err(_) => continue,
+            },
+            Err(_) => {
+                if let Ok(q1_resp) = transport.send_command("Q1") {
+                    if q1_resp.starts_with('(') {
+                        "00".to_string()
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+            }
         };
 
         // Step 2: Query device serial number with QID (Read-only)
@@ -377,6 +462,13 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             firmware_version.as_deref(),
         );
 
+        let battery_v = transport
+            .send_command("Q1")
+            .ok()
+            .and_then(|r| Q1Status::parse(&r).ok())
+            .map(|s| s.battery_voltage_v);
+        let hardware_signature = Some(compute_hardware_signature(&protocol_id, battery_v, None));
+
         let capabilities = DeviceCapabilities::for_protocol(&protocol_id);
         let usb_uuid = get_port_usb_uuid(port_name);
 
@@ -387,6 +479,8 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
             unique_id,
             firmware_version,
             usb_uuid,
+            bridge_mac: None,
+            hardware_signature,
             capabilities,
         });
     }
@@ -394,16 +488,61 @@ pub fn probe_port(port_name: &str) -> Option<DiscoveredDevice> {
     None
 }
 
-/// Scans all system serial ports and USB HID interfaces for connected Voltronic/Megatec UPS devices.
-pub fn scan_available_ports() -> Vec<DiscoveredDevice> {
-    let mut discovered = Vec::new();
+/// Scans all system serial ports, USB HID interfaces, and mDNS WebSocket bridges for connected UPS devices.
+/// Takes active manager devices to prevent port contention ("Access is denied" os error 5) and avoids probing busy ports.
+pub fn scan_available_ports_with_context(
+    active_devices: &[DiscoveredDevice],
+    fallback_ws_host: Option<&str>,
+) -> Vec<DiscoveredDevice> {
+    static SCAN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _scan_guard = SCAN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    // 1. Scan serial COM ports
+    let mut discovered = Vec::new();
+    let mut found_usb_bridge = false;
+
+    // 1. Re-use already active connected devices
+    for dev in active_devices {
+        if dev.port_name.starts_with("BRIDGE:") {
+            found_usb_bridge = true;
+        }
+        discovered.push(dev.clone());
+    }
+
+    // 2. Scan serial COM ports (including USB-connected ESP32 Bridges)
     if let Ok(ports) = serialport::available_ports() {
         for port_info in ports {
-            if let Some(dev) = probe_port(&port_info.port_name) {
+            let port_uuid = get_port_usb_uuid(&port_info.port_name);
+            let is_already_active = active_devices.iter().any(|d| {
+                d.port_name == port_info.port_name
+                    || d.port_name == format!("BRIDGE:{}", port_info.port_name)
+                    || (port_uuid.is_some() && d.usb_uuid.is_some() && d.usb_uuid == port_uuid)
+            });
+            if is_already_active {
+                continue;
+            }
+
+            if let Some(dev) = probe_port_internal(&port_info.port_name, fallback_ws_host) {
+                let is_duplicate = active_devices.iter().any(|d| {
+                    (d.bridge_mac.is_some() && d.bridge_mac == dev.bridge_mac)
+                        || d.unique_id == dev.unique_id
+                }) || discovered.iter().any(|d| {
+                    (d.bridge_mac.is_some() && d.bridge_mac == dev.bridge_mac)
+                        || d.unique_id == dev.unique_id
+                });
+
+                if is_duplicate {
+                    tracing::debug!(
+                        "Skipping duplicate bridge device on {} (already active via another transport)",
+                        dev.port_name
+                    );
+                    continue;
+                }
+
+                if dev.port_name.starts_with("BRIDGE:") {
+                    found_usb_bridge = true;
+                }
                 tracing::info!(
-                    "Discovered Voltronic UPS on serial {} with protocol ID: {}",
+                    "Discovered Voltronic UPS on {} with protocol ID: {}",
                     dev.port_name,
                     dev.protocol_id
                 );
@@ -414,8 +553,75 @@ pub fn scan_available_ports() -> Vec<DiscoveredDevice> {
         tracing::warn!("Failed to enumerate serial ports");
     }
 
-    // 2. Scan USB HID devices
-    discovered.extend(scan_hid_devices());
+    // 3. Scan USB HID devices via dedicated actor thread
+    let active_ports: Vec<String> = active_devices.iter().map(|d| d.port_name.clone()).collect();
+    for dev in super::hid_actor::scan_hid_devices(&active_ports) {
+        if !discovered.iter().any(|d| d.port_name == dev.port_name) {
+            discovered.push(dev);
+        }
+    }
+
+    // 4. If no ESP32 Bridge is already active or discovered, probe WebSocket bridges (fallback IP then mDNS)
+    let already_has_bridge = found_usb_bridge
+        || discovered.iter().any(|d| d.port_name.starts_with("BRIDGE:") || d.bridge_mac.is_some())
+        || active_devices.iter().any(|d| d.port_name.starts_with("BRIDGE:") || d.bridge_mac.is_some());
+
+    if !already_has_bridge {
+        let mut candidate_hosts = Vec::new();
+        if let Some(fb) = fallback_ws_host {
+            let clean = fb.trim();
+            if !clean.is_empty() && clean != super::bridge_adapter::BRIDGE_DEFAULT_MDNS_HOST {
+                candidate_hosts.push(clean);
+            }
+        }
+        candidate_hosts.push(super::bridge_adapter::BRIDGE_DEFAULT_MDNS_HOST);
+
+        let mut found_ws = false;
+        for host in candidate_hosts {
+            let is_already_active = active_devices.iter().any(|d| d.port_name.contains(host));
+            if is_already_active {
+                found_ws = true;
+                break;
+            }
+
+            if let Some((ws_port_id, _status)) = super::bridge_adapter::probe_ws_bridge(host) {
+                if let Some(dev) = probe_via_bridge(&ws_port_id, fallback_ws_host) {
+                    tracing::info!(
+                        "Discovered Wi-Fi WebSocket ESP32 Bridge on {} with protocol ID: {}",
+                        dev.port_name,
+                        dev.protocol_id
+                    );
+                    discovered.push(dev);
+                    found_ws = true;
+                    break;
+                }
+            }
+        }
+
+        // Tier 3: If candidate hosts failed, do parallel LAN subnet sweep
+        if !found_ws {
+            for (ws_port_id, _status) in super::bridge_adapter::scan_lan_for_bridge() {
+                let is_already_active = active_devices.iter().any(|d| d.port_name == ws_port_id);
+                if !is_already_active {
+                    if let Some(dev) = probe_via_bridge(&ws_port_id, fallback_ws_host) {
+                        tracing::info!(
+                            "Discovered Wi-Fi WebSocket ESP32 Bridge via LAN sweep on {} with protocol ID: {}",
+                            dev.port_name,
+                            dev.protocol_id
+                        );
+                        discovered.push(dev);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     discovered
 }
+
+/// Scans all system serial ports, USB HID interfaces, and mDNS WebSocket bridges for connected UPS devices.
+pub fn scan_available_ports() -> Vec<DiscoveredDevice> {
+    scan_available_ports_with_context(&[], None)
+}
+
