@@ -85,7 +85,9 @@ jobs:
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: ${{ github.ref_type == 'tag' && github.ref_name || 'UPSED v__VERSION__' }}
-          releaseBody: 'Automated release of UPSED.'
+          releaseBody: |
+            For the app changelog, see [CHANGELOG.md](CHANGELOG.md).
+            For the bridge firmware changelog, see [upsed-bridge/CHANGELOG.md](upsed-bridge/CHANGELOG.md).
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || true }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
 
