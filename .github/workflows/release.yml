@@ -173,15 +173,25 @@ jobs:
       - name: Generate & Attach Release manifest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           TAG="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
           if [ -z "$TAG" ]; then
             TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
           fi
-          gh release view "$TAG" --json tagName,url,targetCommitish,publishedAt,assets > release_meta.json
+          gh release view "$TAG" --json tagName,targetCommitish,publishedAt,assets > release_meta.json
+          rm -rf release_assets && mkdir -p release_assets
+          gh release download "$TAG" --dir release_assets --clobber
           python3 - <<'PY'
           import hashlib, json, os, re
           from datetime import datetime, timezone
+
+          def sha256_file(path: str) -> str:
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                      h.update(chunk)
+              return h.hexdigest()
 
           with open("package.json", "r", encoding="utf-8") as f:
               pkg = json.load(f)
@@ -195,31 +205,35 @@ jobs:
           bridge_version = m.group(1)
 
           bin_path = "upsed-bridge-firmware.bin"
-          with open(bin_path, "rb") as f:
-              bin_bytes = f.read()
-          bridge_size = len(bin_bytes)
-          bridge_sha256 = hashlib.sha256(bin_bytes).hexdigest()
+          bridge_size = os.path.getsize(bin_path)
+          bridge_sha256 = sha256_file(bin_path)
 
           with open("release_meta.json", "r", encoding="utf-8") as f:
               rel = json.load(f)
 
-          app_assets = [
-              {
-                  "name": a["name"],
+          tag_name = rel.get("tagName", "")
+          repo = os.environ.get("GITHUB_REPOSITORY", "Sandakan/UPSED")
+
+          app_assets = []
+          for a in rel.get("assets", []):
+              name = a["name"]
+              if name in ("manifest.json", bin_path):
+                  continue
+              asset_file = os.path.join("release_assets", name)
+              asset_sha256 = sha256_file(asset_file) if os.path.isfile(asset_file) else None
+              app_assets.append({
+                  "name": name,
                   "size": a["size"],
-                  "url": a["url"],
-              }
-              for a in rel.get("assets", [])
-              if a["name"] not in ("manifest.json", bin_path)
-          ]
+                  "sha256": asset_sha256,
+              })
 
           manifest = {
               "schemaVersion": 1,
               "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
               "release": {
-                  "tag": rel.get("tagName", ""),
+                  "tag": tag_name,
                   "commit": os.environ.get("GITHUB_SHA", rel.get("targetCommitish", "")),
-                  "url": rel.get("url", ""),
+                  "url": f"https://github.com/{repo}/releases/tag/{tag_name}" if tag_name else "",
               },
               "app": {
                   "version": app_version,
