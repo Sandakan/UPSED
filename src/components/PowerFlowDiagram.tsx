@@ -761,6 +761,7 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
 
 export const PowerFlowDiagram = React.memo(PowerFlowDiagramComponent, (prev, next) => {
   return (
+    prev.isPaused === next.isPaused &&
     prev.portName === next.portName &&
     prev.status.grid_voltage_v === next.status.grid_voltage_v &&
     prev.status.output_voltage_v === next.status.output_voltage_v &&
@@ -774,6 +775,7 @@ export const PowerFlowDiagram = React.memo(PowerFlowDiagramComponent, (prev, nex
     prev.status.battery_low === next.status.battery_low &&
     prev.status.bypass_active === next.status.bypass_active &&
     prev.status.ups_failed === next.status.ups_failed &&
+    prev.status.test_in_progress === next.status.test_in_progress &&
     prev.metadata?.battery_voltage === next.metadata?.battery_voltage &&
     prev.metadata?.rated_watts === next.metadata?.rated_watts &&
     prev.metadata?.rated_va === next.metadata?.rated_va &&

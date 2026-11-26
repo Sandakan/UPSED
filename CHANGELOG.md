@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.7] - 2026-11-26
+
+### Changed
+- **GPU-Composited Power Flow Animations:** Replaced CPU-repainted `stroke-dashoffset` animations in `PowerFlowDiagram` and `App.css` with clipped `translate3d` transforms (`FlowSegment`) so energized conduits animate on the GPU compositor thread.
+- **Release Asset SHA-256 Checksums & Tag-Triggered Releases:** Updated `.github/workflows/release.yml` to trigger on `v*` tag pushes, compute SHA-256 checksums for all desktop setup assets in `manifest.json` (replacing draft `untagged-...` asset URLs), and construct a deterministic release tag URL.
+
+### Fixed
+- **Top-Bar vs. Dropdown UPS Status Pill Divergence:** Passed an explicit `now` timestamp into `getUpsOperatingState` so React Compiler re-evaluates staleness on every 5-second tick, reused the active `operatingState` for the selected profile in `Header`, and synced `deviceStatuses` / `deviceUpdatedTimes` in `pollTelemetry`.
+- **Delayed Animation Resume on Window Focus:** Added `isPaused` and `test_in_progress` checks to `PowerFlowDiagram`'s `React.memo` comparator so power flow animations resume immediately when the window regains focus instead of waiting for the next 10s telemetry poll.
+- **System Tray `0W` Load Tooltip:** Added `enrich_output_watts` in `tray.rs` (called from `monitor.rs` and `get_device_status`) to compute wattage from the UPS profile's rated capacity (`rated_watts` or `rated_va * power_factor`, fallback `600W`) when the hardware protocol reports `0`.
+
+---
+
 ## [0.1.6] - 2026-11-24
 
 ### Added

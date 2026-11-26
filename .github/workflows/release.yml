@@ -1,6 +1,9 @@
 name: Build & Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       draft:
@@ -85,8 +88,8 @@ jobs:
           releaseBody: |
             For the app changelog, see [CHANGELOG.md](CHANGELOG.md).
             For the bridge firmware changelog, see [upsed-bridge/CHANGELOG.md](upsed-bridge/CHANGELOG.md).
-          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || true }}
-          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
 
   build-bridge:
     name: Build ESP32-S3 Bridge Firmware
