@@ -320,14 +320,16 @@ fn slow_poll_cycle_step(app: &AppHandle, state: &AppState) -> bool {
             }
         }
 
-        let device_label = ups_id_opt
+        let matched_profile = ups_id_opt
             .as_ref()
-            .and_then(|uid| approved_profiles.iter().find(|p| p.unique_id == *uid))
+            .and_then(|uid| approved_profiles.iter().find(|p| p.unique_id == *uid));
+        let device_label = matched_profile
             .map(|p| p.name.clone())
             .unwrap_or_else(|| info.port_name.clone());
 
         match state.manager.poll_device(&info.port_name) {
-            Ok(status) => {
+            Ok(mut status) => {
+                crate::tray::enrich_output_watts(&mut status, matched_profile);
                 let mut committed_record: Option<TelemetryRecord> = None;
 
                 // If profile is approved, commit smoothed telemetry to SQLite and detect events

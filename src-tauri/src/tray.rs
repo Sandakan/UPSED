@@ -7,6 +7,29 @@ use tauri::{AppHandle, Emitter, Manager};
 
 pub const TRAY_ID: &str = "battery-tray";
 
+/// Populates `status.output_watts` from the UPS profile's rated capacity
+/// (`rated_watts`, or `rated_va * power_factor`, defaulting to 600W) when
+/// the hardware protocol (e.g. Q1) reports `0`.
+pub fn enrich_output_watts(status: &mut Q1Status, metadata: Option<&crate::db::UpsMetadata>) {
+    if status.output_watts > 0 {
+        return;
+    }
+    let rated_watts = metadata
+        .and_then(|m| {
+            if m.rated_watts > 0 {
+                Some(m.rated_watts as f64)
+            } else if m.rated_va > 0 {
+                let pf = if m.power_factor > 0.0 { m.power_factor as f64 } else { 0.8 };
+                Some((m.rated_va as f64 * pf).round())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(600.0);
+
+    status.output_watts = ((status.output_load_pct as f64 / 100.0) * rated_watts).round() as u32;
+}
+
 /// Shows the existing `"main"` WebView2 window, or recreates it from config if it was unloaded in tray.
 pub fn show_or_create_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {

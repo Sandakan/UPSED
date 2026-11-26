@@ -507,7 +507,11 @@ pub async fn get_device_status(
             .manager
             .poll_device_force_refresh(lookup_key, is_force)
         {
-            Ok(status) => {
+            Ok(mut status) => {
+                let profile = resolved_ups_id
+                    .as_deref()
+                    .and_then(|uid| state_clone.db.get_ups_metadata(uid).ok().flatten());
+                crate::tray::enrich_output_watts(&mut status, profile.as_ref());
                 let smoothed_opt = resolved_ups_id
                     .as_deref()
                     .map(|uid| state_clone.manager.ingest_bucket_sample(uid, &status));
