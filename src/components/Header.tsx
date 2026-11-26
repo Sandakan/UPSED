@@ -87,12 +87,13 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   const overflowRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const [, setStaleCheckTick] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!lastUpdatedAt) return;
+    setNow(Date.now());
     const timer = setInterval(() => {
-      setStaleCheckTick((n) => n + 1);
+      setNow(Date.now());
     }, 5000);
     return () => clearInterval(timer);
   }, [lastUpdatedAt]);
@@ -119,7 +120,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
     activeDevice?.port_name || activeProfile?.last_port || selectedDevice,
     activeTransport
   );
-  const operatingState = getUpsOperatingState(activeStatus, lastUpdatedAt, pollInterval);
+  const operatingState = getUpsOperatingState(activeStatus, lastUpdatedAt, pollInterval, now);
 
   return (
     <header
@@ -223,9 +224,14 @@ export const Header: React.FC<HeaderProps> = React.memo(({
                   profiles.map((p) => {
                     const isSelected = selectedUpsId === p.unique_id;
                     const profileStatus = (deviceStatuses && deviceStatuses[p.unique_id]) || (isSelected ? activeStatus : null);
-                    const profileUpdatedTime = (deviceUpdatedTimes && deviceUpdatedTimes[p.unique_id]) || (isSelected ? lastUpdatedAt : undefined);
+                    const profileTs = deviceUpdatedTimes?.[p.unique_id] || 0;
+                    const profileUpdatedTime = isSelected
+                      ? Math.max(profileTs, lastUpdatedAt || 0) || undefined
+                      : profileTs || undefined;
                     const pMedium = getTransportMedium(p.last_port);
-                    const pState = getUpsOperatingState(profileStatus, profileUpdatedTime, p.poll_interval_secs ?? pollInterval);
+                    const pState = isSelected
+                      ? operatingState
+                      : getUpsOperatingState(profileStatus, profileUpdatedTime, p.poll_interval_secs ?? pollInterval, now);
 
                     return (
                       <button

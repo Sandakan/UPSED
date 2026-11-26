@@ -217,29 +217,40 @@ body {
   border-top-color: #e2e8f0;
 }
 
-/* ─── Power flow animations ─────────────────────────────── */
-@keyframes powerFlow {
-  from { stroke-dashoffset: 28; }
-  to   { stroke-dashoffset: 0;  }
+/* ─── Power flow animations (GPU-composited transform) ─────── */
+@keyframes powerFlowX {
+  from { transform: translate3d(-28px, 0, 0); }
+  to   { transform: translate3d(0, 0, 0); }
 }
 
-@keyframes powerFlowReverse {
-  from { stroke-dashoffset: 0;  }
-  to   { stroke-dashoffset: 28; }
+@keyframes powerFlowYDown {
+  from { transform: translate3d(0, -28px, 0); }
+  to   { transform: translate3d(0, 0, 0); }
 }
 
-.flow-active {
-  stroke-dasharray: 6 8;
-  animation: powerFlow 1.6s linear infinite;
+@keyframes powerFlowYUp {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -28px, 0); }
 }
 
-.flow-active-reverse {
-  stroke-dasharray: 6 8;
-  animation: powerFlowReverse 1.6s linear infinite;
+.flow-strip-x {
+  will-change: transform;
+  animation: powerFlowX 1.6s linear infinite;
 }
 
-.flow-paused .flow-active,
-.flow-paused .flow-active-reverse {
+.flow-strip-y-down {
+  will-change: transform;
+  animation: powerFlowYDown 1.6s linear infinite;
+}
+
+.flow-strip-y-up {
+  will-change: transform;
+  animation: powerFlowYUp 1.6s linear infinite;
+}
+
+.flow-paused .flow-strip-x,
+.flow-paused .flow-strip-y-down,
+.flow-paused .flow-strip-y-up {
   animation-play-state: paused !important;
 }
 
@@ -251,8 +262,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .flow-active,
-  .flow-active-reverse {
+  .flow-strip-x,
+  .flow-strip-y-down,
+  .flow-strip-y-up {
     animation: none !important;
   }
 }

@@ -650,10 +650,25 @@ export function App() {
     if (forceRefresh && effectivePort) {
       api.getDeviceStatus(effectivePort, selectedUpsId || undefined, true)
         .then((newStatus) => {
+          const now = Date.now();
           const cacheKey = selectedUpsId || effectivePort;
           if (cacheKey) {
             queryClient.setQueryData(['deviceStatus', cacheKey], newStatus);
           }
+          setDeviceStatuses((prev) => {
+            const next = { ...prev, [effectivePort]: newStatus };
+            if (selectedUpsId) {
+              next[selectedUpsId] = newStatus;
+            }
+            return next;
+          });
+          setDeviceUpdatedTimes((prev) => {
+            const next = { ...prev, [effectivePort]: now };
+            if (selectedUpsId) {
+              next[selectedUpsId] = now;
+            }
+            return next;
+          });
         })
         .catch(console.error);
     } else {

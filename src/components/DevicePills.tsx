@@ -5,12 +5,13 @@ import { Q1Status, TransportMedium, UpsOperatingState } from '../lib/types';
 export function getUpsOperatingState(
   status?: Q1Status | null,
   lastUpdatedAt?: number,
-  pollIntervalSecs?: number
+  pollIntervalSecs?: number,
+  now: number = Date.now()
 ): UpsOperatingState {
   if (!status) return 'Offline';
   if (lastUpdatedAt && pollIntervalSecs) {
     const staleThresholdMs = Math.max(pollIntervalSecs * 2000, 20000);
-    if (Date.now() - lastUpdatedAt > staleThresholdMs) {
+    if (now - lastUpdatedAt > staleThresholdMs) {
       return 'Reconnecting';
     }
   }

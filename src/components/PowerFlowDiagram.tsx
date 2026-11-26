@@ -25,6 +25,70 @@ interface PowerFlowDiagramProps {
   isPaused?: boolean;
 }
 
+interface FlowSegmentProps {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  strokeClass: string;
+  direction?: 'right' | 'down' | 'up';
+}
+
+/**
+ * Renders an axis-aligned dashed conduit animated via a clipped GPU-composited
+ * `translate3d` transform instead of CPU-repainted `stroke-dashoffset`.
+ */
+const FlowSegment: React.FC<FlowSegmentProps> = ({
+  id,
+  x1,
+  y1,
+  x2,
+  y2,
+  strokeClass,
+  direction = 'right',
+}) => {
+  const isHorizontal = y1 === y2;
+  const minX = Math.min(x1, x2);
+  const maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2);
+  const maxY = Math.max(y1, y2);
+
+  const animClass =
+    direction === 'up'
+      ? 'flow-strip-y-up'
+      : direction === 'down'
+      ? 'flow-strip-y-down'
+      : 'flow-strip-x';
+
+  return (
+    <g clipPath={`url(#${id})`}>
+      <defs>
+        <clipPath id={id}>
+          {isHorizontal ? (
+            <rect x={minX} y={minY - 4} width={maxX - minX} height={8} />
+          ) : (
+            <rect x={minX - 4} y={minY} width={8} height={maxY - minY} />
+          )}
+        </clipPath>
+      </defs>
+      <g className={animClass}>
+        <line
+          x1={isHorizontal ? minX - 28 : minX}
+          y1={isHorizontal ? minY : minY - 28}
+          x2={isHorizontal ? maxX + 28 : maxX}
+          y2={isHorizontal ? maxY : maxY + 28}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray="6 8"
+          className={strokeClass}
+          shapeRendering="optimizeSpeed"
+        />
+      </g>
+    </g>
+  );
+};
+
 const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, metadata, isPaused }) => {
   const { t } = useTranslation(['dashboard', 'common']);
   const isWindowVisible = useWindowVisibility();
@@ -162,88 +226,95 @@ const PowerFlowDiagramComponent: React.FC<PowerFlowDiagramProps> = ({ status, me
             <path d="M 190 140 L 190 50 L 750 50 L 750 140" />
           </g>
 
-          {/* -------------------- LAYER 2: ACTIVE ENERGIZED CONDUIT FLOWS (OPTIMIZED) -------------------- */}
+          {/* -------------------- LAYER 2: ACTIVE ENERGIZED CONDUIT FLOWS (GPU-COMPOSITED) -------------------- */}
           {/* 1. AC Grid Input Conduit */}
           {inputActive && (
-            <path
-              d="M 50 140 L 85 140 M 135 140 L 190 140"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className="stroke-emerald-400 flow-active"
-              shapeRendering="optimizeSpeed"
-            />
+            <>
+              <FlowSegment id="flow-in-1" x1={50} y1={140} x2={85} y2={140} strokeClass="stroke-emerald-400" />
+              <FlowSegment id="flow-in-2" x1={135} y1={140} x2={190} y2={140} strokeClass="stroke-emerald-400" />
+            </>
           )}
 
           {/* 2. Bypass Circuit Route */}
           {isBypass && (
-            <path
-              d="M 190 140 L 190 50 L 750 50 L 750 140"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              className="stroke-purple-400 flow-active"
-              shapeRendering="optimizeSpeed"
-            />
+            <>
+              <FlowSegment id="flow-byp-up" x1={190} y1={50} x2={190} y2={140} strokeClass="stroke-purple-400" direction="up" />
+              <FlowSegment id="flow-byp-top" x1={190} y1={50} x2={750} y2={50} strokeClass="stroke-purple-400" />
+              <FlowSegment id="flow-byp-dn" x1={750} y1={50} x2={750} y2={140} strokeClass="stroke-purple-400" direction="down" />
+            </>
           )}
 
           {/* 3. Main Line: Junction to Rectifier */}
           {inputActive && !isBypass && (
-            <path
-              d="M 190 140 L 285 140"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className="stroke-emerald-400 flow-active"
-              shapeRendering="optimizeSpeed"
-            />
+            <FlowSegment id="flow-rect-in" x1={190} y1={140} x2={285} y2={140} strokeClass="stroke-emerald-400" />
           )}
 
           {/* 4. Rectifier Output to Central DC Bus */}
           {rectifierActive && (
-            <path
-              d="M 355 140 L 470 140"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className="stroke-emerald-400 flow-active"
-              shapeRendering="optimizeSpeed"
-            />
+            <FlowSegment id="flow-rect-out" x1={355} y1={140} x2={470} y2={140} strokeClass="stroke-emerald-400" />
           )}
 
           {/* 5. Inverter Stage: DC Bus to Inverter to Output */}
           {inverterActive && (
-            <path
-              d="M 470 140 L 585 140 M 655 140 L 750 140"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className={`${isTesting ? 'stroke-purple-400' : isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'} flow-active`}
-              shapeRendering="optimizeSpeed"
-            />
+            <>
+              <FlowSegment
+                id="flow-inv-in"
+                x1={470}
+                y1={140}
+                x2={585}
+                y2={140}
+                strokeClass={isTesting ? 'stroke-purple-400' : isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'}
+              />
+              <FlowSegment
+                id="flow-inv-out"
+                x1={655}
+                y1={140}
+                x2={750}
+                y2={140}
+                strokeClass={isTesting ? 'stroke-purple-400' : isBatteryMode ? 'stroke-amber-400' : 'stroke-cyan-400'}
+              />
+            </>
           )}
 
           {/* 6. Battery Conduit: Charge (down) or Discharge (up) */}
           {(batteryDischarging || batteryCharging) && (
-            <path
-              d="M 470 140 L 470 223"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className={
+            <FlowSegment
+              id="flow-bat"
+              x1={470}
+              y1={140}
+              x2={470}
+              y2={223}
+              strokeClass={
                 batteryDischarging
                   ? isTesting
-                    ? 'stroke-purple-400 flow-active-reverse'
-                    : 'stroke-amber-400 flow-active-reverse'
-                  : 'stroke-emerald-400 flow-active'
+                    ? 'stroke-purple-400'
+                    : 'stroke-amber-400'
+                  : 'stroke-emerald-400'
               }
-              shapeRendering="optimizeSpeed"
+              direction={batteryDischarging ? 'up' : 'down'}
             />
           )}
 
           {/* 7. Output Stage to Critical Load */}
           {outputActive && (
-            <path
-              d="M 750 140 L 805 140 M 855 140 L 890 140"
-              strokeWidth="3"
-              strokeLinecap="round"
-              className={`${isBypass ? 'stroke-purple-400' : 'stroke-cyan-400'} flow-active`}
-              shapeRendering="optimizeSpeed"
-            />
+            <>
+              <FlowSegment
+                id="flow-out-1"
+                x1={750}
+                y1={140}
+                x2={805}
+                y2={140}
+                strokeClass={isBypass ? 'stroke-purple-400' : 'stroke-cyan-400'}
+              />
+              <FlowSegment
+                id="flow-out-2"
+                x1={855}
+                y1={140}
+                x2={890}
+                y2={140}
+                strokeClass={isBypass ? 'stroke-purple-400' : 'stroke-cyan-400'}
+              />
+            </>
           )}
 
           {/* Bypass switch status badge in center of bypass line */}
