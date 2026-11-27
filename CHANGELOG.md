@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-11-27
+
+### Added
+- **Signed In-App Auto-Updates (`tauri-plugin-updater` + `tauri-plugin-process`):** Enabled `createUpdaterArtifacts` and `latest.json` endpoint with embedded `pubkey` signature verification in `tauri.conf.json`. Added `useAppUpdater` (`src/lib/updater.ts`), a non-intrusive `AppUpdateBanner` with download progress and one-click **Update & Restart**, and **Check for Updates** in `AboutModal`.
+
+### Changed
+- **Modular Documentation Structure:** Added a Table of Contents to `README.md`, simplified Core Features, and extracted detailed guides into `docs/FEATURES.md`, `docs/ARCHITECTURE_AND_SAFETY.md`, `docs/AUTO_UPDATE_AND_SIGNING.md`, and `docs/TESTING.md`.
+- **Draft Release on Version Tag Push:** Updated `.github/workflows/release.yml` so pushing a `v*` tag creates a draft release for review before publishing.
+
+---
+
 ## [0.1.7] - 2026-11-26
 
 ### Changed

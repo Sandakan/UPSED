@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Cpu, ExternalLink, History, RefreshCw, AlertCircle, Info } from 'lucide-react';
+import { X, Cpu, ExternalLink, History, RefreshCw, AlertCircle, Info, Download, CheckCircle2 } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { marked } from 'marked';
 import { UpsedLogo } from './UpsedLogo';
 import { PrimaryButton } from './PrimaryButton';
 import { APP_CHANGELOG_BLOB_URL, APP_CHANGELOG_RAW_URL, REPO_URL } from '../lib/repo';
+import { AppUpdaterState } from '../lib/updater';
 
 export interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
+  updater?: AppUpdaterState;
 }
 
 type AboutTab = 'overview' | 'changelog';
 
-export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
+export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, updater }) => {
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isClosing, setIsClosing] = useState(false);
   const [appVersion, setAppVersion] = useState('0.1.0');
@@ -259,16 +261,61 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         )}
 
         {/* ── Footer Actions ──────────────────────────────────── */}
-        <div className="p-4 bg-black/30 border-t border-white/[0.07] flex items-center justify-between">
-          <a
-            href={activeTab === 'changelog' ? APP_CHANGELOG_BLOB_URL : REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer"
-          >
-            <span>{activeTab === 'changelog' ? 'View on GitHub' : 'GitHub Repository'}</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-          </a>
+        <div className="p-4 bg-black/30 border-t border-white/[0.07] flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <a
+              href={activeTab === 'changelog' ? APP_CHANGELOG_BLOB_URL : REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer"
+            >
+              <span>{activeTab === 'changelog' ? 'View on GitHub' : 'GitHub Repository'}</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
+
+            {updater && (
+              updater.update ? (
+                <button
+                  type="button"
+                  onClick={() => void updater.installAndRelaunch()}
+                  disabled={updater.status === 'downloading' || updater.status === 'ready'}
+                  className="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl border border-emerald-500/30 transition cursor-pointer disabled:opacity-60"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>
+                    {updater.status === 'downloading'
+                      ? `Downloading ${updater.progress.percent}%`
+                      : `Update to v${updater.update.version}`}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void updater.checkForUpdates(true)}
+                  disabled={updater.status === 'checking'}
+                  className="flex items-center space-x-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition cursor-pointer disabled:opacity-60"
+                  title={updater.error ?? undefined}
+                >
+                  {updater.status === 'checking' ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  ) : updater.status === 'up-to-date' ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <span>
+                    {updater.status === 'checking'
+                      ? 'Checking...'
+                      : updater.status === 'up-to-date'
+                      ? 'Up to date'
+                      : updater.status === 'error'
+                      ? 'Update check failed'
+                      : 'Check for Updates'}
+                  </span>
+                </button>
+              )
+            )}
+          </div>
 
           <PrimaryButton onClick={onClose} size="md">
             Close

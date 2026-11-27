@@ -9,6 +9,8 @@
     "notification:default",
     "window-state:default",
     "autostart:default",
-    "log:default"
+    "log:default",
+    "updater:default",
+    "process:default"
   ]
 }

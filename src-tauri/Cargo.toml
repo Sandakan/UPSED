@@ -1,6 +1,6 @@
 [package]
 name = "upsed"
-version = "0.1.7"
+version = "0.2.0"
 description = "A modern, secure, cross-platform Voltronic UPS manager"
 authors = ["UPSED Contributors"]
 edition = "2021"
@@ -30,6 +30,8 @@ log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 tungstenite = "0.24"
 dotenvy = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }

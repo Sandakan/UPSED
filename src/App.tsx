@@ -16,6 +16,8 @@ import { Settings, SettingsHandle } from './pages/Settings';
 import { UpsedToaster } from './components/UpsedToaster';
 import { AboutModal } from './components/AboutModal';
 import { LoginModal } from './components/LoginModal';
+import { AppUpdateBanner } from './components/AppUpdateBanner';
+import { useAppUpdater } from './lib/updater';
 import { handleIncomingUpsEvent } from './lib/notifications';
 import toast from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
@@ -38,6 +40,7 @@ import { useWindowVisibility } from './lib/useWindowVisibility';
 export function App() {
   const { themeMode, setThemeMode } = useTheme();
   const isWindowVisible = useWindowVisibility();
+  const updater = useAppUpdater();
   const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedUpsId, setSelectedUpsId] = useState<string | null>(null);
@@ -831,6 +834,8 @@ export function App() {
           isScanning={isScanning}
         />
 
+        <AppUpdateBanner updater={updater} />
+
         <main className="flex-1 overflow-hidden flex flex-col custom-scrollbar min-w-0">
           {currentTab === 'dashboard' && (
             <Dashboard
@@ -943,6 +948,7 @@ export function App() {
       <AboutModal
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
+        updater={updater}
       />
 
       {/* Unsaved Changes Navigation Guard Modal */}
