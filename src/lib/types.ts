@@ -361,7 +361,7 @@ export interface BridgeFirmwareCheckResult {
 }
 
 export interface OtaProgressEvent {
-  phase: 'downloading' | 'leasing' | 'uploading' | 'rebooting' | 'success' | 'error';
+  phase: 'downloading' | 'leasing' | 'awaiting_approval' | 'uploading' | 'rebooting' | 'success' | 'error';
   percentage: number;
   bytes_transferred: number;
   total_bytes: number;

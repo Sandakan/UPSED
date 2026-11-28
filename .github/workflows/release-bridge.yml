@@ -1,0 +1,143 @@
+name: Build & Release ESP32-S3 Bridge Firmware
+
+on:
+  push:
+    tags:
+      - 'bridge-v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create Draft Release'
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark as Pre-release'
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-bridge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release-bridge:
+    name: Build & Release Bridge Firmware
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            upsed-bridge/.pio/libdeps
+          key: ${{ runner.os }}-pio-${{ hashFiles('upsed-bridge/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade pip platformio
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Compile ESP32-S3 Firmware
+        run: npm run bridge:build
+
+      - name: Prepare Firmware Binary & bridge-manifest.json
+        id: meta
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          cp upsed-bridge/.pio/build/esp32-s3-devkitc-1/firmware.bin upsed-bridge-firmware.bin
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from datetime import datetime, timezone
+
+          with open("upsed-bridge/include/config.h", "r", encoding="utf-8") as f:
+              cfg = f.read()
+          m = re.search(r'#define\s+BRIDGE_FIRMWARE_VER\s+"([^"]+)"', cfg)
+          if not m:
+              raise RuntimeError("Could not find BRIDGE_FIRMWARE_VER in upsed-bridge/include/config.h")
+          bridge_version = m.group(1)
+
+          ref_type = "${{ github.ref_type }}"
+          ref_name = "${{ github.ref_name }}"
+          tag_name = ref_name if ref_type == "tag" else f"bridge-v{bridge_version}"
+
+          if ref_type == "tag" and ref_name != f"bridge-v{bridge_version}":
+              raise RuntimeError(
+                  f"Tag '{ref_name}' does not match BRIDGE_FIRMWARE_VER 'bridge-v{bridge_version}'"
+              )
+
+          bin_path = "upsed-bridge-firmware.bin"
+          with open(bin_path, "rb") as f:
+              data = f.read()
+          size = len(data)
+          sha256 = hashlib.sha256(data).hexdigest()
+          repo = os.environ.get("GITHUB_REPOSITORY", "Sandakan/UPSED")
+
+          manifest = {
+              "schemaVersion": 1,
+              "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+              "release": {
+                  "tag": tag_name,
+                  "commit": os.environ.get("GITHUB_SHA", ""),
+                  "url": f"https://github.com/{repo}/releases/tag/{tag_name}",
+              },
+              "bridge": {
+                  "version": bridge_version,
+                  "board": "esp32-s3-devkitc-1",
+                  "asset": bin_path,
+                  "size": size,
+                  "sha256": sha256,
+              },
+          }
+
+          with open("bridge-manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"tag={tag_name}\n")
+              out.write(f"version={bridge_version}\n")
+          PY
+
+      - name: Create Bridge Firmware Release (--latest=false)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          VER="${{ steps.meta.outputs.version }}"
+          FLAGS="--latest=false"
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.draft }}" = "true" ]; then
+            FLAGS="$FLAGS --draft"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
+            FLAGS="$FLAGS --prerelease"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" upsed-bridge-firmware.bin bridge-manifest.json --clobber
+          else
+            gh release create "$TAG" upsed-bridge-firmware.bin bridge-manifest.json \
+              --title "UPSED Bridge v$VER" \
+              --notes "ESP32-S3 Hardware Bridge Firmware v$VER. See [upsed-bridge/CHANGELOG.md](upsed-bridge/CHANGELOG.md)." \
+              $FLAGS
+          fi

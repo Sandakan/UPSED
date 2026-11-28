@@ -3925,7 +3925,11 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-white flex items-center gap-2">
                       {isFlashingOta && <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />}
-                      <span className="capitalize">{otaProgress?.phase || 'Processing'}</span>
+                      <span className="capitalize">
+                        {otaProgress?.phase === 'awaiting_approval'
+                          ? 'Awaiting Physical BOOT Button'
+                          : otaProgress?.phase || 'Processing'}
+                      </span>
                     </span>
                     <span className="font-mono text-emerald-400 font-bold">
                       {otaProgress?.percentage ?? 0}%
@@ -3938,6 +3942,8 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                       className={`h-full transition-all duration-300 ${
                         otaProgress?.phase === 'error'
                           ? 'bg-rose-500'
+                          : otaProgress?.phase === 'awaiting_approval'
+                          ? 'bg-fuchsia-500 animate-pulse'
                           : otaProgress?.phase === 'success'
                           ? 'bg-emerald-400'
                           : 'bg-gradient-to-r from-emerald-500 to-cyan-400'
@@ -3947,7 +3953,7 @@ export const IoT: React.FC<IoTProps> = ({ portName, upsId, pollInterval = 10 }) 
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="truncate pr-2">
+                    <span className={otaProgress?.phase === 'awaiting_approval' ? 'text-fuchsia-300 font-medium pr-2' : 'truncate pr-2'}>
                       {otaProgress?.message || 'Executing wireless update pipeline...'}
                     </span>
                     {otaProgress?.total_bytes ? (

@@ -7,11 +7,13 @@
 // ============================================================================
 
 #define BRIDGE_MAGIC_ID        "UPSED_BRIDGE_V1"
-#define BRIDGE_FIRMWARE_VER    "1.6.0"
+#define BRIDGE_FIRMWARE_VER    "1.7.0"
 #define BRIDGE_MDNS_HOSTNAME   "upsed-bridge"
 #define BRIDGE_WS_PORT         81
 #define BRIDGE_OTA_PORT        8080
 #define BRIDGE_OTA_LEASE_MS    90000UL   // 90s auto-abort lease for on-demand HTTP OTA
+#define BRIDGE_OTA_APPROVAL_TIMEOUT_MS 30000UL // 30s window to press physical BOOT button
+#define BRIDGE_BOOT_BUTTON_PIN 0         // Onboard BOOT button (GPIO 0, active-LOW)
 
 #ifndef BRIDGE_OTA_SECRET
 #define BRIDGE_OTA_SECRET      "upsed-ota-default-secret"

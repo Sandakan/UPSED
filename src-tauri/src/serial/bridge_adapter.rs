@@ -331,6 +331,9 @@ pub struct OtaLeaseInfo {
     pub port: u16,
     pub ip: String,
     pub lease_ms: u64,
+    pub ota_token: Option<String>,
+    pub pending_approval: bool,
+    pub approval_timeout_sec: u64,
 }
 
 /// Real-time event broadcasting the active transport medium (USB CDC vs Wi-Fi WebSocket).
@@ -842,22 +845,7 @@ impl BridgeTransport {
         Ok(cleared)
     }
 
-    pub fn start_ota(&mut self, token: &str) -> Result<OtaLeaseInfo, ProtocolError> {
-        push_bridge_log(BridgeLogEntry {
-            seq: 0,
-            ms: 0,
-            level: "INFO".into(),
-            msg: "Activating on-demand OTA mode on ESP32 Bridge...".into(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            source: "BRIDGE-RPC".into(),
-        });
-
-        let (val, _) = self.call_rpc_with_timeout(
-            "bridge.startOta",
-            json!({ "token": token }),
-            Duration::from_secs(5),
-        )?;
-
+    fn parse_ota_lease(&self, val: &serde_json::Value) -> OtaLeaseInfo {
         let port = val.get("port").and_then(|p| p.as_u64()).unwrap_or(8080) as u16;
         let mut ip = val
             .get("ip")
@@ -882,9 +870,76 @@ impl BridgeTransport {
         let lease_ms = val
             .get("lease_ms")
             .and_then(|m| m.as_u64())
+            .or_else(|| val.get("lease_sec").and_then(|s| s.as_u64()).map(|s| s * 1000))
             .unwrap_or(90000);
 
-        Ok(OtaLeaseInfo { port, ip, lease_ms })
+        let ota_token = val
+            .get("ota_token")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let pending_approval = val
+            .get("ota_pending")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let approval_timeout_sec = val
+            .get("approval_timeout_sec")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30);
+
+        OtaLeaseInfo {
+            port,
+            ip,
+            lease_ms,
+            ota_token,
+            pending_approval,
+            approval_timeout_sec,
+        }
+    }
+
+    pub fn start_ota(&mut self, legacy_token: Option<&str>) -> Result<OtaLeaseInfo, ProtocolError> {
+        push_bridge_log(BridgeLogEntry {
+            seq: 0,
+            ms: 0,
+            level: "INFO".into(),
+            msg: "Activating on-demand OTA mode on ESP32 Bridge...".into(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            source: "BRIDGE-RPC".into(),
+        });
+
+        let params = match legacy_token {
+            Some(tok) if !tok.is_empty() => json!({ "token": tok }),
+            _ => json!({}),
+        };
+
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.startOta",
+            params,
+            Duration::from_secs(5),
+        )?;
+
+        Ok(self.parse_ota_lease(&val))
+    }
+
+    pub fn poll_ota_approval(&mut self) -> Result<Option<OtaLeaseInfo>, ProtocolError> {
+        let (val, _) = self.call_rpc_with_timeout(
+            "bridge.pollOtaApproval",
+            json!({}),
+            Duration::from_secs(5),
+        )?;
+
+        if val.get("approved").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return Ok(Some(self.parse_ota_lease(&val)));
+        }
+        if val.get("pending").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return Ok(None);
+        }
+        Err(ProtocolError::DeviceError(
+            "Physical BOOT button approval timed out on ESP32 Bridge.".into(),
+        ))
     }
 
     pub fn abort_ota(&mut self) -> Result<(), ProtocolError> {

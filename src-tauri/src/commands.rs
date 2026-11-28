@@ -2432,20 +2432,73 @@ fn find_local_bridge_version(binary_path: &std::path::Path) -> Option<String> {
     None
 }
 
+fn parse_semver_parts(s: &str) -> Vec<u32> {
+    let clean = s.trim().trim_start_matches(|c: char| !c.is_ascii_digit());
+    clean
+        .split('.')
+        .filter_map(|p| p.split('-').next().and_then(|num| num.parse().ok()))
+        .collect()
+}
+
 fn is_version_newer(latest: &str, current: &str) -> bool {
-    let parse_parts = |s: &str| -> Vec<u32> {
-        let clean = s.trim_start_matches(|c: char| !c.is_ascii_digit());
-        clean
-            .split('.')
-            .filter_map(|p| p.split('-').next().and_then(|num| num.parse().ok()))
-            .collect()
-    };
-    let l_parts = parse_parts(latest);
-    let c_parts = parse_parts(current);
+    let l_parts = parse_semver_parts(latest);
+    let c_parts = parse_semver_parts(current);
     if l_parts.is_empty() || c_parts.is_empty() {
         return latest != current && !latest.is_empty();
     }
     l_parts > c_parts
+}
+
+fn sort_bridge_tags_desc(tags: &mut [String]) {
+    tags.sort_by(|a, b| {
+        let pa = parse_semver_parts(a);
+        let pb = parse_semver_parts(b);
+        pb.cmp(&pa).then_with(|| b.cmp(a))
+    });
+}
+
+async fn fetch_latest_bridge_release(client: &reqwest::Client) -> Option<serde_json::Value> {
+    // 1. Query bridge-v* tags directly so desktop releases never crowd out firmware releases
+    let refs_url = "https://api.github.com/repos/Sandakan/UPSED/git/matching-refs/tags/bridge-v";
+    if let Ok(resp) = client.get(refs_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(refs) = resp.json::<Vec<serde_json::Value>>().await {
+                let mut tags: Vec<String> = refs
+                    .iter()
+                    .filter_map(|r| r.get("ref").and_then(|v| v.as_str()))
+                    .map(|r| r.trim_start_matches("refs/tags/").to_string())
+                    .filter(|t| t.starts_with("bridge-v"))
+                    .collect();
+                sort_bridge_tags_desc(&mut tags);
+
+                for tag in tags.into_iter().take(5) {
+                    let tag_url = format!(
+                        "https://api.github.com/repos/Sandakan/UPSED/releases/tags/{}",
+                        tag
+                    );
+                    if let Ok(rel_resp) = client.get(&tag_url).send().await {
+                        if rel_resp.status().is_success() {
+                            if let Ok(rel) = rel_resp.json::<serde_json::Value>().await {
+                                let is_draft =
+                                    rel.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
+                                if !is_draft {
+                                    return Some(rel);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to releases/latest for legacy combined releases (v0.1.6–v0.2.0)
+    let latest_url = "https://api.github.com/repos/Sandakan/UPSED/releases/latest";
+    let resp = client.get(latest_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<serde_json::Value>().await.ok()
 }
 
 #[tauri::command]
@@ -2488,96 +2541,93 @@ pub async fn check_bridge_firmware_update(
         .build();
 
     if let Ok(client) = client {
-        let url = "https://api.github.com/repos/Sandakan/UPSED/releases/latest";
-        if let Ok(resp) = client.get(url).send().await {
-            if resp.status().is_success() {
-                if let Ok(release) = resp.json::<serde_json::Value>().await {
-                    if let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) {
-                        latest_version = Some(tag.to_string());
-                        release_notes = release
-                            .get("body")
+        if let Some(release) = fetch_latest_bridge_release(&client).await {
+            if let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) {
+                let clean_tag = tag.trim_start_matches("bridge-");
+                latest_version = Some(clean_tag.to_string());
+                release_notes = release
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                published_at = release
+                    .get("published_at")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let mut bridge_manifest_url: Option<String> = None;
+                let mut legacy_manifest_url: Option<String> = None;
+                let mut bin_assets: Vec<(String, String, Option<u64>)> = Vec::new();
+
+                if let Some(assets) = release.get("assets").and_then(|v| v.as_array()) {
+                    for asset in assets {
+                        let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let dl = asset
+                            .get("browser_download_url")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
-                        published_at = release
-                            .get("published_at")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
+                        let size = asset.get("size").and_then(|v| v.as_u64());
 
-                        let mut manifest_url: Option<String> = None;
-                        let mut bin_assets: Vec<(String, String, Option<u64>)> = Vec::new();
-
-                        if let Some(assets) = release.get("assets").and_then(|v| v.as_array()) {
-                            for asset in assets {
-                                let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                let dl = asset
-                                    .get("browser_download_url")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let size = asset.get("size").and_then(|v| v.as_u64());
-
-                                if name == "manifest.json" {
-                                    manifest_url = dl;
-                                } else if name.ends_with(".bin") {
-                                    if let Some(dl_url) = dl {
-                                        bin_assets.push((name.to_string(), dl_url, size));
-                                    }
-                                }
+                        if name == "bridge-manifest.json" {
+                            bridge_manifest_url = dl;
+                        } else if name == "manifest.json" {
+                            legacy_manifest_url = dl;
+                        } else if name.ends_with(".bin") {
+                            if let Some(dl_url) = dl {
+                                bin_assets.push((name.to_string(), dl_url, size));
                             }
                         }
-
-                        let mut preferred_asset_name: Option<String> = None;
-                        if let Some(m_url) = manifest_url {
-                            if let Ok(m_resp) = client.get(&m_url).send().await {
-                                if m_resp.status().is_success() {
-                                    if let Ok(manifest) = m_resp.json::<serde_json::Value>().await {
-                                        if let Some(bridge) = manifest.get("bridge") {
-                                            if let Some(ver) =
-                                                bridge.get("version").and_then(|v| v.as_str())
-                                            {
-                                                let trimmed = ver.trim().trim_start_matches('v');
-                                                if !trimmed.is_empty() {
-                                                    latest_version = Some(format!("v{}", trimmed));
-                                                }
-                                            }
-                                            if let Some(sz) =
-                                                bridge.get("size").and_then(|v| v.as_u64())
-                                            {
-                                                binary_size = Some(sz);
-                                            }
-                                            expected_sha256 = bridge
-                                                .get("sha256")
-                                                .and_then(|v| v.as_str())
-                                                .map(|s| s.trim().to_ascii_lowercase());
-                                            preferred_asset_name = bridge
-                                                .get("asset")
-                                                .and_then(|v| v.as_str())
-                                                .map(|s| s.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(selected) = preferred_asset_name
-                            .as_deref()
-                            .and_then(|target| bin_assets.iter().find(|(n, _, _)| n == target))
-                            .or_else(|| bin_assets.first())
-                        {
-                            download_url = Some(selected.1.clone());
-                            if binary_size.is_none() {
-                                binary_size = selected.2;
-                            }
-                        }
-
-                        let clean_latest = latest_version
-                            .as_deref()
-                            .unwrap_or(tag)
-                            .trim_start_matches(|c: char| !c.is_ascii_digit());
-                        let clean_current =
-                            current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
-                        update_available = is_version_newer(clean_latest, clean_current);
                     }
                 }
+
+                let mut preferred_asset_name: Option<String> = None;
+                if let Some(m_url) = bridge_manifest_url.or(legacy_manifest_url) {
+                    if let Ok(m_resp) = client.get(&m_url).send().await {
+                        if m_resp.status().is_success() {
+                            if let Ok(manifest) = m_resp.json::<serde_json::Value>().await {
+                                if let Some(bridge) = manifest.get("bridge") {
+                                    if let Some(ver) =
+                                        bridge.get("version").and_then(|v| v.as_str())
+                                    {
+                                        let trimmed = ver.trim().trim_start_matches('v');
+                                        if !trimmed.is_empty() {
+                                            latest_version = Some(format!("v{}", trimmed));
+                                        }
+                                    }
+                                    if let Some(sz) = bridge.get("size").and_then(|v| v.as_u64()) {
+                                        binary_size = Some(sz);
+                                    }
+                                    expected_sha256 = bridge
+                                        .get("sha256")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.trim().to_ascii_lowercase());
+                                    preferred_asset_name = bridge
+                                        .get("asset")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(selected) = preferred_asset_name
+                    .as_deref()
+                    .and_then(|target| bin_assets.iter().find(|(n, _, _)| n == target))
+                    .or_else(|| bin_assets.first())
+                {
+                    download_url = Some(selected.1.clone());
+                    if binary_size.is_none() {
+                        binary_size = selected.2;
+                    }
+                }
+
+                let clean_latest = latest_version
+                    .as_deref()
+                    .unwrap_or(tag)
+                    .trim_start_matches(|c: char| !c.is_ascii_digit());
+                let clean_current =
+                    current_version.trim_start_matches(|c: char| !c.is_ascii_digit());
+                update_available = is_version_newer(clean_latest, clean_current);
             }
         }
     }
@@ -2614,14 +2664,12 @@ pub async fn flash_bridge_firmware(
         );
     }
 
-    // 1. Strict secret verification
+    // 1. Optional legacy secret fallback (for migrating 1.6.0 bridges; 1.7.0+ uses physical BOOT/USB ephemeral tokens)
     let _ = dotenvy::dotenv();
-    let secret = std::env::var("UPSED_OTA_SECRET").map_err(|_| {
-        "UPSED_OTA_SECRET is missing from environment. Please define UPSED_OTA_SECRET in your .env file.".to_string()
-    })?;
-    if secret.trim().is_empty() {
-        return Err("UPSED_OTA_SECRET is empty in .env. Please set a secure password.".into());
-    }
+    let legacy_secret = std::env::var("UPSED_OTA_SECRET")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     // 2. Binary retrieval
     let _ = app.emit(
@@ -2751,19 +2799,66 @@ pub async fn flash_bridge_firmware(
 
     let state_clone = state.inner().clone();
     let port_opt = port_name.clone();
-    let secret_clone = secret.trim().to_string();
+    let legacy_secret_clone = legacy_secret.clone();
 
-    let lease_info = tokio::task::spawn_blocking(move || {
+    let mut lease_info = tokio::task::spawn_blocking(move || {
         state_clone
             .manager
             .with_bridge_transport(port_opt.as_deref(), |bridge, _key| {
-                bridge.start_ota(&secret_clone)
+                bridge.start_ota(legacy_secret_clone.as_deref())
             })
             .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
 
+    if lease_info.pending_approval {
+        let timeout_sec = lease_info.approval_timeout_sec.max(10);
+        let _ = app.emit(
+            "ups-ota-progress",
+            OtaProgressEvent {
+                phase: "awaiting_approval".into(),
+                percentage: 25,
+                bytes_transferred: 0,
+                total_bytes: total_len,
+                message: format!(
+                    "Press the physical BOOT button on your ESP32-S3 Bridge within {}s to authorize wireless flashing...",
+                    timeout_sec
+                ),
+            },
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_sec + 3);
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(
+                    "Timed out waiting for physical BOOT button press on ESP32 Bridge.".into(),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let sc = state.inner().clone();
+            let po = port_name.clone();
+            let poll_res = tokio::task::spawn_blocking(move || {
+                sc.manager
+                    .with_bridge_transport(po.as_deref(), |bridge, _key| bridge.poll_ota_approval())
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+
+            if let Some(approved_lease) = poll_res {
+                lease_info = approved_lease;
+                break;
+            }
+        }
+    }
+
+    let ota_token = lease_info
+        .ota_token
+        .clone()
+        .or(legacy_secret)
+        .unwrap_or_default();
     let target_url = format!("http://{}:{}/update", lease_info.ip, lease_info.port);
     tracing::info!("[OTA] Lease acquired: posting firmware to {}", target_url);
 
@@ -2796,7 +2891,7 @@ pub async fn flash_bridge_firmware(
 
     let res = client
         .post(&target_url)
-        .header("X-UPSED-OTA-TOKEN", secret.trim())
+        .header("X-UPSED-OTA-TOKEN", ota_token)
         .multipart(form)
         .send()
         .await;
@@ -3117,4 +3212,36 @@ pub async fn notify_system_resume(state: State<'_, AppState>) -> Result<(), Stri
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_bridge_tags_desc_semver() {
+        let mut tags = vec![
+            "bridge-v1.6.0".to_string(),
+            "bridge-v1.10.0".to_string(),
+            "bridge-v2.0.0".to_string(),
+            "bridge-v1.7.1".to_string(),
+        ];
+        sort_bridge_tags_desc(&mut tags);
+        assert_eq!(
+            tags,
+            vec![
+                "bridge-v2.0.0",
+                "bridge-v1.10.0",
+                "bridge-v1.7.1",
+                "bridge-v1.6.0",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_is_version_newer_handles_v_prefix() {
+        assert!(is_version_newer("v1.7.0", "1.6.0"));
+        assert!(!is_version_newer("1.6.0", "1.6.0"));
+        assert!(!is_version_newer("0.2.0", "1.6.0"));
+    }
 }

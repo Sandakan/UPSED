@@ -67,21 +67,12 @@ The ESP32-S3 firmware drives an onboard addressable WS2812 RGB LED (primary GPIO
 
 ## 🔑 Environment Configuration (`.env`)
 
-Wireless OTA firmware updates and PlatformIO builds require an authentication secret configured in the root `.env` file:
+In-app wireless OTA updates (`1.7.0`+) use a **passwordless, physical-approval ephemeral lease**—no `.env` or `UPSED_OTA_SECRET` is required:
+- Over **Wi-Fi**, initiating an OTA flash puts the bridge into a 30-second pending window (blinking magenta LED) until you press the physical `BOOT` button (`GPIO 0`), which generates a 128-bit one-time ephemeral token (`esp_random()`).
+- Over **USB Serial**, the ephemeral lease is approved immediately.
 
-```bash
-# Copy template from example
-cp .env.example .env
-```
-
-Ensure `UPSED_OTA_SECRET` is set in your `.env`:
-
-```env
-UPSED_OTA_SECRET="ChangeThisToAStrongSecretKey123!"
-```
-
-> [!IMPORTANT]
-> The build script (`scripts/pio.js`) and Tauri desktop backend enforce that `UPSED_OTA_SECRET` is strictly present. If `.env` or the secret is missing, builds and OTA operations halt with an actionable error. Never commit your `.env` file to version control.
+> [!NOTE]
+> `UPSED_OTA_SECRET` in `.env` is optional and only used if you invoke the legacy PlatformIO `espota` CLI (`npm run bridge:ota`) or migrate an older `1.6.0` bridge wirelessly.
 
 ---
 

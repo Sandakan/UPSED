@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2026-11-28
+
+### Security
+- **Physical `BOOT`-Button & USB-Approved Ephemeral OTA Leases:** Replaced the static compile-time `BRIDGE_OTA_SECRET` requirement on HTTP OTA (`/update` on port 8080) with a 128-bit random one-time ephemeral token generated via `esp_random()` and wiped immediately when the OTA lease ends.
+  - **Wi-Fi OTA (`bridge.startOta`):** Enters `MODE_OTA_PENDING` (30s magenta blink window) until the user presses the physical `BOOT` button (`GPIO 0`), then opens port 8080 and returns the ephemeral token via `bridge.pollOtaApproval`.
+  - **USB Serial OTA:** Approves immediately over the physically attached USB UART and returns the ephemeral token.
+
+### Changed
+- **Passwordless Firmware Builds (`scripts/pio.js`):** Made `.env` / `UPSED_OTA_SECRET` optional during PlatformIO firmware compilation so public CI and local builds succeed without a static secret.
+
+---
+
 ## [1.6.0] - 2026-10-31
 
 ### Added

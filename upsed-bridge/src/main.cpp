@@ -53,7 +53,8 @@ static uint64_t usbReqCount = 0;
 enum BridgeOperatingMode {
     MODE_PROXY = 0,
     MODE_STANDALONE = 1,
-    MODE_OTA = 2
+    MODE_OTA = 2,
+    MODE_OTA_PENDING = 3
 };
 
 static BridgeOperatingMode currentMode = MODE_PROXY;
@@ -67,6 +68,9 @@ static bool ntpStarted = false;
 static bool otaServerActive = false;
 static bool otaUpdating = false;
 static unsigned long otaLeaseExpiryMs = 0;
+static unsigned long otaApprovalExpiryMs = 0;
+static unsigned long bootBtnLowSinceMs = 0;
+static String activeOtaToken = "";
 static String savedSsid = "";
 static String savedPass = "";
 static bool pendingWifiSwitch = false;
@@ -386,6 +390,16 @@ void ensureNetworkServicesStarted() {
 // ============================================================================
 // On-Demand Leased OTA HTTP Server Implementation (Port 8080)
 // ============================================================================
+static String generateEphemeralOtaToken() {
+    char buf[33];
+    for (int i = 0; i < 4; ++i) {
+        uint32_t r = esp_random();
+        snprintf(buf + (i * 8), 9, "%08lx", static_cast<unsigned long>(r));
+    }
+    buf[32] = '\0';
+    return String(buf);
+}
+
 void stopOtaMode() {
     if (otaServerActive) {
         otaServer.stop();
@@ -393,7 +407,10 @@ void stopOtaMode() {
         otaUpdating = false;
         diagLog.info("[OTA] Leased OTA HTTP server stopped. Resuming normal proxy monitoring.");
     }
-    if (currentMode == MODE_OTA) {
+    activeOtaToken = "";
+    otaApprovalExpiryMs = 0;
+    bootBtnLowSinceMs = 0;
+    if (currentMode == MODE_OTA || currentMode == MODE_OTA_PENDING) {
         currentMode = MODE_PROXY;
         lastDesktopContactMs = millis();
         ledController.setMode(MODE_LED_PROXY);
@@ -403,7 +420,7 @@ void stopOtaMode() {
 
 void setupOtaHttpEndpoints() {
     otaServer.on("/update", HTTP_POST, []() {
-        if (!otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != BRIDGE_OTA_SECRET) {
+        if (activeOtaToken.isEmpty() || !otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != activeOtaToken) {
             otaServer.send(401, "application/json", "{\"error\":\"Unauthorized: Invalid OTA token\"}");
             return;
         }
@@ -426,7 +443,7 @@ void setupOtaHttpEndpoints() {
     }, []() {
         HTTPUpload& upload = otaServer.upload();
         if (upload.status == UPLOAD_FILE_START) {
-            if (!otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != BRIDGE_OTA_SECRET) {
+            if (activeOtaToken.isEmpty() || !otaServer.hasHeader("X-UPSED-OTA-TOKEN") || otaServer.header("X-UPSED-OTA-TOKEN") != activeOtaToken) {
                 diagLog.warn("[OTA] Unauthorized upload attempt rejected (invalid header token).");
                 return;
             }
@@ -474,7 +491,10 @@ void setupOtaHttpEndpoints() {
 }
 
 void startOtaMode() {
+    activeOtaToken = generateEphemeralOtaToken();
     currentMode = MODE_OTA;
+    otaApprovalExpiryMs = 0;
+    bootBtnLowSinceMs = 0;
     ledController.setMode(MODE_LED_OTA_AUTH);
     ledController.forceUpdate();
     setupOtaHttpEndpoints();
@@ -612,7 +632,7 @@ void populateStatusObject(JsonObject& res) {
     res["bridge"] = BRIDGE_MAGIC_ID;
     res["fw"] = BRIDGE_FIRMWARE_VER;
     res["mac"] = WiFi.macAddress();
-    res["mode"] = (currentMode == MODE_OTA) ? "ota" : (currentMode == MODE_PROXY) ? "proxy" : "standalone";
+    res["mode"] = (currentMode == MODE_OTA) ? "ota" : (currentMode == MODE_OTA_PENDING) ? "ota_pending" : (currentMode == MODE_PROXY) ? "proxy" : "standalone";
     bool wifiConn = (WiFi.status() == WL_CONNECTED);
     res["wifi_connected"] = wifiConn;
     res["ssid"] = wifiConn ? WiFi.SSID() : savedSsid;
@@ -957,19 +977,51 @@ void handleJsonRpcRequest(const String& jsonLine, String& jsonResponseOut, int c
         result["remaining"] = backlogStore.count();
     }
     else if (strcmp(method, "bridge.startOta") == 0) {
-        const char* token = reqDoc["params"]["token"] | "";
-        if (strcmp(token, BRIDGE_OTA_SECRET) != 0) {
-            JsonObject errObj = resDoc["error"].to<JsonObject>();
-            errObj["code"] = -32602;
-            errObj["message"] = "Invalid OTA authentication token";
-            diagLog.warn("[OTA] Rejected bridge.startOta: invalid token");
-        } else {
+        if (clientNum < 0) {
+            // USB Serial is physically trusted; approve immediately with an ephemeral token
             startOtaMode();
             JsonObject result = resDoc["result"].to<JsonObject>();
             result["ota_ready"] = true;
+            result["ota_token"] = activeOtaToken;
             result["port"] = BRIDGE_OTA_PORT;
             result["lease_sec"] = BRIDGE_OTA_LEASE_MS / 1000UL;
             result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+        } else {
+            // Wi-Fi request requires physical BOOT button press within 30s
+            activeOtaToken = "";
+            currentMode = MODE_OTA_PENDING;
+            otaApprovalExpiryMs = millis() + BRIDGE_OTA_APPROVAL_TIMEOUT_MS;
+            bootBtnLowSinceMs = 0;
+            ledController.setMode(MODE_LED_OTA_AUTH);
+            ledController.forceUpdate();
+            diagLog.info("[OTA] Awaiting physical BOOT button press (%u sec window)...",
+                         BRIDGE_OTA_APPROVAL_TIMEOUT_MS / 1000UL);
+
+            JsonObject result = resDoc["result"].to<JsonObject>();
+            result["ota_pending"] = true;
+            result["approval_timeout_sec"] = BRIDGE_OTA_APPROVAL_TIMEOUT_MS / 1000UL;
+            result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+        }
+    }
+    else if (strcmp(method, "bridge.pollOtaApproval") == 0) {
+        JsonObject result = resDoc["result"].to<JsonObject>();
+        if (currentMode == MODE_OTA && !activeOtaToken.isEmpty()) {
+            result["approved"] = true;
+            result["ota_ready"] = true;
+            result["ota_token"] = activeOtaToken;
+            result["port"] = BRIDGE_OTA_PORT;
+            result["lease_sec"] = BRIDGE_OTA_LEASE_MS / 1000UL;
+            result["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+        } else if (currentMode == MODE_OTA_PENDING) {
+            unsigned long nowMs = millis();
+            unsigned long remSec = (otaApprovalExpiryMs > nowMs) ? ((otaApprovalExpiryMs - nowMs + 999UL) / 1000UL) : 0;
+            result["approved"] = false;
+            result["pending"] = true;
+            result["remaining_sec"] = remSec;
+        } else {
+            result["approved"] = false;
+            result["pending"] = false;
+            result["expired"] = true;
         }
     }
     else if (strcmp(method, "bridge.abortOta") == 0) {
@@ -1163,6 +1215,7 @@ void setup() {
     // 1. Configure USB UART RX buffer BEFORE calling begin()
     Serial.setRxBufferSize(2048);
     Serial.begin(PC_SERIAL_BAUD);
+    pinMode(BRIDGE_BOOT_BUTTON_PIN, INPUT_PULLUP);
 
     UpsSerial.begin(UPS_BAUD, SERIAL_8N1, UPS_RX_PIN, UPS_TX_PIN);
 
@@ -1303,6 +1356,23 @@ void loop() {
         }
         ArduinoOTA.handle();
     }
+    if (currentMode == MODE_OTA_PENDING) {
+        unsigned long nowBtn = millis();
+        if (digitalRead(BRIDGE_BOOT_BUTTON_PIN) == LOW) {
+            if (bootBtnLowSinceMs == 0) {
+                bootBtnLowSinceMs = nowBtn;
+            } else if (nowBtn - bootBtnLowSinceMs >= 50) {
+                diagLog.info("[OTA] Physical BOOT button pressed — authorizing ephemeral OTA lease.");
+                startOtaMode();
+            }
+        } else {
+            bootBtnLowSinceMs = 0;
+        }
+        if (currentMode == MODE_OTA_PENDING && nowBtn > otaApprovalExpiryMs) {
+            diagLog.warn("[OTA] Physical BOOT button approval timed out.");
+            stopOtaMode();
+        }
+    }
     if (otaServerActive) {
         otaServer.handleClient();
         if (!otaUpdating && millis() > otaLeaseExpiryMs) {
@@ -1313,7 +1383,7 @@ void loop() {
 
     // 5. Autonomous Master Hardware Polling (Proxy & Standalone Modes)
     unsigned long nowMs = millis();
-    if (currentMode != MODE_OTA) {
+    if (currentMode != MODE_OTA && currentMode != MODE_OTA_PENDING) {
         if (nowMs - lastDesktopContactMs > PROXY_TIMEOUT_MS) {
             // Standalone Mode (Desktop offline)
             if (currentMode != MODE_STANDALONE) {
@@ -1358,7 +1428,7 @@ void loop() {
 
     // 6. Maintain TuyaLink MQTT Controller & Telemetry Stream
     tuyaController.updateContextState(upsTelemetry, currentMode == MODE_PROXY);
-    tuyaController.loop(upsTelemetry, currentMode == MODE_PROXY, otaServerActive || currentMode == MODE_OTA);
+    tuyaController.loop(upsTelemetry, currentMode == MODE_PROXY, otaServerActive || currentMode == MODE_OTA || currentMode == MODE_OTA_PENDING);
 
     // 7. Non-blocking Status LED Update
     ledController.update();
