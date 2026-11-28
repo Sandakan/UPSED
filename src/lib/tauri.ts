@@ -11,6 +11,8 @@ import {
   UpsMetadata,
   ThemeMode,
   DbStats,
+  StorageStats,
+  ClearLogsResult,
   BridgeStatus,
   WifiScanNetwork,
   WsTestResult,
@@ -190,6 +192,11 @@ export const api = {
 
   isDevMode: () => invoke<boolean>('is_dev_mode'),
   getDbStats: () => invoke<DbStats>('get_db_stats'),
+  getStorageStats: () => invoke<StorageStats>('get_storage_stats'),
+  clearOldLogs: (olderThanDays: number) =>
+    invoke<ClearLogsResult>('clear_old_logs', { olderThanDays }),
+  openStorageFolder: (kind: 'data' | 'logs') =>
+    invoke<void>('open_storage_folder', { kind }),
   pruneTelemetry: (olderThanDays: number, upsId?: string) =>
     invoke<number>('prune_telemetry', { olderThanDays, upsId: upsId || null }),
   clearTelemetry: (upsId?: string) =>

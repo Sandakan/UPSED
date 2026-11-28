@@ -196,8 +196,29 @@ export interface DbStats {
   wal_size_bytes: number;
   telemetry_count: number;
   events_count: number;
+  profiles_count: number;
   oldest_telemetry?: string | null;
   newest_telemetry?: string | null;
+  db_path: string;
+}
+
+export interface StorageStats {
+  file_size_bytes: number;
+  wal_size_bytes: number;
+  logs_size_bytes: number;
+  log_files_count: number;
+  telemetry_count: number;
+  events_count: number;
+  profiles_count: number;
+  oldest_telemetry?: string | null;
+  newest_telemetry?: string | null;
+  data_dir: string;
+  log_dir: string;
+}
+
+export interface ClearLogsResult {
+  deleted_files: number;
+  freed_bytes: number;
 }
 
 export interface BridgeClientInfo {

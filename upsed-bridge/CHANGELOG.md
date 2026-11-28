@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **USB Serial OTA:** Approves immediately over the physically attached USB UART and returns the ephemeral token.
 
 ### Changed
+- **Modular Firmware Architecture:** Split `src/main.cpp` (~1,435 lines) into 5 focused `.h`/`.cpp` modules (`bridge_state`, `ups_uart`, `ota_manager`, `wifi_manager`, `rpc_handler`), leaving `main.cpp` as a ~180-line entrypoint.
 - **Passwordless Firmware Builds (`scripts/pio.js`):** Made `.env` / `UPSED_OTA_SECRET` optional during PlatformIO firmware compilation so public CI and local builds succeed without a static secret.
 
 ---

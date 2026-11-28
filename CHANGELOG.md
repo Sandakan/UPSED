@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-11-28
+
+### Added
+- **Storage Usage & Maintenance (`Settings` / `StorageUsageCard`):** Added a Storage Usage card displaying disk breakdown across SQLite (`upsed.db`), WAL (`upsed.db-wal`), and diagnostic logs (`upsed_*.log`), alongside telemetry/event/profile/log counts and oldest/newest telemetry timestamps. Includes **Open Data/Logs Folder**, **Compact DB (`VACUUM`)**, and confirmation + auth-gated **Prune Telemetry** (`> 90d`, `> 30d`, `Clear All`) and **Clear Old Logs** (preserving today's active log file).
+- **Decoupled Bridge Firmware Discovery & Passwordless Ephemeral OTA:** Updated `check_bridge_firmware_update` to discover standalone `bridge-v*` releases via GitHub's `git/matching-refs/tags/bridge-v` API and `bridge-manifest.json` (with fallback to `releases/latest` for legacy releases). Updated `flash_bridge_firmware` and `IoT.tsx` to support physical `BOOT`-button (`awaiting_approval`) and USB-approved ephemeral OTA tokens without requiring `UPSED_OTA_SECRET` in `.env`.
+
+### Changed
+- **Decoupled CI Release Workflows:** Split ESP32-S3 bridge firmware releases out of `.github/workflows/release.yml` into `.github/workflows/release-bridge.yml` (`bridge-v*` tags with `--latest=false`), keeping `releases/latest/download/latest.json` pinned exclusively to desktop app releases.
+
+### Fixed
+- **Settings Security Banner Username Interpolation:** Fixed `settings:securitySection.authenticatedAs` rendering literal `{{username}}` in `Settings.tsx` and highlighted the authenticated username in `text-indigo-300 font-mono`.
+
+---
+
 ## [0.2.0] - 2026-11-27
 
 ### Added

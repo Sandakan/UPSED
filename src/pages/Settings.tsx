@@ -32,6 +32,7 @@ import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as 
 import { api } from '../lib/tauri';
 import { UpsMetadata, ThemeMode } from '../lib/types';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { StorageUsageCard } from '../components/StorageUsageCard';
 import {
   calculateActiveWatts,
   BatteryChemistry,
@@ -1425,12 +1426,23 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
         <div className="p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <p className="text-xs font-semibold text-slate-200">
-              {auth.status?.authenticated
-                ? t(
-                    'settings:securitySection.authenticatedAs',
-                    `Authenticated as ${auth.status.username}`
-                  )
-                : !auth.status?.configured
+              {auth.status?.authenticated ? (
+                (() => {
+                  const username = auth.status.username ?? 'admin';
+                  const marker = '\u0000';
+                  const parts = t('settings:securitySection.authenticatedAs', {
+                    username: marker,
+                    defaultValue: `Authenticated as ${marker}`,
+                  }).split(marker);
+                  return (
+                    <>
+                      {parts[0]}
+                      <span className="text-indigo-300 font-mono">{username}</span>
+                      {parts[1] ?? ''}
+                    </>
+                  );
+                })()
+              ) : !auth.status?.configured
                 ? t('settings:securitySection.notConfigured', 'Credentials Not Configured')
                 : t('settings:securitySection.notAuthenticated', 'Protected / Locked')}
             </p>
@@ -1728,6 +1740,9 @@ export const Settings = forwardRef<SettingsHandle, SettingsProps>(
           </div>
         </div>
       </div>
+
+      {/* ── Storage Usage & Maintenance ─────────────────────── */}
+      <StorageUsageCard />
 
       {/* ── Legal & Clean-Room Notice ───────────────────────── */}
       <div

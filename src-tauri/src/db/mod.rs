@@ -78,8 +78,10 @@ pub struct DbStats {
     pub wal_size_bytes: u64,
     pub telemetry_count: u64,
     pub events_count: u64,
+    pub profiles_count: u64,
     pub oldest_telemetry: Option<String>,
     pub newest_telemetry: Option<String>,
+    pub db_path: String,
 }
 
 impl Default for AppSettings {
@@ -939,6 +941,7 @@ impl Database {
         let conn = self.reader.lock().unwrap();
         let telemetry_count: u64 = conn.query_row("SELECT COUNT(*) FROM telemetry", [], |r| r.get(0))?;
         let events_count: u64 = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        let profiles_count: u64 = conn.query_row("SELECT COUNT(*) FROM ups_metadata", [], |r| r.get(0))?;
         let oldest_telemetry: Option<String> = conn
             .query_row("SELECT MIN(timestamp) FROM telemetry", [], |r| r.get(0))
             .optional()?
@@ -953,8 +956,10 @@ impl Database {
             wal_size_bytes,
             telemetry_count,
             events_count,
+            profiles_count,
             oldest_telemetry,
             newest_telemetry,
+            db_path: self.db_path.to_string_lossy().to_string(),
         })
     }
 }

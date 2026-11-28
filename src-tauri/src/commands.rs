@@ -12,7 +12,7 @@ use crate::serial::{
 };
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProbeStatusEvent {
@@ -1552,6 +1552,21 @@ pub fn is_dev_mode() -> bool {
     cfg!(debug_assertions)
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct StorageStats {
+    pub file_size_bytes: u64,
+    pub wal_size_bytes: u64,
+    pub logs_size_bytes: u64,
+    pub log_files_count: u64,
+    pub telemetry_count: u64,
+    pub events_count: u64,
+    pub profiles_count: u64,
+    pub oldest_telemetry: Option<String>,
+    pub newest_telemetry: Option<String>,
+    pub data_dir: String,
+    pub log_dir: String,
+}
+
 #[tauri::command]
 pub async fn get_db_stats(state: State<'_, AppState>) -> Result<DbStats, String> {
     let state_clone = state.inner().clone();
@@ -1561,11 +1576,149 @@ pub async fn get_db_stats(state: State<'_, AppState>) -> Result<DbStats, String>
 }
 
 #[tauri::command]
+pub async fn get_storage_stats(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<StorageStats, String> {
+    let state_clone = state.inner().clone();
+    let data_dir_path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let log_dir_path = app.path().app_log_dir().map_err(|e| e.to_string())?;
+
+    tokio::task::spawn_blocking(move || {
+        let db_stats = state_clone.db.get_db_stats().map_err(|e| e.to_string())?;
+
+        let mut logs_size_bytes = 0u64;
+        let mut log_files_count = 0u64;
+        if let Ok(entries) = std::fs::read_dir(&log_dir_path) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        logs_size_bytes = logs_size_bytes.saturating_add(meta.len());
+                        log_files_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(StorageStats {
+            file_size_bytes: db_stats.file_size_bytes,
+            wal_size_bytes: db_stats.wal_size_bytes,
+            logs_size_bytes,
+            log_files_count,
+            telemetry_count: db_stats.telemetry_count,
+            events_count: db_stats.events_count,
+            profiles_count: db_stats.profiles_count,
+            oldest_telemetry: db_stats.oldest_telemetry,
+            newest_telemetry: db_stats.newest_telemetry,
+            data_dir: data_dir_path.to_string_lossy().to_string(),
+            log_dir: log_dir_path.to_string_lossy().to_string(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ClearLogsResult {
+    pub deleted_files: u64,
+    pub freed_bytes: u64,
+}
+
+#[tauri::command]
+pub async fn clear_old_logs(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    older_than_days: u32,
+) -> Result<ClearLogsResult, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to clear diagnostic log files"
+                .into(),
+        );
+    }
+
+    let log_dir_path = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let active_name = format!(
+            "upsed_{}.log",
+            chrono::Local::now().format("%Y-%m-%d")
+        );
+        let cutoff = if older_than_days > 0 {
+            Some(
+                std::time::SystemTime::now()
+                    - Duration::from_secs(u64::from(older_than_days) * 86_400),
+            )
+        } else {
+            None
+        };
+
+        let mut deleted_files = 0u64;
+        let mut freed_bytes = 0u64;
+
+        if let Ok(entries) = std::fs::read_dir(&log_dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name == active_name || !file_name.ends_with(".log") {
+                    continue;
+                }
+                let Ok(meta) = entry.metadata() else {
+                    continue;
+                };
+                if !meta.is_file() {
+                    continue;
+                }
+                if let Some(cutoff_time) = cutoff {
+                    if let Ok(modified) = meta.modified() {
+                        if modified >= cutoff_time {
+                            continue;
+                        }
+                    }
+                }
+                let size = meta.len();
+                if std::fs::remove_file(&path).is_ok() {
+                    deleted_files += 1;
+                    freed_bytes = freed_bytes.saturating_add(size);
+                }
+            }
+        }
+
+        Ok(ClearLogsResult {
+            deleted_files,
+            freed_bytes,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn open_storage_folder(app: tauri::AppHandle, kind: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let target_dir = match kind.as_str() {
+        "logs" => app.path().app_log_dir().map_err(|e| e.to_string())?,
+        _ => app.path().app_data_dir().map_err(|e| e.to_string())?,
+    };
+    if !target_dir.exists() {
+        std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
+    app.opener()
+        .open_path(target_dir.to_string_lossy().as_ref(), None::<&str>)
+        .map_err(|e| format!("Failed to open folder: {}", e))
+}
+
+#[tauri::command]
 pub async fn prune_telemetry(
     state: State<'_, AppState>,
     older_than_days: u32,
     ups_id: Option<String>,
 ) -> Result<usize, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to prune telemetry history"
+                .into(),
+        );
+    }
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
@@ -1582,6 +1735,12 @@ pub async fn clear_telemetry(
     state: State<'_, AppState>,
     ups_id: Option<String>,
 ) -> Result<usize, String> {
+    if !state.auth.is_authenticated() {
+        return Err(
+            "Authentication required: unlock the security barrier to clear telemetry history"
+                .into(),
+        );
+    }
     let state_clone = state.inner().clone();
     tokio::task::spawn_blocking(move || {
         state_clone
